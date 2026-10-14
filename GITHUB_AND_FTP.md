@@ -4,14 +4,13 @@ The repository publishes the browser-viewable Three.js editor and a complete dow
 
 ## FTP connection settings
 
-Go to **Settings → Secrets and variables → Actions → Repository secrets**.
+The workflow pins the FTP username to `paiver_paige-lighthouse.50webs.org` and the host to `paige-lighthouse.50webs.org` on port 21, matching the provided FileZilla XML. Only the password is read from GitHub Actions secrets. Set it under **Settings → Secrets and variables → Actions → Repository secrets**.
 
 | Secret | Value |
 |---|---|
-| `FTP_USER` | `paiver_paige-lighthouse.50webs.org` |
-| `FTP_PASSWORD` | Your FTP account password (do not commit it) |
+| `FTP_PASSWORD` | Password for the `paiver` FTP account (never commit it) |
 
-The workflow uses the same host as the FileZilla screenshot: `paige-lighthouse.50webs.org` on port 21. The existing `FTP_HOST` secret can remain, but it is not used. No `FTP_REMOTE_DIR`, `FTP_KNOWN_HOSTS`, or `FTP_PROTOCOL` setting is needed.
+The workflow uses the same host as the FileZilla screenshot: `paige-lighthouse.50webs.org` on port 21. Existing `FTP_HOST` and `FTP_USER` secrets can remain, but they are not used. No `FTP_REMOTE_DIR`, `FTP_KNOWN_HOSTS`, or `FTP_PROTOCOL` setting is needed.
 
 **Destination:** The FTP account is reported to start in the web directory `/www/paige-lighthouse.50webs.org/Indium/paiver`. The deployment uses relative `.` as its destination. It does **not** send that server filesystem path as a remote FTP path, since the FTP account already starts there.
 
