@@ -16,7 +16,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   const editable=el('primitiveFields');
   const file=el('primitiveImportFile');
   const allowed=()=>getSequence().shots.map(s=>s.id);
-  const document=()=>validatePrimitiveDocument(getSequence().primitiveScenes||blankPrimitiveDocument(),allowed());
+  const getPrimitiveDocument=()=>validatePrimitiveDocument(getSequence().primitiveScenes||blankPrimitiveDocument(),allowed());
   const sceneFor=(doc,shotId,create=false)=>{
     let entry=doc.scenes.find(s=>s.shotId===shotId);
     if(!entry && create){entry={shotId,objects:[]};doc.scenes.push(entry);}
@@ -24,7 +24,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   };
   function apply(edit){
     try{
-      const doc=document(),shot=getActiveShot();
+      const doc=getPrimitiveDocument(),shot=getActiveShot();
       if(!shot)throw Error('No active shot');
       const entry=sceneFor(doc,shot.id,true);
       edit(entry,doc,shot);
@@ -36,7 +36,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   function refresh(){
     const shot=getActiveShot();if(!shot)return;
     if(previousShot!==shot.id){previousShot=shot.id;selectedId=null;}
-    const doc=document(),entry=sceneFor(doc,shot.id);
+    const doc=getPrimitiveDocument(),entry=sceneFor(doc,shot.id);
     const objects=entry?.objects||[];
     const selected=objects.find(o=>o.id===selectedId);
     el('primitiveShotLabel').textContent=shot.name+' · '+objects.length+' object(s)';
@@ -80,7 +80,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   el('primitiveExample').addEventListener('click',()=>{
     const shot=getActiveShot();
     if(!shot)return;
-    const existing=sceneFor(document(),shot.id)?.objects.length||0;
+    const existing=sceneFor(getPrimitiveDocument(),shot.id)?.objects.length||0;
     if(existing && !confirm('Replace the current shot\'s primitives with an example room blockout?'))return;
     apply(entry=>{entry.objects=makeExampleBlockout(shot.id).objects;selectedId='rack_0_0';});
   });
@@ -115,7 +115,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     });
   });
   el('primitiveExportJSON').addEventListener('click',()=>{
-    download(JSON.stringify(document(),null,2),'editable-primitives.json');
+    download(JSON.stringify(getPrimitiveDocument(),null,2),'editable-primitives.json');
     status.textContent='Exported all primitive scenes as JSON.';
   });
   el('primitiveImport').addEventListener('click',()=>file.click());
