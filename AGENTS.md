@@ -16,3 +16,7 @@ Engineering:
 - Test existing workspace and new deterministic cut-detection tests before merging.
 - Browser video uploads are local object URLs and cannot automatically persist to FTP/GitHub.
 - Do not disable or overwrite FTP publishing safety settings while editing video features.
+
+## Phase 1.1 distinction
+
+The two video-analysis modes are **hard cuts** (adjacent image changes) and **visual chapter candidates** (windowed novelty). Neither infers object identity, camera pose, or geometry. The original nine-chapter map was manually interpreted; do not try to reproduce it by hardcoding segment counts or expected timestamps for arbitrary videos. Keep storyboard subject labels user-editable, and keep generated camera paths marked as placeholders until the semantic-model stage is verified.
