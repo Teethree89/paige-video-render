@@ -67,6 +67,7 @@ jobs:
           fi
       - name: Install the official OpenCode CLI
         run: npm install --global @opencode/cli
+      # Diagnostic output is strictly classified: API key, images and model text are never printed.
       - name: Ask free Muse model for one scene proposal
         shell: bash
         run: |
