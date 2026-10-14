@@ -50,6 +50,63 @@
       <div id="projectPanel" class="panel-block">
         <div class="section-label">SEQUENCE</div><div class="stat-row"><span>Project</span><b>Advanced Materials</b></div><div class="stat-row"><span>Runtime</span><b>56.47 s</b></div><div class="stat-row"><span>Camera keys</span><b id="keyCount">—</b></div><div class="stat-row"><span>Text overlays</span><b id="textCount">—</b></div>
         <button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><div class="divider"></div>
+        <details id="primitiveEditor" class="primitive-inspector" open>
+          <summary>3D PRIMITIVE SCENE EDITOR</summary>
+          <p class="field-help">Build editable objects for the current shot. This phase is manual/data-driven; AI scene recognition comes next.</p>
+          <div id="primitiveShotLabel" class="model-status">Choose a shot to edit</div>
+          <label class="field">Object type
+            <select id="primitiveType">
+              <option value="box">Box</option><option value="cylinder">Cylinder</option>
+              <option value="sphere">Sphere</option><option value="plane">Plane</option><option value="torus">Torus</option>
+            </select>
+          </label>
+          <div class="primitive-buttons">
+            <button id="primitiveAdd" class="secondary" type="button">+ Add primitive</button>
+            <button id="primitiveExample" class="ghost" type="button">Example room</button>
+          </div>
+          <label class="field">Objects in current shot
+            <select id="primitiveObjectSelect"><option value="">No objects yet</option></select>
+          </label>
+          <div id="primitiveFields" hidden>
+            <div class="primitive-field-note">Shape: <strong id="primitiveShapeReadOnly">—</strong></div>
+            <label class="field">Object name <input id="primitiveName" type="text" maxlength="100" /></label>
+            <div class="input-group-title">Position (x, y, z)</div>
+            <div class="triple-input">
+              <label>X<input type="number" step="0.1" data-prim="position.0" /></label>
+              <label>Y<input type="number" step="0.1" data-prim="position.1" /></label>
+              <label>Z<input type="number" step="0.1" data-prim="position.2" /></label>
+            </div>
+            <div class="input-group-title">Rotation (radians)</div>
+            <div class="triple-input">
+              <label>X<input type="number" step="0.05" data-prim="rotation.0" /></label>
+              <label>Y<input type="number" step="0.05" data-prim="rotation.1" /></label>
+              <label>Z<input type="number" step="0.05" data-prim="rotation.2" /></label>
+            </div>
+            <div class="input-group-title">Dimensions (x, y, z)</div>
+            <div class="triple-input">
+              <label>X<input type="number" min="0.01" max="500" step="0.1" data-prim="scale.0" /></label>
+              <label>Y<input type="number" min="0.01" max="500" step="0.1" data-prim="scale.1" /></label>
+              <label>Z<input type="number" min="0.01" max="500" step="0.1" data-prim="scale.2" /></label>
+            </div>
+            <div class="primitive-materials">
+              <label class="field">Color <input id="primitiveColor" type="color" /></label>
+              <label class="field">Metalness <input id="primitiveMetalness" type="number" min="0" max="1" step="0.05" /></label>
+              <label class="field">Roughness <input id="primitiveRoughness" type="number" min="0" max="1" step="0.05" /></label>
+            </div>
+            <div class="primitive-buttons">
+              <button id="primitiveDuplicate" class="secondary" type="button">Duplicate</button>
+              <button id="primitiveDelete" class="danger" type="button">Delete object</button>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="primitive-buttons">
+            <button id="primitiveImport" class="ghost" type="button">Import JSON</button>
+            <button id="primitiveExportJSON" class="secondary" type="button">Export JSON</button>
+          </div>
+          <input id="primitiveImportFile" type="file" accept=".json,application/json" hidden />
+          <button id="primitiveExportGLB" class="wide secondary" type="button" disabled>Export current scene GLB</button>
+          <p id="primitiveStatus" class="field-help" role="status">Objects save in the timeline JSON; export it to keep your work.</p>
+        </details><div class="divider"></div>
         <div class="section-label">EXTERNAL MODEL LIBRARY</div>
         <label class="field">Model slot
           <select id="modelSlot">
