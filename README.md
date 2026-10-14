@@ -139,3 +139,5 @@ For FTP publishing secrets and manual deployment, see [GITHUB_AND_FTP.md](GITHUB
 The preview MP4 is stored as seven checksum-verified parts to accommodate upload limits. Run `python3 scripts/reconstruct_media.py` once after cloning; `./start.sh` does this automatically. GitHub Actions also reassembles it automatically for downloadable workspace archives and FTP publishing.
 
 **Zen compatibility:** A direct generic HTTP request produced 403, so the workflow uses the official OpenCode CLI for free-model inference. The CLI still requires a successful live test before AI generation can be considered operational. No paid model is enabled.
+
+**Free model comparison:** The [Zen free-model benchmark](https://github.com/Teethree89/paige-video-render/actions/workflows/zen-free-model-benchmark.yml) runs independent probes of MiMo-V2.6 Flash Free, MiMo-V2.5 Free, Nemotron 3.5 Lightning Free, and Big Pickle. First it checks text-only authorization, then (only if allowed) tries three public reference-video frames. Read the per-model report artifact to distinguish verified success from free-tier 403, unavailable vision, or invalid scene JSON. No paid model is used.
