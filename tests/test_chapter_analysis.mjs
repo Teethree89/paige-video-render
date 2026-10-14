@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {frameSignature,createDraftTimeline} from '../shot-analysis.js';
-import {detectVisualChapters} from '../chapter-analysis.js';
+import {detectVisualChapters, recoverTailChapter} from '../chapter-analysis.js';
 
 function signature(r,g,b){
   const width=24,height=14,data=new Uint8ClampedArray(width*height*4);
@@ -37,4 +37,30 @@ test('chapter suggestions retain a valid editable timeline schema',()=>{
   assert.equal(seq.shots.length,cuts.length+1);
   assert.equal(seq.shots.at(-1).end,36);
   assert.ok(seq.camera.every(c=>c.generated==='placeholder'));
+});
+
+test('late sustained scene change receives an ending chapter even with a full chapter budget',()=>{
+  const palette=[
+    signature(230,40,20),signature(20,20,240),
+    signature(30,235,20),signature(230,45,170),
+    signature(95,115,170)
+  ];
+  const samples=Array.from({length:113},(_,i)=>({
+    at:+(.04+i*.5).toFixed(3),
+    signature:palette[i<24?0:i<48?1:i<72?2:i<96?3:4]
+  }));
+  const cuts=detectVisualChapters(samples,{maxChapters:4,minShotDuration:1.5});
+  assert.equal(cuts.length,3);
+  assert.ok(cuts.some(c=>c.at>46&&c.at<50),
+    'Expected a chapter boundary for a sustained, visibly different ending');
+  assert.ok(cuts.every((c,i)=>i===0||c.at-cuts[i-1].at>=1.5));
+});
+
+test('an isolated late flash must not be invented into a closing scene',()=>{
+  const a=signature(30,30,35),flash=signature(255,255,255);
+  const samples=Array.from({length:113},(_,i)=>({
+    at:+(.04+i*.5).toFixed(3),
+    signature:i===96?flash:a
+  }));
+  assert.deepEqual(recoverTailChapter(samples,[],{maxChapters:4}),[]);
 });
