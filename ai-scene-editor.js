@@ -19,7 +19,7 @@ async function sampleVideo(reference,shot) {
   const video=document.createElement('video');
   video.muted=true; video.preload='auto'; video.playsInline=true;
   video.crossOrigin='anonymous';
-  video.src=reference.currentSrc||reference.src;
+  video.src=reference.src||reference.currentSrc;
   const once=(event,ms)=>new Promise((resolve,reject)=>{
     const timeout=setTimeout(()=>{cleanup();reject(Error('Video decoding timed out'));},ms);
     function cleanup(){clearTimeout(timeout);video.removeEventListener(event,onSuccess);video.removeEventListener('error',onError);}
