@@ -27,7 +27,7 @@ A full implementation plan for future AI-powered primitive reconstruction, provi
 
 ## Phase 3 prototype — AI-assisted geometry proposals
 
-The GitHub Actions secret `zen_api` is used by a **private runner-side workflow**, not by the publicly hosted editor. The [Zen scene proposal workflow](https://github.com/Teethree89/paige-video-render/actions/workflows/ai-scene-zen.yml) can analyze three frames from an existing chapter of the repository's reference MP4 using Muse Contributor Free, validate the proposed primitive JSON, and return a downloadable artifact. Unzip the artifact and use **3D Primitive Scene Editor → Import JSON** to review/edit its geometry.
+The GitHub Actions secret `zen_api` is used by a **private runner-side workflow**, not by the publicly hosted editor. The [Zen scene proposal workflow](https://github.com/Teethree89/paige-video-render/actions/workflows/ai-scene-zen.yml) can analyze three frames from an existing chapter of the repository's reference MP4 using the official OpenCode CLI with Muse Contributor Free, validate the proposed primitive JSON, and return a downloadable artifact. Unzip the artifact and use **3D Primitive Scene Editor → Import JSON** to review/edit its geometry.
 
 This is a first one-chapter *backend integration test*, not one-click inference for arbitrary browser-uploaded videos. The original scene and timeline remain safe, and no API key is embedded in public JavaScript. See [setup, privacy and limitations](docs/ZEN_AI_SCENE_PROTOTYPE.md).
 
@@ -137,3 +137,5 @@ Open **Render video ↗** (top toolbar) for direct browser video recording with 
 For FTP publishing secrets and manual deployment, see [GITHUB_AND_FTP.md](GITHUB_AND_FTP.md).
 
 The preview MP4 is stored as seven checksum-verified parts to accommodate upload limits. Run `python3 scripts/reconstruct_media.py` once after cloning; `./start.sh` does this automatically. GitHub Actions also reassembles it automatically for downloadable workspace archives and FTP publishing.
+
+**Zen compatibility:** A direct generic HTTP request produced 403, so the workflow uses the official OpenCode CLI for free-model inference. The CLI still requires a successful live test before AI generation can be considered operational. No paid model is enabled.
