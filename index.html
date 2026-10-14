@@ -86,29 +86,32 @@
           <label class="field">Reference video file <input id="videoSourceFile" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm"></label>
           <video id="videoPreview" controls playsinline muted preload="metadata" aria-label="Imported source preview"></video>
           <div class="video-options">
+            <label class="field">Analysis goal
+              <select id="videoAnalysisMode"><option value="chapters" selected>Visual chapters · compare surrounding scenes</option><option value="cuts">Hard cuts · abrupt edits only</option></select>
+            </label>
             <label class="field">Sample interval
               <select id="videoStep"><option value="0.25">0.25 s · precise / slower</option><option value="0.5" selected>0.5 s · balanced</option><option value="1">1 s · faster</option></select>
             </label>
             <label class="field">Cut sensitivity
-              <select id="videoSensitivity"><option value="0.14">High · detect subtle changes</option><option value="0.20" selected>Balanced</option><option value="0.28">Low · major changes only</option><option value="0.38">Very low · obvious cuts only</option></select>
+              <select id="videoSensitivity"><option value="high">High · more boundaries</option><option value="balanced" selected>Balanced</option><option value="low">Low · fewer boundaries</option><option value="verylow">Very low · major changes only</option></select>
             </label>
             <label class="field">Minimum shot length
               <select id="videoMinLength"><option value="0.8">0.8 seconds</option><option value="1.5" selected>1.5 seconds</option><option value="3">3 seconds</option><option value="5">5 seconds</option></select>
             </label>
           </div>
-          <button id="videoAnalyzeBtn" type="button" class="wide primary" disabled>Analyze cuts & extract thumbnails</button>
+          <button id="videoAnalyzeBtn" type="button" class="wide primary" disabled>Analyze video & suggest chapters</button>
           <progress id="videoProgress" max="1" value="0"></progress>
           <p id="videoStatus" role="status">Choose a video to begin.</p>
-          <p class="field-help">Frames are decoded and compared on your device. Detected shots are estimates; the first generated cameras and 3D primitives are explicitly placeholders, not recovered from the original footage.</p>
+          <p class="field-help">Visual chapters consider several seconds around each timestamp, rather than just immediate frame differences. Neither mode understands subject matter or recovers original geometry. Camera paths and 3D primitives remain clearly labeled placeholders.</p>
         </div>
         <div class="video-intake-right">
-          <div class="video-review-heading"><div class="section-label">REVIEW STORYBOARD</div><strong id="videoShotCount">No shots analyzed</strong></div>
+          <div class="video-review-heading"><div class="section-label">REVIEW STORYBOARD</div><strong id="videoShotCount">No chapters analyzed</strong></div>
           <div id="videoStoryboard" class="video-storyboard" aria-label="Detected video shots"></div>
           <div class="video-review-actions">
-            <label class="field">Add cut manually (seconds)
+            <label class="field">Add chapter boundary manually (seconds)
               <input id="videoManualCut" type="number" step="0.01" min="0" placeholder="e.g. 12.5">
             </label>
-            <button id="videoAddCutBtn" type="button" class="wide secondary" disabled>Add cut at time</button>
+            <button id="videoAddCutBtn" type="button" class="wide secondary" disabled>Add boundary at time</button>
             <div class="video-action-row"><button id="videoExportBtn" type="button" class="secondary" disabled>Download JSON</button><button id="videoApplyBtn" type="button" class="primary" disabled>Use in editor →</button></div>
           </div>
           <p class="field-help">Applying replaces the working timeline but does not change the committed default. Export the JSON and retain the source MP4 for reuse after page reload.</p>

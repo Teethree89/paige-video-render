@@ -19,9 +19,9 @@ jobs:
           python-version: '3.12'
       - name: Check JavaScript files
         run: |
-          for file in app.js world.js model-tools.js zip-utils.js render.js video-import.js shot-analysis.js draft-world.js; do node --check --input-type=module < "$file"; done
+          for file in app.js world.js model-tools.js zip-utils.js render.js video-import.js shot-analysis.js chapter-analysis.js draft-world.js; do node --check --input-type=module < "$file"; done
       - name: Test video cut analysis and draft timeline
-        run: node --test tests/test_video_analysis.mjs
+        run: node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs
       - name: Validate timeline and model assets
         run: python tests/test_workspace.py
       - name: Validate reproducible export bundle

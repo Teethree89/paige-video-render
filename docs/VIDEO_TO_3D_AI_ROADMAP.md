@@ -14,7 +14,7 @@ Goal: Import an arbitrary reference MP4; draft shots and frame references; infer
 
 1. User chooses a local MP4/MOV/WebM supported by their browser.
 2. Decode local sampled frames into a small canvas; compare spatial color signatures and luminance histograms to suggest hard scene cuts. Use adjustable sampling, sensitivity and minimum shot length.
-3. Provide thumbnail storyboard. Allow removing automatic cuts and inserting manual cuts.
+3. Provide thumbnail storyboard, manually rename chapter subjects, remove automatically suggested boundaries and insert manual boundaries.
 4. Generate valid existing-editor `timeline.json`-compatible `shots`, `camera`, `text`, `duration`, `fps`. Camera keys are **placeholder dolly-in moves**, not recovered pose.
 5. Apply as a working draft and sync local reference video. Export JSON; do not change the committed original until intentional commit.
 6. Unknown draft shots render generic **guide geometry only**. Do not mislabel guides as inferred objects.
@@ -87,3 +87,9 @@ Native video-to-mesh reconstruction, photorealistic texturing, facial identifica
 `AGENTS.md`: AI coding agent entry point to this plan.
 
 When expanding, keep `timeline.json` backward compatible, do not replace the original seven procedural scenes, prefer deterministic tests and honor the deployed FTP site's security limitations.
+
+## Phase 1.1 reality-check against the original reference video
+
+A local test on the compressed 56.46-second reference found **one hard-cut candidate around 40.04 s** at the first-pass default threshold of 0.20. Lowering the hard-cut threshold generated many extra boundaries that still did not align with the nine hand-authored story chapters (start times 0, 4.3, 13.1, 17.8, 20.05, 23.95, 32.2, 41.15, 48 seconds). A pixel-change detector is inherently incapable of recreating the original semantic classification and the seven custom procedural 3D environments.
+
+Phase 1.1's windowed visual-chapter mode and editable names make the storyboard review more practical, but should never be described as AI subject understanding. A genuine equivalence test to the manual result requires Phase 2 JSON primitives plus Phase 3 vision-capable semantic scene analysis, then camera refinement.
