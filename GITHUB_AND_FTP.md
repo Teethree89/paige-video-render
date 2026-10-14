@@ -1,52 +1,44 @@
-# GitHub + FTP workspace publishing
+# GitHub to FTP — workspace publishing
 
-The repo holds the full editable flythrough: source JS/CSS/HTML, the camera & text timeline, seven linked GLBs, a small reference video, the MP4 draft render, and the After Effects `.jsx` builder. **Raw original 132MB footage is intentionally excluded**, since the project does not require it to operate.
+The repository publishes the browser-viewable Three.js editor and a complete downloadable workspace archive whenever `main` changes or the workflow is started manually.
 
-## Local development
+## Only three GitHub repository secrets are required
 
-```bash
-python3 scripts/reconstruct_media.py && python3 -m http.server 8000
-# open http://localhost:8000
-```
-
-After changing GLBs or the sequence, commit `assets/models/*.glb`, `assets/models/manifest.json`, and/or `timeline.json` to GitHub. `git push origin main` triggers both validation and export publishing.
-
-## Actions
-
-- **Validate workspace**: tests JS syntax, JSON timeline, GLB integrity, and creates a downloadable workspace ZIP artifact on push/PR/manual run.
-- **Publish workspace via SFTP / FTPS**: runs on every `main` push (or manual dispatch), builds a comprehensive `dist/` folder and an archive at `dist/downloads/paige-video-render-workspace.zip`; uploads all files to the isolated `${FTP_REMOTE_DIR}/current/` directory **only when credentials are configured**. Earlier GitHub workflow artifacts remain downloadable for 14 days.
-
-The entire rendered/editor site is browsable from the `/current/index.html` path on your host when the FTP account maps to a publicly served web directory. The archive is downloadable at `/current/downloads/paige-video-render-workspace.zip`. FTP itself is an upload protocol; publishing a public URL requires a web host mapped to the destination.
-
-### Repository settings
-
-Under **Settings → Secrets and variables → Actions**, set these **secrets**:
+Go to **Settings → Secrets and variables → Actions → Repository secrets**.
 
 | Secret | Value |
-| --- | --- |
-| `FTP_HOST` | FTP/SFTP server hostname (no scheme) |
-| `FTP_USER` | Deployment account |
-| `FTP_PASSWORD` | Deployment password or SFTP password |
-| `FTP_REMOTE_DIR` | Dedicated absolute directory, e.g. `/paige-video-render` |
-| `FTP_PORT` | Optional: `22` for SFTP / `21` for FTPS |
-| `FTP_KNOWN_HOSTS` | **Required for SFTP:** verified OpenSSH known_hosts entry for your host (or `[host]:port` for nonstandard ports) |
+|---|---|
+| `FTP_HOST` | `paige-lighthouse.50webs.org` |
+| `FTP_USER` | `paiver_paige-lighthouse.50webs.org` |
+| `FTP_PASSWORD` | Your FTP account password (do not commit it) |
 
-Under **Variables** (not Secrets), set `FTP_PROTOCOL=sftp` (default) or `FTP_PROTOCOL=ftps`. **Unencrypted FTP is deliberately not supported.** FTPS uses certificate verification. SFTP checks the server's host key against `FTP_KNOWN_HOSTS` and fails closed if missing.
+There is no `FTP_REMOTE_DIR`, `FTP_KNOWN_HOSTS`, `FTP_PORT`, or `FTP_PROTOCOL` setting. The port is fixed to 21.
 
-Verify the correct SSH fingerprint with your hosting provider before saving a known_hosts line. You can collect a candidate with `ssh-keyscan -p 22 example.your-host.com` and compare its fingerprint to the provider's separately published fingerprint. Do not blindly trust unauthenticated scan output.
+**Destination:** The FTP account is reported to start in the web directory `/www/paige-lighthouse.50webs.org/Indium/paiver`. The deployment uses relative `.` as its destination. It does **not** send that server filesystem path as a remote FTP path, since the FTP account already starts there.
 
-### Security and synchronization
+## What is published
 
-GitHub secrets are never written into the repo or ZIP. The deploy script rejects remote `/` and path traversal, always scopes upload to `${FTP_REMOTE_DIR}/current/`, then synchronizes with `--delete` inside that `current` folder, ensuring removed workspace files do not linger. **Use a dedicated folder because anything else already inside `current/` is removed on publish.** The `main` branch history preserves previous workspace versions.
+Each push to `main` runs **Actions → Publish workspace via FTPS**:
 
-### Manual publish
+1. Validate the source and asset integrity.
+2. Build the complete workspace, including editable models, camera/text timeline, After Effects handoff, and MP4 draft.
+3. Save the full ZIP as a GitHub Actions artifact, retained for 14 days.
+4. If the three credentials exist, upload the browser editor files, `assets/`, and `downloads/paige-video-render-workspace.zip` directly into the FTP login directory.
 
-GitHub → **Actions** → **Publish workspace via SFTP / FTPS** → **Run workflow**. If the secrets are missing, the workflow still builds and uploads the ZIP as a GitHub artifact but skips the remote upload.
+The upload deliberately **does not delete existing remote files**. It *does* update files with matching names, including `index.html`. Confirm that this directory is intended to serve the editor before running the first deployment; any existing `index.html` could be replaced.
 
-## AE / video output
+The editor is `index.html`, the browser video export tool is `render.html`, and the complete workspace is `downloads/paige-video-render-workspace.zip`. Public browser URLs depend on the web host mapping.
 
-The MP4 at `exports/flythrough-preview.mp4` is a draft. `render.html` records the original WebGL renderer through the browser export flow, then `.sh` / `.bat` converts WebM to MP4 with FFmpeg as necessary. Run `AfterEffects/BUILD_EDITABLE_PROJECT.jsx` in After Effects to create an editable composition. Three.js rendering effects are not identical in native AE.
+## FTP encryption and compatibility
 
-### Preview media tracking
+The FileZilla XML contains an FTP login on port 21, but it does not prove the host supports encrypted transfers. This workflow requires **explicit FTP over TLS (FTPS)** on port 21, verifying its TLS certificate to protect both your password and the uploaded files. There is no plaintext FTP fallback.
 
-The 6.8MB draft MP4 is stored as seven checksum-verified 1MB chunks under `exports/media-parts/` due to GitHub API upload limits. Run `python3 scripts/reconstruct_media.py` to restore `exports/flythrough-preview.mp4`. GitHub Actions restores it automatically before creating the complete export ZIP. FTP exports include `.github/`, `scripts/`, `tests/`, docs, and the restored MP4.
+If the host refuses TLS, the workflow will report a failed upload while the GitHub Actions ZIP artifact remains available. Verify FTPS support with your hosting provider. Do not weaken certificate verification or silently transmit credentials via unencrypted FTP.
+
+There is no SFTP/SSH connection here; `FTP_KNOWN_HOSTS` is not relevant.
+
+## Manual publish
+
+Open **GitHub → Actions → Publish workspace via FTPS → Run workflow**. It also runs automatically with each `main` push.
+
+The source project itself loads its pinned Three.js dependencies from an external CDN when opened in a browser. Keep your FTP password in GitHub Secrets only.
