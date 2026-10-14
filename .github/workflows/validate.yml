@@ -1,0 +1,31 @@
+name: Validate workspace
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check JavaScript files
+        run: |
+          for file in app.js world.js model-tools.js zip-utils.js render.js; do node --check --input-type=module < "$file"; done
+      - name: Validate timeline and model assets
+        run: python tests/test_workspace.py
+      - name: Validate reproducible export bundle
+        run: python scripts/build_workspace.py --output dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-validation-${{ github.sha }}
+          path: dist/downloads/paige-video-render-workspace.zip
+          retention-days: 14

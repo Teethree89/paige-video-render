@@ -1,0 +1,51 @@
+name: Publish workspace via SFTP / FTPS
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ftp-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      FTP_HOST: ${{ secrets.FTP_HOST }}
+      FTP_USER: ${{ secrets.FTP_USER }}
+      FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+      FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
+      FTP_PORT: ${{ secrets.FTP_PORT }}
+      FTP_KNOWN_HOSTS: ${{ secrets.FTP_KNOWN_HOSTS }}
+      FTP_PROTOCOL: ${{ vars.FTP_PROTOCOL || 'sftp' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate workspace
+        run: python tests/test_workspace.py
+      - name: Build versioned workspace export
+        run: python scripts/build_workspace.py --output dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ftp-workspace-${{ github.sha }}
+          path: dist/downloads/paige-video-render-workspace.zip
+          retention-days: 14
+      - name: Determine whether FTP is configured
+        id: config
+        shell: bash
+        run: |
+          if [[ -n "$FTP_HOST" && -n "$FTP_USER" && -n "$FTP_PASSWORD" && -n "$FTP_REMOTE_DIR" ]]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::FTP deployment not configured. Add FTP secrets to activate publishing.'
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install lftp
+        if: steps.config.outputs.configured == 'true'
+        run: sudo apt-get update && sudo apt-get install -y lftp
+      - name: Publish to protected remote directory
+        if: steps.config.outputs.configured == 'true'
+        run: bash scripts/deploy_ftp.sh

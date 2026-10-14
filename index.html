@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0a1019" />
+  <title>Atoms to AI — Three.js Sequence Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a1019'/%3E%3Cpath d='M32 7L38 26L57 32L38 38L32 57L26 38L7 32L26 26Z' fill='%2376f3f5'/%3E%3C/svg%3E" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.166.1/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark"><span class="symbol">✧</span> ATOMS <span class="muted">/</span> AI</div>
+    <div class="top-title"><strong>Sequence Studio</strong><span class="top-divider"></span><span>THREE.JS · CINEMATIC FLYTHROUGH</span></div>
+    <div class="header-actions"><span id="saveStatus" class="autosave">● READY</span><button id="renderVideoBtn" class="ghost" type="button" title="Export the 3D flythrough as a video">Render video ↗</button><button id="loadBtn" disabled class="ghost">Import JSON</button><button id="exportBtn" disabled class="primary">Export timeline <span>↗</span></button><input id="loadFile" type="file" accept=".json,application/json" hidden></div>
+  </header>
+  <div class="workbench">
+    <main class="main-col">
+      <section class="viewport" id="viewport">
+        <canvas id="scene"></canvas>
+        <div class="vignette"></div>
+        <div class="stage-top"><span class="pill"><span class="pulse-dot"></span> 3D PREVIEW</span><span id="shotTitle">01 / ESTABLISHING THE INFRASTRUCTURE</span></div>
+        <div id="overlayLayer" class="overlay-layer"></div>
+        <div id="cutFlash" class="cut-flash"></div>
+        <div class="stage-footer"><div><span class="eyebrow">SHOT <span id="shotIndex">01</span></span><span id="stageName" class="stage-name">Night campus exterior</span></div><div class="stage-footer-right"><span>1920 × 1080</span><span>16:9</span><span>30 FPS REF</span></div></div>
+        <div id="errorBanner" class="error-banner" hidden>Unable to load Three.js. An internet connection is needed for the CDN modules.</div>
+      </section>
+      <section class="transport">
+        <div class="transport-left"><button id="backBtn" disabled class="icon-button" title="Previous shot">⏮</button><button id="playBtn" disabled class="play-button" title="Play / Pause (Space)">▶</button><button id="nextBtn" disabled class="icon-button" title="Next shot">⏭</button><span id="clock" class="timecode">00:00.00 <span>/</span> 00:56.47</span></div>
+        <div class="transport-right"><button id="addCameraBtn" disabled title="Create camera keyframe at playhead">+ Camera key</button><button id="addTextBtn" disabled title="Create text overlay at playhead">+ Text</button><label for="speed">SPEED</label><select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><button id="inspectBtn" disabled class="toggle-button" title="Enable orbit camera for editing while paused">Orbit inspect</button></div>
+      </section>
+      <section class="timeline-section">
+        <div class="timeline-header"><div><span class="tiny-eyebrow">SEQUENCE TIMELINE</span><span class="timeline-subhead">Drag the playhead · select camera keys or captions to edit</span></div><div id="timelineDuration">56.47 SEC</div></div>
+        <div class="timeline-layout"><div class="track-labels"><div class="ruler-label"></div><div class="track-label">SCENES</div><div class="track-label">CAMERA <small>◆</small></div><div class="track-label">TEXT <small>▮</small></div></div>
+          <div class="tracks" id="tracks"><div id="ruler" class="ruler"></div><div class="track shot-track" id="shotTrack"></div><div class="track camera-track" id="cameraTrack"></div><div class="track text-track" id="textTrack"></div><div class="playhead" id="playhead"><span class="head-knob"></span></div></div>
+        </div>
+        <div class="timeline-bottom"><span><i class="legend teal"></i> Power systems</span><span><i class="legend orange"></i> Materials</span><span><i class="legend purple"></i> Optical chain</span><span class="shortcut">SPACE: Play/Pause &nbsp; · &nbsp; ← →: Frame step &nbsp; · &nbsp; Delete: Remove selected</span></div>
+      </section>
+    </main>
+    <aside class="inspector">
+      <div class="inspect-head"><div class="tiny-eyebrow">INSPECTOR</div><h2 id="inspectorHeading">Project settings</h2><p id="inspectorHint">Select a timeline item to adjust its animation.</p></div>
+      <div id="projectPanel" class="panel-block">
+        <div class="section-label">SEQUENCE</div><div class="stat-row"><span>Project</span><b>Advanced Materials</b></div><div class="stat-row"><span>Runtime</span><b>56.47 s</b></div><div class="stat-row"><span>Camera keys</span><b id="keyCount">—</b></div><div class="stat-row"><span>Text overlays</span><b id="textCount">—</b></div>
+        <button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><div class="divider"></div>
+        <div class="section-label">EXTERNAL MODEL LIBRARY</div>
+        <label class="field">Model slot
+          <select id="modelSlot">
+            <option value="exterior">01 · Exterior campus</option>
+            <option value="hall">02 · Server / power hall</option>
+            <option value="pcb">03 · GaN circuit board</option>
+            <option value="atoms">04 · Atomic lattice</option>
+            <option value="laser">05 · InP laser</option>
+            <option value="fiber">06 · Optical fiber</option>
+            <option value="optics">07 · Garnet isolator</option>
+          </select>
+        </label>
+        <div id="modelStatus" class="model-status" role="status">Procedural models active</div>
+        <button id="exportModelBtn" disabled class="wide secondary" type="button">Export selected GLB</button>
+        <button id="exportAllModelsBtn" disabled class="wide primary" type="button">Export all 7 models (ZIP)</button>
+        <button id="importModelBtn" disabled class="wide ghost" type="button">Preview replacement GLB…</button>
+        <input id="modelFile" type="file" accept=".glb,model/gltf-binary" hidden>
+        <button id="reloadModelsBtn" disabled class="wide ghost" type="button">Reload linked GLBs from folder</button>
+        <button id="restoreModelBtn" disabled class="wide danger" type="button">Restore procedural model</button>
+        <p class="field-help">Exports preserve the original scene geometry at local origin. Effects stay live in Three.js. Unzip exported assets into this project, edit GLBs in Blender/Tripo, then reload linked models.</p><div class="divider"></div><div class="section-label">JUMP TO CHAPTER</div><div id="chapterList" class="chapter-list"></div>
+      </div>
+      <div id="cameraPanel" class="panel-block" hidden><div class="section-label">CAMERA TRANSFORM</div><div id="camTime" class="section-subhead"></div><div class="input-group-title">Position</div><div class="triple-input"><label>X<input data-cam="p.0" type="number" step="0.5"></label><label>Y<input data-cam="p.1" type="number" step="0.5"></label><label>Z<input data-cam="p.2" type="number" step="0.5"></label></div><div class="input-group-title">Look at</div><div class="triple-input"><label>X<input data-cam="t.0" type="number" step="0.5"></label><label>Y<input data-cam="t.1" type="number" step="0.5"></label><label>Z<input data-cam="t.2" type="number" step="0.5"></label></div><label class="field">Field of view<input id="camFov" type="number" min="10" max="110" step="1" /></label><label class="checkbox-field"><input id="camCut" type="checkbox" /> Cut into this key (no interpolation)</label><button id="captureBtn" class="wide secondary">Capture preview camera</button><button id="removeCameraBtn" class="wide danger">Delete camera key</button><p class="field-help">Pause and enable Orbit inspect to reposition the view, then capture it as this keyframe.</p></div>
+      <div id="textPanel" class="panel-block" hidden><div class="section-label">OVERLAY CONTENT</div><label class="field">Headline<textarea id="textValue" rows="3"></textarea></label><label class="field">Supporting line<input id="textSubtitle" type="text" /></label><div class="two-input"><label class="field">Start (s)<input id="textStart" type="number" step="0.1" min="0" /></label><label class="field">End (s)<input id="textEnd" type="number" step="0.1" min="0" /></label></div><div class="two-input"><label class="field">Horizontal (%)<input id="textX" type="number" step="1" min="0" max="100" /></label><label class="field">Vertical (%)<input id="textY" type="number" step="1" min="0" max="100" /></label></div><div class="two-input"><label class="field">Size<select id="textSize"><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="hero">Hero</option></select></label><label class="field">Align<select id="textAlign"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label></div><label class="field">Color accent<select id="textTone"><option value="white">White</option><option value="cyan">Cyan</option><option value="amber">Amber</option></select></label><button id="removeTextBtn" class="wide danger">Delete overlay</button></div>
+      <div class="reference-card"><div class="section-label">ORIGINAL REFERENCE</div><video id="referenceVideo" preload="metadata" muted playsinline poster="assets/reference.jpg"><source src="assets/reference.mp4" type="video/mp4"></video><div class="ref-bottom"><span>SYNCED TO PLAYHEAD</span><label><input id="showRef" type="checkbox" checked> Show preview</label></div><p>Reference is a compressed review copy, not used as a 3D background.</p></div>
+      <div class="side-footer">LINKED GLB SCENES · EDITABLE KEYFRAMES<br>THREE.JS + VANILLA JAVASCRIPT</div>
+    </aside>
+  </div>
+  <script>setTimeout(() => { if (!window.__atomsEditorStarted) { const b=document.getElementById("errorBanner"); if (!b.hidden) return; b.hidden=false; b.textContent="Three.js could not initialize. Start this folder with an HTTP server and ensure your browser can access the jsDelivr CDN."; } }, 9000);</script>
+  <script>document.getElementById("renderVideoBtn").addEventListener("click",()=>window.open("render.html","_blank","noopener"));</script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

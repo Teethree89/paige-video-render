@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "units": "Three.js units, Y-up, GLB models centered at scene-local origin. Changes to these transforms apply to loaded model only.",
+  "models": {
+    "exterior": {
+      "enabled": true,
+      "url": "assets/models/exterior.glb",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "hall": {
+      "enabled": true,
+      "url": "assets/models/hall.glb",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "pcb": {
+      "enabled": true,
+      "url": "assets/models/pcb.glb",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "atoms": {
+      "enabled": true,
+      "url": "assets/models/atoms.glb",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "laser": {
+      "enabled": true,
+      "url": "assets/models/laser.glb",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "fiber": {
+      "enabled": true,
+      "url": "assets/models/fiber.glb",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    "optics": {
+      "enabled": true,
+      "url": "assets/models/optics.glb",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  },
+  "exportNote": "This bundle includes editable starter GLBs generated from the world.js scene geometry. The in-app Export selected / Export all uses Three.js GLTFExporter for a higher-fidelity re-export from the live procedural source."
+}

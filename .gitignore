@@ -1,0 +1,17 @@
+# Local builds and temporary content
+dist/
+node_modules/
+__pycache__/
+.pytest_cache/
+.DS_Store
+*.swp
+# Never commit deployment credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+# Raw source footage stays off the repo; the 1.4MB lightweight reference is tracked.
+raw-footage/
+*.aep.autosave
