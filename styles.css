@@ -80,3 +80,12 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
 .primitive-field-note{font-size:10px;color:#aacbd4;margin:9px 0}
 #primitiveFields[hidden]{display:none}
 .primitive-inspector .divider{margin:12px 0}
+
+
+/* Private proxy AI scene generator; shares the existing primitive inspector. */
+.ai-scene-panel{background:#102839;border:1px solid #345b70;border-radius:7px;padding:10px;margin:14px 0;}
+.ai-scene-panel .section-label{color:#8ff1df;}
+.ai-scene-panel input[type=password]{width:100%;padding:9px;border-radius:5px;border:1px solid #45687b;background:#071c2b;color:#f4ffff;}
+.ai-scene-panel button{font-size:11px;padding:10px 7px;}
+.ai-scene-panel [hidden]{display:none!important;}
+#aiSceneStatus{min-height:21px;overflow-wrap:anywhere;}

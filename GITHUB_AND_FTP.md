@@ -42,3 +42,7 @@ The source project itself loads its pinned Three.js dependencies from an externa
 ## Authentication failures
 
 If 50webs reports `530 Login authentication failed` even after the matched `lftp -u` command, then the network connection was established but the server rejected the username/password pair. Verify the `paiver` account's **own** FTP password in FileZilla, then set it as `FTP_PASS` in **this repository**. GitHub Actions secrets are repository-specific and cannot be read across projects. The similarly named `paigegroup` account is a separate account and should not be used for Paige's `paiver` folder.
+
+## Authenticated PHP scene gateway
+
+The deploy copies non-secret public `scene-proxy.php` alongside the editor. Its actual configuration must be created manually in the separate non-hosted file `/www/certificates/paiver.php`, which the FTP account cannot be assumed to reach. The browser passes a short-lived PHP session cookie, not the Cloudflare Worker token. Review [the setup guide](docs/PHP_AI_SCENE_SETUP.md) before testing. Do not put a real config file in the GitHub repo or its workspace archive.

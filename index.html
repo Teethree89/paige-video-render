@@ -103,7 +103,26 @@
             <button id="primitiveImport" class="ghost" type="button">Import JSON</button>
             <button id="primitiveExportJSON" class="secondary" type="button">Export JSON</button>
           </div>
-          <p class="field-help">AI proposal: <a href="https://github.com/Teethree89/paige-video-render/actions/workflows/ai-scene-zen.yml" target="_blank" rel="noopener noreferrer">Experimental Zen test (403 restricted) ↗</a>, download its JSON artifact, then choose Import JSON above. Zen is currently rejecting this free model from GitHub Actions; no working AI scene generator yet. This does not send video from the browser.</p>
+          <div class="divider"></div>
+          <div id="aiScenePanel" class="ai-scene-panel">
+            <div class="section-label">AI GENERATE SCENE · GEMINI</div>
+            <p class="field-help">Uses 3 sampled frames from the selected chapter. An authenticated PHP proxy sends them to your private Cloudflare Worker. No API keys are stored in the browser.</p>
+            <div id="aiSceneLogin">
+              <label class="field">Editor passphrase
+                <input id="aiScenePassphrase" type="password" autocomplete="current-password" placeholder="Your memorable editor passphrase">
+              </label>
+              <button id="aiSceneSignIn" type="button" class="wide secondary">Unlock AI generation</button>
+            </div>
+            <div id="aiSceneControls" hidden>
+              <button id="aiSceneGenerate" type="button" class="wide primary">Generate 3D scene for this chapter</button>
+              <div class="primitive-buttons">
+                <button id="aiSceneAccept" type="button" class="secondary" hidden>Accept proposed geometry</button>
+                <button id="aiSceneDiscard" type="button" class="ghost" hidden>Discard preview</button>
+              </div>
+            </div>
+            <p id="aiSceneStatus" role="status" class="field-help">Checking private PHP proxy…</p>
+          </div>
+          <p class="field-help">Advanced: <a href="https://github.com/Teethree89/paige-video-render/actions/workflows/ai-scene-zen.yml" target="_blank" rel="noopener noreferrer">experimental Zen Actions test</a> (free models currently restricted).</p>
           <input id="primitiveImportFile" type="file" accept=".json,application/json" hidden />
           <button id="primitiveExportGLB" class="wide secondary" type="button" disabled>Export current scene GLB</button>
           <p id="primitiveStatus" class="field-help" role="status">Objects save in the timeline JSON; export it to keep your work.</p>

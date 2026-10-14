@@ -1,0 +1,13 @@
+name = "paige-video-render"
+main = "worker/scene-worker.mjs"
+compatibility_date = "2026-10-14"
+workers_dev = true
+
+# Both encrypted secrets were configured in Cloudflare's Worker dashboard.
+# Keep their values out of Wrangler, source control, public ZIPs and FTP.
+[secrets]
+required = ["GEMINI_API_KEY", "SCENE_ACCESS_TOKEN"]
+
+# Cloudflare's connected GitHub preview builds run `npx wrangler preview`.
+# An explicit block is required, even when no preview overrides are needed.
+[previews]

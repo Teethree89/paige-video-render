@@ -4,6 +4,14 @@ A **working editable 56.47-second 3D flythrough**, structured around the supplie
 
 The reference is *not* being projected on the canvas: the canvas runs a real Three.js scene with a movable camera and keyframes. The result is a **stylized real-time reconstruction of the video's structure**, not a pixel-exact reconstruction of its photorealistic industrial models or VFX.
 
+## Private AI scene backend (PHP → Cloudflare Worker → Gemini)
+
+The interactive **AI Generate Scene** feature uses a same-origin PHP gateway to protect the Cloudflare Worker secret. The GitHub-published public file is `scene-proxy.php`; the **actual token and a separate editor login passphrase** must be configured manually in the non-hosted server file `/www/certificates/paiver.php`.
+
+Read [the exact private file template and installation instructions](docs/PHP_AI_SCENE_SETUP.md) before enabling it. Without the private file, PHP support and cURL, the AI panel fails closed and the manual 3D editor remains usable. No secrets are committed to Git, ZIP downloads, HTML or JavaScript.
+
+The Cloudflare Worker uses `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN` encrypted runtime secrets (already added separately in the dashboard). It accepts a limited 3-frame input and returns schema-validated primitive geometry. Proposals appear as an unsaved preview and require **Accept** before modifying the local timeline.
+
 ## Run
 
 1. Unzip the project folder.
