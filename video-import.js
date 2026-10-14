@@ -69,6 +69,7 @@ export function setupVideoImport({onApply}) {
   const status=byId('videoStatus'), progress=byId('videoProgress'), gallery=byId('videoStoryboard');
   const start=byId('videoAnalyzeBtn'), apply=byId('videoApplyBtn'), exportBtn=byId('videoExportBtn');
   let report=null,cuts=[],file=null,url=null,scanning=false,cancel=false;
+  const referencedUrls=new Set();
   const setStatus=s=>{status.textContent=s;};
   const newTimeline=()=>createDraftTimeline({
     duration:report.duration,fps:30,cuts,title:file.name.replace(/\.[^.]+$/,'') || 'Imported video'
@@ -88,7 +89,7 @@ export function setupVideoImport({onApply}) {
     if(scanning)return;
     const next=fileInput.files?.[0];
     if (!next)return;
-    if(url)URL.revokeObjectURL(url);
+    if(url&&!referencedUrls.has(url))URL.revokeObjectURL(url);
     file=next;url=URL.createObjectURL(file);report=null;cuts=[];gallery.replaceChildren();progress.value=0;
     byId('videoPreview').src=url;
     setStatus('Ready to scan '+file.name+' ('+(file.size/1048576).toFixed(1)+' MB).');
@@ -164,6 +165,7 @@ export function setupVideoImport({onApply}) {
     if(!report||scanning)return;
     if(!confirm('Replace the current editor timeline with this video draft? Export existing edits first if needed.'))return;
     onApply({timeline:newTimeline(),videoUrl:url,videoFile:file});
+    referencedUrls.add(url); // Keep the active reference video alive while the editor plays.
     close();
   });
   controls();
