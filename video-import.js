@@ -143,7 +143,23 @@ export function setupVideoImport({onApply}) {
         remove.addEventListener('click',()=>{cuts.splice(i-1,1);draw();});
         info.append(remove);
       }
-      card.append(image,info,name);gallery.append(card);
+      card.append(image,info,name);
+      // A single opening thumbnail concealed the aerial closing shot when its
+      // boundary was under-detected. Always reveal the final actual video frame.
+      if(i===timeline.shots.length-1){
+        const tail=report.samples.reduce((a,b)=>
+          Math.abs(a.at-shot.endFrameTime)<Math.abs(b.at-shot.endFrameTime)?a:b);
+        const ending=document.createElement('div');
+        ending.className='video-end-frame';
+        const endingImage=document.createElement('img');
+        endingImage.src=tail.image;
+        endingImage.alt='Video ending frame at '+pretty(tail.at);
+        const endingLabel=document.createElement('span');
+        endingLabel.textContent='Ending frame · '+pretty(tail.at);
+        ending.append(endingImage,endingLabel);
+        card.append(ending);
+      }
+      gallery.append(card);
     }
   }
   start.addEventListener('click',async()=>{

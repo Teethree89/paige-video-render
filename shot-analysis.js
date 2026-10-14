@@ -84,7 +84,8 @@ export function createDraftTimeline({ duration, fps = 30, cuts = [], title = 'Im
       id: shotId, start, end, name: 'Shot ' + String(i+1).padStart(2, '0') + ' · blockout pending',
       title: 'VIDEO SHOT ' + String(i+1).padStart(2, '0'),
       tone: ['teal', 'amber', 'purple'][i%3], draft: true,
-      sourceFrameTime: rnd(Math.min(duration, start + Math.min(span * 0.4, 0.8)))
+      sourceFrameTime: rnd(start + span * 0.5),
+      endFrameTime: rnd(Math.max(start, end - Math.min(0.5, span * 0.12)))
     });
     camera.push({ id:'video_cam_'+(i+1)+'_start', at:start, p:[drift,5,22], t:[0,3,0], fov:55, cut:i!==0, generated:'placeholder' });
     if (span > 0.12) camera.push({

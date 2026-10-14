@@ -52,3 +52,10 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
   border-color:#477687!important;}
 .video-chapter-name::placeholder{color:#789da9}
 .video-options label:first-child{grid-column:1 / -1}
+
+
+/* Show end-of-video evidence even when the automatic chapter boundary is weak. */
+.video-end-frame{display:flex;align-items:center;gap:8px;padding:7px 8px;margin:2px 8px 9px;
+  background:#112c3b;border:1px solid #407688;border-radius:5px;}
+.video-end-frame img{width:64px!important;max-width:64px;aspect-ratio:16/9;object-fit:cover;border-radius:3px}
+.video-end-frame span{font-size:10px;color:#b0e4e9;font-family:ui-monospace,monospace;}
