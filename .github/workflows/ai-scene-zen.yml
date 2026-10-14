@@ -1,0 +1,81 @@
+name: Zen AI scene proposal
+on:
+  workflow_dispatch:
+    inputs:
+      shot_id:
+        description: "Existing shot ID in timeline.json (e.g. hall, laser, finale)"
+        type: string
+        required: true
+        default: hall
+      model:
+        description: "Free model only; do not select paid model IDs"
+        type: choice
+        options:
+          - muse-spark-1.3-contributor-free
+        required: true
+        default: muse-spark-1.3-contributor-free
+  # One initial smoke test when this workflow first lands on main.
+  # Later main changes do NOT automatically send video frames to a provider.
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ai-scene-zen.yml
+permissions:
+  contents: read
+concurrency:
+  group: zen-ai-scene
+  cancel-in-progress: false
+jobs:
+  propose:
+    name: Analyze reference shot via private Zen API
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      ZEN_API_KEY: ${{ secrets.zen_api }}
+      TARGET_SHOT: ${{ inputs.shot_id || 'hall' }}
+      TARGET_MODEL: ${{ inputs.model || 'muse-spark-1.3-contributor-free' }}
+    steps:
+      - name: Checkout source without persistent credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify confidential API secret is configured
+        shell: bash
+        run: |
+          if [[ -z "$ZEN_API_KEY" ]]; then
+            echo "::error::Missing repository Actions secret zen_api. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          echo "Zen credential configured (value intentionally hidden)."
+      - name: Run local adapter unit tests
+        run: |
+          python -m unittest discover -s tests -p test_zen_scene.py -v
+          node --test tests/test_primitives.mjs
+      - name: Reconstruct reference video and verify FFmpeg
+        shell: bash
+        run: |
+          python scripts/reconstruct_media.py
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+      - name: Ask free Muse model for one scene proposal
+        shell: bash
+        run: |
+          python scripts/zen_scene.py --timeline timeline.json \
+            --video assets/reference.mp4 \
+            --shot "$TARGET_SHOT" --model "$TARGET_MODEL" \
+            --frames 3 --output "ai-proposals/${TARGET_SHOT}-primitives.json"
+      - name: Publish reviewable JSON (never automatically overwrite project)
+        uses: actions/upload-artifact@v4
+        with:
+          name: zen-primitive-proposal-${{ github.run_id }}
+          path: ai-proposals/*-primitives.json
+          if-no-files-found: error
+          retention-days: 14
