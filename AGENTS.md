@@ -20,3 +20,7 @@ Engineering:
 ## Phase 1.1 distinction
 
 The two video-analysis modes are **hard cuts** (adjacent image changes) and **visual chapter candidates** (windowed novelty). Neither infers object identity, camera pose, or geometry. The original nine-chapter map was manually interpreted; do not try to reproduce it by hardcoding segment counts or expected timestamps for arbitrary videos. Keep storyboard subject labels user-editable, and keep generated camera paths marked as placeholders until the semantic-model stage is verified.
+
+## Phase 3 Zen proof-of-concept
+
+Read [docs/ZEN_AI_SCENE_PROTOTYPE.md](docs/ZEN_AI_SCENE_PROTOTYPE.md). A GitHub Actions **runner-only** script sends 3 frames from the public example MP4 to the free Muse Contributor model via the documented Responses endpoint. It produces a strictly validated, importable JSON artifact. The **website is NOT connected to the provider**; never expose `zen_api` in JavaScript. Model endpoint multimodal compatibility is unverified until the first live Actions run. No automatic overwrite of the original scene.
