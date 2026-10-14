@@ -16,7 +16,7 @@ jobs:
       FTP_HOST: paige-lighthouse.50webs.org
       # Exact user from the supplied FileZilla export.
       FTP_USER: paiver_paige-lighthouse.50webs.org
-      FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+      FTP_PASSWORD: ${{ secrets.FTP_PASS || secrets.FTP_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,7 +38,7 @@ jobs:
           if [[ -n "$FTP_HOST" && -n "$FTP_USER" && -n "$FTP_PASSWORD" ]]; then
             echo 'configured=true' >> "$GITHUB_OUTPUT"
           else
-            echo '::notice::FTP deployment not configured. Set FTP_PASSWORD secret to activate publishing.'
+            echo '::notice::FTP deployment not configured. Set FTP_PASS (or FTP_PASSWORD) secret to activate publishing.'
             echo 'configured=false' >> "$GITHUB_OUTPUT"
           fi
       - name: Stage browser files and complete project ZIP
