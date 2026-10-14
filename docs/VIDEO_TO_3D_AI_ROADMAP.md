@@ -1,7 +1,7 @@
 # Video → Editable 3D Flythrough: AI Roadmap
 
 **Project:** Teethree89/paige-video-render  
-**Status:** Phases 1–2 implemented; AI semantic recognition (Phase 3) remains planned.  
+**Status:** Phases 1–2 implemented; Phase 3 Zen inference prototype (first one-shot experiment), not yet integrated into the browser.  
 **Design principle:** Replicate our successful *Atoms to AI* workflow rather than claiming full automatic 3D reconstruction from 2D video.
 
 ## Starting point / benchmark
@@ -47,7 +47,7 @@ Example of the underlying data format:
 
 Allowed primitive whitelist: boxes, planes, spheres, cylinders, torus, tube paths, grouped/repeated instances; capped complexity and dimensions. Validate finite numbers, per-shot object counts, colors and IDs; never eval model-generated code. Render and edit scene objects in inspector. Export approved primitives to GLB.
 
-## Phase 3 — AI vision and scene reasoning
+## Phase 3 — AI vision and scene reasoning (initial private GitHub Actions prototype)
 
 Provider-agnostic pipeline: extract a few representative frames per shot; ask a **verified vision-capable model** to describe visible objects, relative depth, layout, dimensions and repetition, explicitly tagging **unknown** geometry and confidence; convert that bounded semantic description to scene JSON. Avoid pretending image-only evidence provides hidden surfaces or exact metric scale.
 
@@ -111,3 +111,7 @@ A frame-by-frame check of the original source confirms the final aerial campus/t
 - [ ] AI vision-driven scene proposals (Phase 3).
 - [ ] Automated video-derived camera recovery (Phase 4).
 
+
+### Implementation checkpoint
+
+The first Phase 3 adapter is described in [ZEN_AI_SCENE_PROTOTYPE.md](ZEN_AI_SCENE_PROTOTYPE.md): it reads the `zen_api` secret only inside GitHub Actions, sends three extracted frames from the already-public reference video, and validates an importable `primitiveScenes` JSON artifact. It is a backend benchmark, not a public browser button or a complete scene-reconstruction solution. Only the free Muse Contributor variant is allowlisted until its actual image support is verified.
