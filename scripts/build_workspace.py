@@ -21,8 +21,9 @@ FILES = [
     "model-tools.js", "zip-utils.js", "timeline.json", "README.md",
     "EXTERNAL_MODELS.md", "VIDEO_AND_AFTER_EFFECTS.md",
     "start.sh", "convert_to_mp4.sh", "convert_to_mp4.bat",
+    ".gitignore", ".env.example", "GITHUB_AND_FTP.md",
 ]
-FOLDERS = ("assets", "AfterEffects", "exports")
+FOLDERS = ("assets", "AfterEffects", "exports", "scripts", "tests", ".github")
 
 
 def sha(path):
@@ -61,6 +62,9 @@ def main():
         if not source.is_dir():
             raise SystemExit(f"Required folder missing: {name}")
         shutil.copytree(source, out / name)
+    # Reassemble the preview in fresh GitHub checkouts, where only 1MB chunks are tracked.
+    from reconstruct_media import reconstruct
+    reconstruct(out)
     build = {"project":"paige-video-render", "commit":git_revision(), "files":{}}
     for p in sorted(out.rglob("*")):
         if p.is_file():

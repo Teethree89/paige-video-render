@@ -5,7 +5,7 @@ The repo holds the full editable flythrough: source JS/CSS/HTML, the camera & te
 ## Local development
 
 ```bash
-python3 -m http.server 8000
+python3 scripts/reconstruct_media.py && python3 -m http.server 8000
 # open http://localhost:8000
 ```
 
@@ -46,3 +46,7 @@ GitHub → **Actions** → **Publish workspace via SFTP / FTPS** → **Run workf
 ## AE / video output
 
 The MP4 at `exports/flythrough-preview.mp4` is a draft. `render.html` records the original WebGL renderer through the browser export flow, then `.sh` / `.bat` converts WebM to MP4 with FFmpeg as necessary. Run `AfterEffects/BUILD_EDITABLE_PROJECT.jsx` in After Effects to create an editable composition. Three.js rendering effects are not identical in native AE.
+
+### Preview media tracking
+
+The 6.8MB draft MP4 is stored as seven checksum-verified 1MB chunks under `exports/media-parts/` due to GitHub API upload limits. Run `python3 scripts/reconstruct_media.py` to restore `exports/flythrough-preview.mp4`. GitHub Actions restores it automatically before creating the complete export ZIP. FTP exports include `.github/`, `scripts/`, `tests/`, docs, and the restored MP4.

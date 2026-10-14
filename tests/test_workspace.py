@@ -29,6 +29,23 @@ class WorkspaceTests(unittest.TestCase):
                 self.assertEqual(ver,2)
                 self.assertEqual(size,path.stat().st_size)
 
+    def test_split_mp4_preview(self):
+        import hashlib
+        bundle = ROOT / "exports/media-parts"
+        if not bundle.is_dir():
+            self.fail("Missing preview media chunks")
+        manifest = json.loads((bundle / "manifest.json").read_text())
+        digest = hashlib.sha256()
+        total = 0
+        for part in manifest["parts"]:
+            b = (bundle / part["file"]).read_bytes()
+            self.assertEqual(len(b), part["size"])
+            self.assertEqual(hashlib.sha256(b).hexdigest(), part["sha256"])
+            digest.update(b)
+            total += len(b)
+        self.assertEqual(total, manifest["size"])
+        self.assertEqual(digest.hexdigest(), manifest["sha256"])
+
     def test_source_files(self):
         for f in ('index.html','app.js','world.js','render.html','render.js',
                   'AfterEffects/BUILD_EDITABLE_PROJECT.jsx'):

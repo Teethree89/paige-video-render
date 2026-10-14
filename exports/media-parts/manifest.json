@@ -1,0 +1,42 @@
+{
+  "target": "exports/flythrough-preview.mp4",
+  "size": 6865695,
+  "sha256": "2f87e2658a3cb77ce7c9e28a76e13c90f83eae216488dce635b8b6f12713ba14",
+  "parts": [
+    {
+      "file": "flythrough-preview.mp4.part00",
+      "size": 1048576,
+      "sha256": "1ddc1c34587f2f817332ff71eb98d35250734a3bc5aba93237e431db69e0e3c3"
+    },
+    {
+      "file": "flythrough-preview.mp4.part01",
+      "size": 1048576,
+      "sha256": "9a50f2d2185b6c85789c37e7498efb62e647817971d27de1406dd1c783f78633"
+    },
+    {
+      "file": "flythrough-preview.mp4.part02",
+      "size": 1048576,
+      "sha256": "9b35b590fdba94fb16dd7102edc3927213fde2217270833c7a04e93b014e217d"
+    },
+    {
+      "file": "flythrough-preview.mp4.part03",
+      "size": 1048576,
+      "sha256": "d349093d1748699e126841a2a62b2fc43999279d81685fc30f7aa3ea2e45073f"
+    },
+    {
+      "file": "flythrough-preview.mp4.part04",
+      "size": 1048576,
+      "sha256": "d9bd26350df5d8f078a46a02e8efca40e42a3ea55adf85d34c2b027b781b8bc2"
+    },
+    {
+      "file": "flythrough-preview.mp4.part05",
+      "size": 1048576,
+      "sha256": "d8cbd9b84e971facaa8637b1b81d91cb8ce75d461fe8cf204a1e6213a29638d1"
+    },
+    {
+      "file": "flythrough-preview.mp4.part06",
+      "size": 574239,
+      "sha256": "b575c8471740890c5c88bb3ba2acf5c29a9c2ec9cbd838dfcaf16a30787e7581"
+    }
+  ]
+}

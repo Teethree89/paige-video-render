@@ -21,6 +21,7 @@ fi
 if [[ ! "${FTP_PORT:-}" =~ ^[0-9]*$ ]]; then
   echo 'FTP_PORT must contain digits only' >&2; exit 2
 fi
+export LFTP_PASSWORD="$FTP_PASSWORD"
 REMOTE="${FTP_REMOTE_DIR%/}/current"
 PORT="${FTP_PORT:-}"
 
@@ -46,7 +47,7 @@ set net:timeout 30
 set ssl:verify-certificate yes
 set ftp:ssl-force yes
 set ftp:ssl-protect-data yes
-open --user "$FTP_USER" --password "$FTP_PASSWORD" --port "$PORT" ftp://$FTP_HOST
+open --user "$FTP_USER" --env-password --port "$PORT" ftp://$FTP_HOST
 mkdir -p "$REMOTE"
 mirror --reverse --delete --verbose=0 --parallel=3 dist "$REMOTE"
 bye
@@ -57,7 +58,7 @@ set cmd:fail-exit yes
 set net:max-retries 2
 set net:timeout 30
 set sftp:connect-program "$LFTP_CONNECT_PROGRAM"
-open --user "$FTP_USER" --password "$FTP_PASSWORD" --port "$PORT" sftp://$FTP_HOST
+open --user "$FTP_USER" --env-password --port "$PORT" sftp://$FTP_HOST
 mkdir -p "$REMOTE"
 mirror --reverse --delete --verbose=0 --parallel=3 dist "$REMOTE"
 bye
