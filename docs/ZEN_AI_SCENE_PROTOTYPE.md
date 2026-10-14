@@ -8,6 +8,22 @@ These temporary free variants can have different usage and data-improvement term
 
 # Phase 3 proof-of-concept — private OpenCode Zen scene analysis
 
+## Verified four-model free Zen comparison — October 14, 2026
+
+The [four-model GitHub Actions benchmark](https://github.com/Teethree89/paige-video-render/actions/runs/38638863210) completed with four separate downloadable sanitized status reports. Every model was listed as **Free** in the [official Zen catalog](https://opencode.ai/docs/zen), but the user's `zen_api` secret did **not** successfully access any model through the GitHub Actions OpenCode CLI:
+
+| Model | Text-only auth/access | Three-frame video proposal | Sanitized diagnostic |
+| --- | --- | --- | --- |
+| MiMo-V2.6 Flash Free | FAILED | NOT RUN | `FREE_TIER_CLIENT_RESTRICTION` |
+| MiMo-V2.5 Free | FAILED | NOT RUN | `OTHER_CLI_OR_PROVIDER_ERROR` |
+| Nemotron 3.5 Lightning Free | FAILED | NOT RUN | `FREE_TIER_CLIENT_RESTRICTION` |
+| Big Pickle | FAILED | NOT RUN | `FREE_TIER_CLIENT_RESTRICTION` |
+
+**Interpretation:** None of these provides working free inference for our current unattended GitHub Actions + Zen key integration. The benchmark workflow itself is green because it **successfully recorded failures**. It did not generate a primitive scene. No paid model was called, no secret was leaked, and no committed project or scene was replaced. Some models may still work interactively within the OpenCode app; that is different from authorized CI/API inference.
+
+**Next recommendation:** Test a separately authorized free vision API, for example Gemini 2.5 Flash or Flash-Lite via a separate Google AI Studio API key, with quotas and data-use terms checked before sending client content. Google's documented free API token tier supports image/video inputs for Gemini 2.5 Flash. Do not send client/private footage to a free training-eligible endpoint without consent. Keep Zen as an optional adapter, not the default.
+
+
 ## Live connection status (October 14, 2026)
 
 **BLOCKED by the free model provider.** The repository's `zen_api` secret is present in Actions and can be read by the job, and our parser/schema/unit tests pass. The initial raw Zen Responses API request to `muse-spark-1.3-contributor-free` returned **HTTP 403**. A second request via the official OpenCode CLI also failed; sanitized diagnostics classified the response as `FREE_TIER_CLIENT_RESTRICTION`. See [raw API run](https://github.com/Teethree89/paige-video-render/actions/runs/38614893027), [official CLI run](https://github.com/Teethree89/paige-video-render/actions/runs/38615636453), and [diagnostic run](https://github.com/Teethree89/paige-video-render/actions/runs/38616081643).
