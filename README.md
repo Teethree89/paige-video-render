@@ -25,6 +25,18 @@ Use **Export timeline** or **Download JSON** to retain your shot/keyframe change
 
 A full implementation plan for future AI-powered primitive reconstruction, provider benchmarking and camera refinement lives at **[docs/VIDEO_TO_3D_AI_ROADMAP.md](docs/VIDEO_TO_3D_AI_ROADMAP.md)**. AI contributors should start with **[AGENTS.md](AGENTS.md)**. No OpenCode key is required or used by Phase 1.
 
+## Phase 2 — editable 3D primitive scenes
+
+**The first primitive-building stage is manual and data-driven, not AI-assisted.** Use **Video → timeline** to import and segment a source video. After selecting **Use in editor**, click a shot in the timeline and expand **3D Primitive Scene Editor** under Project settings. Choose **Example room** to get a visible blockout, or add your own box, cylinder, sphere, plane or torus.
+
+Select any object to edit its name, position, rotation, size, color, metalness or roughness. Duplicate or delete objects as needed. The geometry appears only during its corresponding shot, replacing the generic draft guides. Camera animation still uses the normal camera-key timeline; enable **Orbit inspect** to move around the new scene.
+
+Use **Export JSON** to save all primitive scene descriptions, **Export current scene GLB** for a Blender-editable asset, and **Export timeline** to include camera/text tracks and all primitive descriptions in one file. **Import JSON** in the primitive inspector restores compatible primitive descriptions; normal timeline import restores the complete project. The video itself is still a local file, not part of either JSON.
+
+The render-video page uses the **same** scene descriptions, so edits survive through the browser video exporter. The hand-crafted Atoms-to-AI timeline and seven original GLB scenes remain available and unchanged.
+
+See [the primitive scene data contract](docs/PRIMITIVE_SCENE_FORMAT.md) and [the AI roadmap](docs/VIDEO_TO_3D_AI_ROADMAP.md). **AI-generated blockouts and OpenCode model integration are Phase 3**, not yet implemented.
+
 ## Controls
 
 The Reset original timeline button is in **Inspector → Project settings**. Playback and editing controls remain disabled until `timeline.json` loads successfully.
