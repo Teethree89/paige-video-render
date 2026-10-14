@@ -44,3 +44,11 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
 .video-action-row button{padding:11px;border-radius:6px;cursor:pointer}
 .video-modal button:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
 @media(max-width:800px){.video-modal{padding:7px}.video-modal-dialog{max-height:98vh}.video-modal-columns{grid-template-columns:1fr;overflow:auto}.video-intake-right{border-left:0;border-top:1px solid #344a60;overflow:visible}.video-storyboard{max-height:400px}.video-modal-header{padding:16px}.video-modal-header h2{font-size:19px}}
+
+
+/* Story-chapter labeling: annotations export with the generated timeline. */
+.video-chapter-name{display:block;width:calc(100% - 16px)!important;margin:0 8px 9px!important;
+  font-size:11px!important;padding:8px!important;background:#10273b!important;
+  border-color:#477687!important;}
+.video-chapter-name::placeholder{color:#789da9}
+.video-options label:first-child{grid-column:1 / -1}
