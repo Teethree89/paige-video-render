@@ -1,5 +1,13 @@
 # Phase 3 proof-of-concept — private OpenCode Zen scene analysis
 
+## Live connection status (October 14, 2026)
+
+**BLOCKED by the free model provider.** The repository's `zen_api` secret is present in Actions and can be read by the job, and our parser/schema/unit tests pass. The initial raw Zen Responses API request to `muse-spark-1.3-contributor-free` returned **HTTP 403**. A second request via the official OpenCode CLI also failed; sanitized diagnostics classified the response as `FREE_TIER_CLIENT_RESTRICTION`. See [raw API run](https://github.com/Teethree89/paige-video-render/actions/runs/38614893027), [official CLI run](https://github.com/Teethree89/paige-video-render/actions/runs/38615636453), and [diagnostic run](https://github.com/Teethree89/paige-video-render/actions/runs/38616081643).
+
+This does **not** indicate a missing GitHub secret or a broken primitive scene schema. OpenCode has free-tier restrictions beyond whether a model appears in its catalog; similar `FreeTierError` reports exist for Muse. Do not bypass those restrictions by spoofing client identity or headers. Do not switch to a paid model without explicit user approval.
+
+The GitHub workflow is retained as an **experimental manual test**, not a functional production generator. No AI proposal JSON was produced. Existing editable primitives, hand-authored scenes, and FTP publishing remain functional. To unblock AI, use an explicitly permitted model/API plan, or an alternative provider with a documented free vision endpoint and separate secret.
+
 **Status:** Initial integration, limited to one existing reference-video shot at a time. It creates an editable primitive proposal but **does not automatically replace editor scenes, recover exact geometry, or generate camera paths**.
 
 ## Secret
