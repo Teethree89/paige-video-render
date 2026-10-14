@@ -7,3 +7,7 @@ workers_dev = true
 # Keep their values out of Wrangler, source control, public ZIPs and FTP.
 [secrets]
 required = ["GEMINI_API_KEY", "SCENE_ACCESS_TOKEN"]
+
+# Cloudflare's connected GitHub preview builds run `npx wrangler preview`.
+# An explicit block is required, even when no preview overrides are needed.
+[previews]
