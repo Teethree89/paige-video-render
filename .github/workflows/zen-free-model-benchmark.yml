@@ -1,0 +1,92 @@
+name: Benchmark free Zen vision models
+on:
+  workflow_dispatch:
+  # One controlled launch when the benchmark is first merged.
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/zen-free-model-benchmark.yml
+permissions:
+  contents: read
+concurrency:
+  group: zen-free-model-benchmark
+  cancel-in-progress: false
+jobs:
+  compare:
+    name: Test ${{ matrix.model }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model:
+          - mimo-v2.6-flash-free
+          - mimo-v2.5-free
+          - nemotron-3.5-lightning-free
+          - big-pickle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ZEN_API_KEY: ${{ secrets.zen_api }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify private key is present
+        shell: bash
+        run: |
+          if [[ -z "$ZEN_API_KEY" ]]; then
+            echo "::error::zen_api secret is unavailable"
+            exit 1
+          fi
+      - name: Run offline tests without contacting providers
+        shell: bash
+        run: |
+          python -m unittest discover -s tests -p 'test_zen*.py' -v
+          node --test tests/test_primitives.mjs
+      - name: Restore public example MP4 and FFmpeg
+        shell: bash
+        run: |
+          python scripts/reconstruct_media.py
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+      - name: Install supported OpenCode CLI
+        run: npm install --global @opencode/cli
+      - name: Probe text access then image-to-3D scene generation
+        shell: bash
+        run: |
+          python scripts/benchmark_zen_free.py \
+            --model "${{ matrix.model }}" --shot hall \
+            --report "ai-proposals/${{ matrix.model }}-status.json"
+      - name: Publish concise benchmark findings
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          data=json.loads(Path("ai-proposals/${{ matrix.model }}-status.json").read_text())
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as f:
+              f.write("### "+data["model"]+"\n\n")
+              f.write("| Check | Result |\n|---|---|\n")
+              f.write("| Listed cost | Free |\n")
+              f.write("| Text-only access | "+data["text_access"]+" |\n")
+              f.write("| 3-frame image-to-primitives | "+data["vision_json"]+" |\n")
+              f.write("| Reason / success | "+data["diagnostic"]+" |\n")
+              f.write("| Editable objects | "+str(data["geometry_count"])+" |\n")
+          PY
+      - name: Upload per-model result (including blocked results)
+        uses: actions/upload-artifact@v4
+        with:
+          name: free-vision-${{ matrix.model }}-${{ github.run_id }}
+          path: |
+            ai-proposals/${{ matrix.model }}-status.json
+            ai-proposals/hall-${{ matrix.model }}-primitives.json
+          if-no-files-found: error
+          retention-days: 14

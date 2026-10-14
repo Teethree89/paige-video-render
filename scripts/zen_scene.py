@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ZEN_RESPONSES_ENDPOINT = "https://opencode.ai/zen/v1/responses"
 # Paid variants are intentionally excluded. Add other *tested* free vision
 # providers in a separate adapter, not by changing this allowlist implicitly.
-FREE_MODELS = ("muse-spark-1.3-contributor-free",)
+FREE_MODELS = ("muse-spark-1.3-contributor-free", "mimo-v2.6-flash-free",
+               "mimo-v2.5-free", "nemotron-3.5-lightning-free", "big-pickle")
 MAX_VIDEO_BYTES = 250 * 1024 * 1024
 SHOT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
 
