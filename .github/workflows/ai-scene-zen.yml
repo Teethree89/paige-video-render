@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   propose:
-    name: Analyze reference shot via private Zen API
+    name: Analyze reference shot through official OpenCode CLI
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
@@ -55,7 +55,7 @@ jobs:
           echo "Zen credential configured (value intentionally hidden)."
       - name: Run local adapter unit tests
         run: |
-          python -m unittest discover -s tests -p test_zen_scene.py -v
+          python -m unittest discover -s tests -p 'test_zen*.py' -v
           node --test tests/test_primitives.mjs
       - name: Reconstruct reference video and verify FFmpeg
         shell: bash
@@ -65,10 +65,12 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y ffmpeg
           fi
+      - name: Install the official OpenCode CLI
+        run: npm install --global @opencode/cli
       - name: Ask free Muse model for one scene proposal
         shell: bash
         run: |
-          python scripts/zen_scene.py --timeline timeline.json \
+          python scripts/zen_cli_scene.py --timeline timeline.json \
             --video assets/reference.mp4 \
             --shot "$TARGET_SHOT" --model "$TARGET_MODEL" \
             --frames 3 --output "ai-proposals/${TARGET_SHOT}-primitives.json"
