@@ -77,7 +77,7 @@ def extract_jpegs(video: Path, times: list[float]) -> list[bytes]:
             )
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             raise RuntimeError("Could not decode one of the source video frames") from None
-        if not process.stdout.startswith(b"\\xff\\xd8") or len(process.stdout) > 500000:
+        if not process.stdout.startswith(bytes.fromhex("ffd8")) or len(process.stdout) > 500000:
             raise RuntimeError("Extracted frame was not a valid small JPEG")
         images.append(process.stdout)
     return images
