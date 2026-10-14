@@ -29,8 +29,8 @@ jobs:
         run: python tests/test_workspace.py
       - name: Check and test video importer
         run: |
-          for file in app.js render.js shot-analysis.js chapter-analysis.js video-import.js draft-world.js; do node --check --input-type=module < "$file"; done
-          node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs
+          for file in app.js render.js shot-analysis.js chapter-analysis.js video-import.js draft-world.js primitive-schema.js primitive-world.js primitive-editor.js; do node --check --input-type=module < "$file"; done
+          node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs
       - name: Build versioned workspace export
         run: python scripts/build_workspace.py --output dist
       - uses: actions/upload-artifact@v4
@@ -56,7 +56,7 @@ jobs:
           # Copy all root JS modules: app.js imports the video-intake and draft-world modules.
           # Wildcard staging avoids dropping newly added browser modules on future changes.
           cp dist/*.html dist/*.css dist/*.js dist/timeline.json ftp-public/
-          for file in video-import.js shot-analysis.js draft-world.js; do
+          for file in video-import.js shot-analysis.js draft-world.js primitive-schema.js primitive-world.js primitive-editor.js; do
             test -s "ftp-public/$file" || { echo "Missing browser module: $file"; exit 1; }
           done
           cp -a dist/assets ftp-public/assets
