@@ -1,4 +1,4 @@
-name: Publish workspace via FTPS
+name: Publish workspace via FTP
 on:
   push:
     branches: [main]
@@ -12,8 +12,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      # 50webs publishes this dedicated TLS endpoint for encrypted FTP.
-      FTP_HOST: ftps2.50webs.com
+      # Match the website FTP host in FileZilla (unencrypted port 21).
+      FTP_HOST: paige-lighthouse.50webs.org
       FTP_USER: ${{ secrets.FTP_USER }}
       FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
     steps:
