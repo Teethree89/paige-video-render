@@ -27,6 +27,7 @@ jobs:
           python-version: '3.12'
       - name: Validate workspace
         run: python tests/test_workspace.py
+          python -m unittest discover -s tests -p test_zen_scene.py -v
       - name: Check and test video importer
         run: |
           for file in app.js render.js shot-analysis.js chapter-analysis.js video-import.js draft-world.js primitive-schema.js primitive-world.js primitive-editor.js; do node --check --input-type=module < "$file"; done
