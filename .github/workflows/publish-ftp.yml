@@ -1,4 +1,4 @@
-name: Publish workspace via SFTP / FTPS
+name: Publish workspace via FTPS
 on:
   push:
     branches: [main]
@@ -15,10 +15,6 @@ jobs:
       FTP_HOST: ${{ secrets.FTP_HOST }}
       FTP_USER: ${{ secrets.FTP_USER }}
       FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
-      FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
-      FTP_PORT: ${{ secrets.FTP_PORT }}
-      FTP_KNOWN_HOSTS: ${{ secrets.FTP_KNOWN_HOSTS }}
-      FTP_PROTOCOL: ${{ vars.FTP_PROTOCOL || 'sftp' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,15 +33,25 @@ jobs:
         id: config
         shell: bash
         run: |
-          if [[ -n "$FTP_HOST" && -n "$FTP_USER" && -n "$FTP_PASSWORD" && -n "$FTP_REMOTE_DIR" ]]; then
+          if [[ -n "$FTP_HOST" && -n "$FTP_USER" && -n "$FTP_PASSWORD" ]]; then
             echo 'configured=true' >> "$GITHUB_OUTPUT"
           else
-            echo '::notice::FTP deployment not configured. Add FTP secrets to activate publishing.'
+            echo '::notice::FTP deployment not configured. Set FTP_HOST, FTP_USER and FTP_PASSWORD secrets to activate publishing.'
             echo 'configured=false' >> "$GITHUB_OUTPUT"
           fi
+      - name: Stage browser files and complete project ZIP
+        if: steps.config.outputs.configured == 'true'
+        shell: bash
+        run: |
+          mkdir -p ftp-public/downloads
+          for file in index.html render.html styles.css app.js world.js render.js model-tools.js zip-utils.js timeline.json; do
+            cp "dist/$file" ftp-public/
+          done
+          cp -a dist/assets ftp-public/assets
+          cp dist/downloads/paige-video-render-workspace.zip ftp-public/downloads/
       - name: Install lftp
         if: steps.config.outputs.configured == 'true'
         run: sudo apt-get update && sudo apt-get install -y lftp
-      - name: Publish to protected remote directory
+      - name: Publish to FTP login directory
         if: steps.config.outputs.configured == 'true'
         run: bash scripts/deploy_ftp.sh
