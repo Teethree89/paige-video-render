@@ -7,3 +7,40 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
 #projectPanel .ghost{background:#182434;color:#c9dde9;border:1px solid #41536a;}
 #projectPanel .field select{width:100%;} .model-status{padding:9px 10px;border-radius:4px;background:#0c1c26;color:#bfeeea;font:11px/1.45 ui-monospace,monospace;overflow-wrap:anywhere;border:1px solid #2c5260;}
 #modelSlot{width:100%;background:#0c1420;color:#ddf6fa;padding:9px;border:1px solid #37516b;border-radius:4px;}
+
+
+/* Phase 1 video intake: kept independent from the editor's scene inspector */
+.video-modal[hidden]{display:none!important;}
+.video-modal{position:fixed;inset:0;background:rgba(2,8,15,.88);z-index:9999;display:grid;place-items:center;padding:20px;overflow:auto;backdrop-filter:blur(5px)}
+.video-modal-dialog{background:#101d2a;color:#eaf9fc;border:1px solid #41647a;border-radius:11px;width:min(1160px,96vw);max-height:94vh;display:flex;flex-direction:column;box-shadow:0 25px 100px #02060b;overflow:hidden}
+.video-modal-header{display:flex;justify-content:space-between;align-items:start;padding:22px 25px 15px;border-bottom:1px solid #2f4859;gap:20px}
+.video-modal-header h2{margin:5px 0;font-size:23px;font-weight:750}
+.video-modal-header p{margin:6px 0;color:#a7bcc8;font-size:12px;line-height:1.6}
+.video-close{background:#263e4e;color:#e0f3f8;border:1px solid #486275;border-radius:7px;cursor:pointer;padding:9px 14px;font-size:15px}
+.video-modal-columns{display:grid;grid-template-columns:minmax(320px, .92fr) minmax(340px, 1.08fr);gap:0;overflow:hidden;min-height:0}
+.video-intake-left,.video-intake-right{padding:20px 24px;overflow:auto;min-height:0}
+.video-intake-right{border-left:1px solid #32485b;display:flex;flex-direction:column}
+.video-modal .field{display:flex;flex-direction:column;color:#bfd7e2;gap:6px;font-size:12px;margin-bottom:12px}
+.video-modal input:not([type="checkbox"]),.video-modal select{background:#081826;color:#ecfbff;border:1px solid #3d5a6a;border-radius:5px;padding:10px;width:100%;font:inherit}
+.video-modal input[type=file]{font-size:12px}
+#videoPreview{width:100%;aspect-ratio:16/9;background:#050c12;border:1px solid #354c60;border-radius:6px;display:block;margin:5px 0 18px;object-fit:contain}
+.video-options{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+.video-options label:last-child{grid-column:1 / -1}
+.video-modal button.wide{margin:5px 0;padding:11px;border-radius:6px;cursor:pointer}
+.video-modal .primary{background:#9deee9;color:#072730;font-weight:750;border:0}
+.video-modal .secondary{background:#223b4c;color:#dff9ff;border:1px solid #416174}
+#videoProgress{width:100%;margin:10px 0 2px;accent-color:#7debdc}
+#videoStatus{font-size:12px;color:#a8e2e7;line-height:1.5;min-height:36px;margin:9px 0}
+.video-review-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+#videoShotCount{font:12px ui-monospace,monospace;color:#b8d6de}
+.video-storyboard{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;overflow-y:auto;align-content:start;flex:1;min-height:120px}
+.video-shot-card{overflow:hidden;border:1px solid #395668;border-radius:6px;background:#0c1825}
+.video-shot-card img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#081019}
+.video-shot-info{display:flex;align-items:start;justify-content:space-between;flex-wrap:wrap;gap:3px 9px;padding:8px;font-size:11px}
+.video-shot-info span{color:#9fb7c6;font:10px ui-monospace,monospace}
+.video-remove-cut{font:10px inherit;border:1px solid #4d6776;background:#192b3c;color:#b3d9e3;border-radius:4px;padding:4px 6px;cursor:pointer}
+.video-review-actions{padding-top:12px;border-top:1px solid #345164;margin-top:14px}
+.video-action-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.video-action-row button{padding:11px;border-radius:6px;cursor:pointer}
+.video-modal button:disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
+@media(max-width:800px){.video-modal{padding:7px}.video-modal-dialog{max-height:98vh}.video-modal-columns{grid-template-columns:1fr;overflow:auto}.video-intake-right{border-left:0;border-top:1px solid #344a60;overflow:visible}.video-storyboard{max-height:400px}.video-modal-header{padding:16px}.video-modal-header h2{font-size:19px}}
