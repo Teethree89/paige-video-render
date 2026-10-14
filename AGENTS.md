@@ -28,3 +28,7 @@ Read [docs/ZEN_AI_SCENE_PROTOTYPE.md](docs/ZEN_AI_SCENE_PROTOTYPE.md). A GitHub 
 The first raw HTTP Zen Responses test got HTTP 403 with the configured secret. For free models the workflow now uses the official `@opencode/cli` client (no fake headers, no paid fallback). Confirm real CLI success from Actions before advertising working AI geometry.
 
 **Verified blocker 2026-10-14:** model calls to Muse Contributor Free returned `FREE_TIER_CLIENT_RESTRICTION` even from an Actions runner with official OpenCode CLI. Do not claim this integration is working; inspect docs/ZEN_AI_SCENE_PROTOTYPE.md before proceeding. Never spoof OpenCode client headers or silently choose a paid model.
+
+## Multi-model Zen experiment
+
+The experimental workflow `.github/workflows/zen-free-model-benchmark.yml` tests MiMo-V2.6 Flash Free, MiMo-V2.5 Free, Nemotron 3.5 Lightning Free and Big Pickle. It distinguishes text-only API acceptance from true image-to-geometry success. Only the already-public reference `hall` clip may be sent, using `zen_api` inside GitHub Actions. Read sanitized model artifacts before making any integration claim. The original Muse Contributor free model returned a 403 free-tier restriction; do not pretend the limitation is resolved until evidenced.
