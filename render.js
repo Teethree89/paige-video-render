@@ -1,12 +1,13 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {buildWorld} from './world.js';
+import {createDraftWorld} from './draft-world.js';
 const $=id=>document.getElementById(id);
 const out=$('output'), ctx=out.getContext('2d',{alpha:false});
 const source=document.createElement('canvas');
 const renderer=new THREE.WebGLRenderer({canvas:source,antialias:true,preserveDrawingBuffer:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(1);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.35;
-const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(50,16/9,.35,500);const world=buildWorld(scene);
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(50,16/9,.35,500);const world=buildWorld(scene),draftWorld=createDraftWorld(scene);
 let seq,modelCount=0,frameRequest=0,previewing=false,recording=false,previewStart=0,previewTime=0,recorder=null;
 const lerp=(a,b,u)=>a+(b-a)*u, ease=u=>u*u*(3-2*u), clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function modelId(id){return id==='hallreturn'?'hall':id==='finale'?'exterior':id;}
@@ -28,7 +29,7 @@ function labelsAt(t){if(!$('captions').checked)return;const W=out.width,H=out.he
  ctx.restore();
  }
 }
-function render(t){if(!seq)return;const c=cameraAt(t);cam.position.set(...c.p);cam.lookAt(...c.t);cam.fov=c.fov;cam.aspect=16/9;cam.updateProjectionMatrix();world.update(t,shotAt(t).id);renderer.render(scene,cam);ctx.drawImage(source,0,0,out.width,out.height);
+function render(t){if(!seq)return;const c=cameraAt(t);cam.position.set(...c.p);cam.lookAt(...c.t);cam.fov=c.fov;cam.aspect=16/9;cam.updateProjectionMatrix();const currentShot=shotAt(t);world.update(t,currentShot.id);draftWorld.update(currentShot);renderer.render(scene,cam);ctx.drawImage(source,0,0,out.width,out.height);
  // Approximate viewport's vignette in the output so the scene exports without editor chrome.
  const gr=ctx.createLinearGradient(0,0,0,out.height);gr.addColorStop(0,'rgba(3,8,13,.25)');gr.addColorStop(.26,'rgba(3,8,13,0)');gr.addColorStop(.75,'rgba(4,11,17,0)');gr.addColorStop(1,'rgba(4,11,17,.48)');ctx.fillStyle=gr;ctx.fillRect(0,0,out.width,out.height);
  labelsAt(t);
