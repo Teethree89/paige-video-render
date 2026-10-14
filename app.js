@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {buildWorld} from './world.js';
 import {setupModelTools} from './model-tools.js';
+import {setupVideoImport} from './video-import.js';
+import {createDraftWorld} from './draft-world.js';
 
 const el=id=>document.getElementById(id);
 const canvas=el('scene'),viewport=el('viewport');
@@ -16,6 +18,7 @@ const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(50,16/9,.35,500
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enabled=false;controls.enableDamping=true;controls.dampingFactor=.08;controls.maxDistance=140;
 const world=buildWorld(scene);
+const draftWorld=createDraftWorld(scene);
 const referenceVideo=el('referenceVideo');referenceVideo.volume=0;
 for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=true;
 let sequence,originalSequence,ready=false,playhead=0,playing=false,lastFrame=performance.now(),speed=1,selection=null,orbitMode=false;
@@ -33,9 +36,18 @@ async function boot(){
  let cached=null;try{const raw=localStorage.getItem('atoms-ai-sequence-v1');if(raw)cached=JSON.parse(raw);}catch(e){}
  originalSequence=original;sequence=validSequence(cached)?cached:structuredClone(original);
  refreshAll();seek(0,{force:true});ready=true;
+ if(sequence.videoIntake){referenceVideo.style.display='none';el('showRef').checked=false;el('saveStatus').textContent='● REATTACH SOURCE VIDEO';}
  for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=false;
  window.__atomsEditorStarted=true;animate(performance.now());
  setupModelTools(world,{onSceneChanged:()=>renderWorld()});
+ setupVideoImport({onApply:({timeline,videoUrl})=>{
+   if(!validSequence(timeline))throw Error('Generated timeline is invalid');
+   setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;
+   referenceVideo.pause();referenceVideo.src=videoUrl;referenceVideo.load();
+   referenceVideo.style.display='block';el('showRef').checked=true;
+   sequence=timeline;refreshAll();seek(0);saveLocal();
+   el('saveStatus').textContent='● VIDEO DRAFT SAVED · SOURCE LOCAL';
+ }});
 }
 function validSequence(s){return !!(s&&Number.isFinite(s.duration)&&s.duration>0&&Array.isArray(s.shots)&&s.shots.length&&Array.isArray(s.camera)&&s.camera.length&&Array.isArray(s.text));}
 function saveLocal(){try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));}catch(e){}el('saveStatus').textContent='● SAVED LOCALLY';}
@@ -43,7 +55,7 @@ function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===s
 function cameraAt(t){let keys=sequence.camera.slice().sort((a,b)=>a.at-b.at);let first=keys[0];if(t<=first.at)return first;for(let i=0;i<keys.length-1;i++){let a=keys[i],b=keys[i+1];if(t>=a.at&&t<b.at){if(b.cut)return a;let u=ease(clamp((t-a.at)/(b.at-a.at),0,1));return{p:a.p.map((v,j)=>lerp(v,b.p[j],u)),t:a.t.map((v,j)=>lerp(v,b.t[j],u)),fov:lerp(a.fov,b.fov,u)};}}return keys[keys.length-1];}
 function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.updateProjectionMatrix();controls.target.set(...c.t);}
 function seek(t,opts={}){playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
-function renderWorld(){const shot=shotAt(playhead);world.update(playhead,shot.id);let cuts=sequence.camera.filter(k=>k.cut&&k.at>0).map(k=>k.at);let alpha=0;for(let cut of cuts){let diff=Math.abs(playhead-cut);if(diff<.17)alpha=Math.max(alpha,(1-diff/.17)*.72);}el('cutFlash').style.opacity=String(alpha);}
+function renderWorld(){const shot=shotAt(playhead);world.update(playhead,shot.id);draftWorld.update(shot);let cuts=sequence.camera.filter(k=>k.cut&&k.at>0).map(k=>k.at);let alpha=0;for(let cut of cuts){let diff=Math.abs(playhead-cut);if(diff<.17)alpha=Math.max(alpha,(1-diff/.17)*.72);}el('cutFlash').style.opacity=String(alpha);}
 function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  if(playing){let next=playhead+dt*speed;if(next>=sequence.duration){next=sequence.duration;setPlaying(false);}seek(next,{fromFrame:true});if(referenceVideo.readyState>=2&&Math.abs(referenceVideo.currentTime-playhead)>.15){try{referenceVideo.currentTime=playhead;}catch(e){}}}
  if(controls.enabled)controls.update();renderer.render(scene,camera);requestAnimationFrame(animate);
@@ -106,7 +118,7 @@ el('camCut').onchange=e=>{let d=selectedData();if(!d)return;d.cut=e.target.check
 el('removeCameraBtn').onclick=deleteSelected;el('removeTextBtn').onclick=deleteSelected;
 for(let [field,key] of [['textValue','value'],['textSubtitle','subtitle'],['textStart','start'],['textEnd','end'],['textX','x'],['textY','y'],['textSize','size'],['textAlign','align'],['textTone','tone']])el(field).addEventListener('input',e=>{let d=selectedData();if(!d)return;const numeric=['start','end','x','y'].includes(key);d[key]=numeric?safeNum(e.target.value):e.target.value;if(key==='start')d.start=clamp(d.start,0,sequence.duration-.1);if(key==='end')d.end=clamp(d.end,d.start+.1,sequence.duration);if(key==='x'||key==='y')d[key]=clamp(d[key],0,100);renderTimeline();renderOverlays();saveLocal();});
 el('exportBtn').onclick=()=>{if(!ready||!sequence)return;const json=JSON.stringify(sequence,null,2),blob=new Blob([json],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='atoms-to-ai-timeline.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);el('saveStatus').textContent='● EXPORTED';};
-el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;sequence=structuredClone(originalSequence);selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();};
+el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;sequence=structuredClone(originalSequence);referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();};
 el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');sequence=data;setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
 el('showRef').onchange=e=>{referenceVideo.style.display=e.target.checked?'block':'none';if(!e.target.checked)referenceVideo.pause();else if(playing)referenceVideo.play().catch(()=>{});};
 referenceVideo.addEventListener('loadedmetadata',()=>{try{referenceVideo.currentTime=playhead;}catch(e){}});
