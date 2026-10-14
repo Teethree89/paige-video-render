@@ -12,7 +12,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      FTP_HOST: ${{ secrets.FTP_HOST }}
+      # 50webs publishes this dedicated TLS endpoint for encrypted FTP.
+      FTP_HOST: ftps2.50webs.com
       FTP_USER: ${{ secrets.FTP_USER }}
       FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
     steps:
@@ -36,7 +37,7 @@ jobs:
           if [[ -n "$FTP_HOST" && -n "$FTP_USER" && -n "$FTP_PASSWORD" ]]; then
             echo 'configured=true' >> "$GITHUB_OUTPUT"
           else
-            echo '::notice::FTP deployment not configured. Set FTP_HOST, FTP_USER and FTP_PASSWORD secrets to activate publishing.'
+            echo '::notice::FTP deployment not configured. Set FTP_USER and FTP_PASSWORD secrets to activate publishing.'
             echo 'configured=false' >> "$GITHUB_OUTPUT"
           fi
       - name: Stage browser files and complete project ZIP
