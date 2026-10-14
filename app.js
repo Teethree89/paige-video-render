@@ -6,6 +6,7 @@ import {setupVideoImport} from './video-import.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
+import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
 
 const el=id=>document.getElementById(id);
@@ -23,7 +24,7 @@ controls.enabled=false;controls.enableDamping=true;controls.dampingFactor=.08;co
 const world=buildWorld(scene);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
-let primitiveEditor=null,lastPrimitiveShotId=null;
+let primitiveEditor=null,aiSceneEditor=null,lastPrimitiveShotId=null;
 function syncPrimitiveWorld(){
   primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
   lastPrimitiveShotId=null;
@@ -64,12 +65,32 @@ async function boot(){
      saveLocal();renderWorld();
    }
  });
+ aiSceneEditor=setupAiSceneEditor({
+   getSequence:()=>sequence,
+   getActiveShot:()=>shotAt(playhead),
+   getReferenceVideo:()=>referenceVideo,
+   onPreview:entry=>{
+     const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
+     doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
+     doc.scenes.push(entry);
+     primitiveWorld.setDocument(doc,sequence.shots.map(s=>s.id));
+     renderWorld();
+   },
+   onDiscard:()=>{syncPrimitiveWorld();renderWorld();},
+   onAccept:entry=>{
+     const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
+     doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
+     doc.scenes.push(entry);
+     sequence.primitiveScenes=validatePrimitiveDocument(doc,sequence.shots.map(s=>s.id));
+     syncPrimitiveWorld();renderWorld();saveLocal();
+   }
+ });
  setupVideoImport({onApply:({timeline,videoUrl})=>{
    if(!validSequence(timeline))throw Error('Generated timeline is invalid');
    setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;
    referenceVideo.pause();referenceVideo.src=videoUrl;referenceVideo.load();
    referenceVideo.style.display='block';el('showRef').checked=true;
-   sequence=timeline;syncPrimitiveWorld();refreshAll();seek(0);saveLocal();
+   aiSceneEditor?.reset();sequence=timeline;syncPrimitiveWorld();refreshAll();seek(0);saveLocal();
    el('saveStatus').textContent='● VIDEO DRAFT SAVED · SOURCE LOCAL';
  }});
 }
@@ -145,8 +166,8 @@ el('camCut').onchange=e=>{let d=selectedData();if(!d)return;d.cut=e.target.check
 el('removeCameraBtn').onclick=deleteSelected;el('removeTextBtn').onclick=deleteSelected;
 for(let [field,key] of [['textValue','value'],['textSubtitle','subtitle'],['textStart','start'],['textEnd','end'],['textX','x'],['textY','y'],['textSize','size'],['textAlign','align'],['textTone','tone']])el(field).addEventListener('input',e=>{let d=selectedData();if(!d)return;const numeric=['start','end','x','y'].includes(key);d[key]=numeric?safeNum(e.target.value):e.target.value;if(key==='start')d.start=clamp(d.start,0,sequence.duration-.1);if(key==='end')d.end=clamp(d.end,d.start+.1,sequence.duration);if(key==='x'||key==='y')d[key]=clamp(d[key],0,100);renderTimeline();renderOverlays();saveLocal();});
 el('exportBtn').onclick=()=>{if(!ready||!sequence)return;const json=JSON.stringify(sequence,null,2),blob=new Blob([json],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='atoms-to-ai-timeline.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);el('saveStatus').textContent='● EXPORTED';};
-el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;sequence=structuredClone(originalSequence);syncPrimitiveWorld();referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();};
-el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));sequence=data;syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
+el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;aiSceneEditor?.reset();sequence=structuredClone(originalSequence);syncPrimitiveWorld();referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();};
+el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));aiSceneEditor?.reset();sequence=data;syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
 el('showRef').onchange=e=>{referenceVideo.style.display=e.target.checked?'block':'none';if(!e.target.checked)referenceVideo.pause();else if(playing)referenceVideo.play().catch(()=>{});};
 referenceVideo.addEventListener('loadedmetadata',()=>{try{referenceVideo.currentTime=playhead;}catch(e){}});
 window.addEventListener('keydown',e=>{const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
