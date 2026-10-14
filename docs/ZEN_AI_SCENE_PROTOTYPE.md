@@ -1,3 +1,11 @@
+## Free model comparison: controlled four-model experiment
+
+The [free-model benchmark workflow](https://github.com/Teethree89/paige-video-render/actions/workflows/zen-free-model-benchmark.yml) checks four models from the official Zen catalog, each labeled **Free** at setup time: `mimo-v2.6-flash-free`, `mimo-v2.5-free`, `nemotron-3.5-lightning-free`, and `big-pickle`. Only the already-public `hall` shot is used. No paid fallback, provider header spoofing, secret logging, or changes to the original project.
+
+Each job first sends a small text-only prompt to test model/API authorization. **Only if that succeeds** does it extract and send three reference frames for a proposed 3D scene, then validate the output against our runtime primitive schema. Results are stored as a sanitized per-model JSON report in the workflow artifacts. A green benchmark job means the runner completed its *test*, **not** necessarily that AI produced geometry; inspect the `text_access`, `vision_json`, and `diagnostic` fields. If a candidate succeeds, unzip its `*-primitives.json` artifact and import it in the primitive inspector for review.
+
+These temporary free variants can have different usage and data-improvement terms; use public test footage only, not client media, pending approval. Image support is **not assumed** for all four candidates. The experiment runs once on merge and can be manually retriggered. See the actual workflow result for observed outcomes rather than assuming availability from the pricing catalog.
+
 # Phase 3 proof-of-concept — private OpenCode Zen scene analysis
 
 ## Live connection status (October 14, 2026)
