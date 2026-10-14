@@ -1,4 +1,5 @@
 import { frameSignature, detectShotCuts, normalizeCuts, createDraftTimeline } from './shot-analysis.js';
+import { detectVisualChapters } from './chapter-analysis.js';
 
 const byId = id => document.getElementById(id);
 const pretty = t => {
@@ -69,11 +70,33 @@ export function setupVideoImport({onApply}) {
   const status=byId('videoStatus'), progress=byId('videoProgress'), gallery=byId('videoStoryboard');
   const start=byId('videoAnalyzeBtn'), apply=byId('videoApplyBtn'), exportBtn=byId('videoExportBtn');
   let report=null,cuts=[],file=null,url=null,scanning=false,cancel=false;
-  const referencedUrls=new Set();
+  const referencedUrls=new Set(),shotLabels=new Map();
+  const labelKey=at=>Number(at).toFixed(2);
   const setStatus=s=>{status.textContent=s;};
-  const newTimeline=()=>createDraftTimeline({
-    duration:report.duration,fps:30,cuts,title:file.name.replace(/\.[^.]+$/,'') || 'Imported video'
-  });
+  function suggestions(){
+    if(!report)return [];
+    const sensitivity=byId('videoSensitivity').value;
+    const minShotDuration=Number(byId('videoMinLength').value);
+    if(byId('videoAnalysisMode').value==='chapters')
+      return detectVisualChapters(report.samples,{sensitivity,minShotDuration});
+    const threshold=({high:.075,balanced:.11,low:.145,verylow:.20})[sensitivity]??.11;
+    return detectShotCuts(report.samples,{threshold,minShotDuration});
+  }
+  function newTimeline(){
+    const timeline=createDraftTimeline({
+      duration:report.duration,fps:30,cuts,title:file.name.replace(/\.[^.]+$/,'') || 'Imported video'
+    });
+    timeline.videoIntake.mode=byId('videoAnalysisMode').value==='chapters'?'visual-chapter-suggestions':'hard-cut-suggestions';
+    for(const shot of timeline.shots){
+      const label=shotLabels.get(labelKey(shot.start));
+      if(label){
+        shot.name=label;
+        shot.title=label.toUpperCase();
+        shot.description=label;
+      }
+    }
+    return timeline;
+  }
   const controls=()=>{
     apply.disabled=exportBtn.disabled=!report||scanning;
     start.disabled=!file||scanning;
@@ -90,7 +113,7 @@ export function setupVideoImport({onApply}) {
     const next=fileInput.files?.[0];
     if (!next)return;
     if(url&&!referencedUrls.has(url))URL.revokeObjectURL(url);
-    file=next;url=URL.createObjectURL(file);report=null;cuts=[];gallery.replaceChildren();progress.value=0;
+    file=next;url=URL.createObjectURL(file);report=null;cuts=[];shotLabels.clear();gallery.replaceChildren();progress.value=0;
     byId('videoPreview').src=url;
     setStatus('Ready to scan '+file.name+' ('+(file.size/1048576).toFixed(1)+' MB).');
     controls();
@@ -98,7 +121,7 @@ export function setupVideoImport({onApply}) {
   function draw() {
     gallery.replaceChildren();if(!report)return;
     const timeline=newTimeline();
-    byId('videoShotCount').textContent=timeline.shots.length+' scene(s) · '+pretty(report.duration)+' · '+report.samples.length+' sampled frames';
+    byId('videoShotCount').textContent=timeline.shots.length+' suggested chapter(s) · '+pretty(report.duration)+' · '+report.samples.length+' sampled frames';
     for(let i=0;i<timeline.shots.length;i++){
       const shot=timeline.shots[i], card=document.createElement('article');card.className='video-shot-card';
       const image=document.createElement('img');image.alt='Sampled source video at '+pretty(shot.sourceFrameTime);
@@ -108,42 +131,44 @@ export function setupVideoImport({onApply}) {
       const heading=document.createElement('strong');heading.textContent='Shot '+String(i+1).padStart(2,'0');
       const time=document.createElement('span');time.textContent=pretty(shot.start)+' – '+pretty(shot.end);
       info.append(heading,time);
+      const name=document.createElement('input');
+      name.type='text';name.className='video-chapter-name';
+      name.placeholder='Label the subject (e.g. laser source)';
+      name.setAttribute('aria-label','Name for chapter '+(i+1));
+      name.value=shotLabels.get(labelKey(shot.start))||'';
+      name.addEventListener('input',()=>shotLabels.set(labelKey(shot.start),name.value.trim()));
       if (i>0) {
         const remove=document.createElement('button');remove.type='button';remove.className='video-remove-cut';
         remove.textContent='Remove cut';remove.title='Merge this shot with the previous shot';
         remove.addEventListener('click',()=>{cuts.splice(i-1,1);draw();});
         info.append(remove);
       }
-      card.append(image,info);gallery.append(card);
+      card.append(image,info,name);gallery.append(card);
     }
   }
   start.addEventListener('click',async()=>{
     if(!file||scanning)return;
     scanning=true;cancel=false;controls();progress.value=0;
-    const step=Number(byId('videoStep').value),threshold=Number(byId('videoSensitivity').value);
-    const minShotDuration=Number(byId('videoMinLength').value);
+    const step=Number(byId('videoStep').value);
     setStatus('Decoding frames locally… no video is uploaded.');
     try{
       const found=await sampleVideo(file,url,{step,isCancelled:()=>cancel,
         onProgress:(fraction,n,total)=>{progress.value=fraction;setStatus('Analyzed '+n+' / '+total+' frames ('+Math.round(fraction*100)+'%).');}});
       if(cancel)throw Error('Analysis cancelled');
       report=found;
-      cuts=detectShotCuts(found.samples,{threshold,minShotDuration});
-      draw();setStatus('Analysis complete. Cut detection is approximate; review the storyboard before applying.');
+      cuts=suggestions();
+      draw();setStatus('Visual changes are only chapter suggestions, not recognized subjects. Name and review chapters before applying.');
     }catch(err){if(err.message!=='Analysis cancelled')setStatus('Unable to analyze video: '+err.message);
       console.warn('Video import:',err);}
     finally{scanning=false;controls();}
   });
-  byId('videoSensitivity').addEventListener('change',()=>{
-    if(!report||scanning)return;
-    cuts=detectShotCuts(report.samples,{threshold:Number(byId('videoSensitivity').value),
-      minShotDuration:Number(byId('videoMinLength').value)});draw();
-  });
-  byId('videoMinLength').addEventListener('change',()=>{
-    if(!report||scanning)return;
-    cuts=detectShotCuts(report.samples,{threshold:Number(byId('videoSensitivity').value),
-      minShotDuration:Number(byId('videoMinLength').value)});draw();
-  });
+  for(const id of ['videoSensitivity','videoMinLength','videoAnalysisMode']){
+    byId(id).addEventListener('change',()=>{
+      if(!report||scanning)return;
+      cuts=suggestions();draw();
+      setStatus('Suggestions recalculated. Review and relabel before applying.');
+    });
+  }
   byId('videoAddCutBtn').addEventListener('click',()=>{
     if(!report||scanning)return;
     const t=Number(byId('videoManualCut').value);
@@ -151,8 +176,8 @@ export function setupVideoImport({onApply}) {
       setStatus('Enter a cut time inside the video duration.');return;
     }
     const next=normalizeCuts([...cuts,{at:t,automatic:false}],report.duration);
-    if(next.length===cuts.length){setStatus('There is already a cut very close to that time.');return;}
-    cuts=next;draw();setStatus('Added manual cut at '+pretty(t)+'.');
+    if(next.length===cuts.length){setStatus('There is already a boundary very close to that time.');return;}
+    cuts=next;draw();setStatus('Added chapter boundary at '+pretty(t)+'.');
   });
   exportBtn.addEventListener('click',()=>{
     if(!report)return;
