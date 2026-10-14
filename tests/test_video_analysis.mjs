@@ -37,6 +37,8 @@ test('timeline builds editable shot spans and flagged placeholder camera keys',(
   assert.equal(seq.camera.filter(x=>x.cut).length,2);
   assert.ok(seq.camera.every(x=>x.generated==='placeholder'));
   assert.ok(seq.camera.every(x=>x.at>=0&&x.at<=seq.duration));
+  assert.ok(seq.shots.every(x=>x.sourceFrameTime>x.start && x.sourceFrameTime<x.end));
+  assert.ok(seq.shots.every(x=>x.endFrameTime>=x.sourceFrameTime && x.endFrameTime<x.end));
   assert.equal(seq.videoIntake.mode,'cut-detection-only');
 });
 test('invalid or vanishing videos are rejected',()=>{
