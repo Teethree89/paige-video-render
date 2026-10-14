@@ -23,7 +23,8 @@ jobs:
       - name: Test video cut analysis and draft timeline
         run: node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs tests/test_primitive_editor_dom.mjs
       - name: Validate timeline and model assets
-        run: python tests/test_workspace.py
+        run: |
+          python tests/test_workspace.py
           python -m unittest discover -s tests -p test_zen_scene.py -v
       - name: Validate reproducible export bundle
         run: python scripts/build_workspace.py --output dist
