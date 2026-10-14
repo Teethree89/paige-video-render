@@ -70,8 +70,8 @@ $workerEndpoint = $config['worker_endpoint'] ?? '';
 if (!is_string($secret) || strlen($secret) < 32 ||
     !is_string($passphrase) || strlen($passphrase) < 16 ||
     !is_string($workerEndpoint) ||
-    str_contains($secret, 'PASTE_') || str_contains($passphrase, 'CHOOSE_') ||
-    str_contains($workerEndpoint, 'YOUR_WORKER')) {
+    strpos($secret, 'PASTE_') !== false || strpos($passphrase, 'CHOOSE_') !== false ||
+    strpos($workerEndpoint, 'YOUR_WORKER') !== false) {
     reject(503, 'Private server configuration needs valid values');
 }
 
