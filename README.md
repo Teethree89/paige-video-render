@@ -25,6 +25,12 @@ Use **Export timeline** or **Download JSON** to retain your shot/keyframe change
 
 A full implementation plan for future AI-powered primitive reconstruction, provider benchmarking and camera refinement lives at **[docs/VIDEO_TO_3D_AI_ROADMAP.md](docs/VIDEO_TO_3D_AI_ROADMAP.md)**. AI contributors should start with **[AGENTS.md](AGENTS.md)**. No OpenCode key is required or used by Phase 1.
 
+## Phase 3 prototype — AI-assisted geometry proposals
+
+The GitHub Actions secret `zen_api` is used by a **private runner-side workflow**, not by the publicly hosted editor. The [Zen scene proposal workflow](https://github.com/Teethree89/paige-video-render/actions/workflows/ai-scene-zen.yml) can analyze three frames from an existing chapter of the repository's reference MP4 using Muse Contributor Free, validate the proposed primitive JSON, and return a downloadable artifact. Unzip the artifact and use **3D Primitive Scene Editor → Import JSON** to review/edit its geometry.
+
+This is a first one-chapter *backend integration test*, not one-click inference for arbitrary browser-uploaded videos. The original scene and timeline remain safe, and no API key is embedded in public JavaScript. See [setup, privacy and limitations](docs/ZEN_AI_SCENE_PROTOTYPE.md).
+
 ## Phase 2 — editable 3D primitive scenes
 
 **The first primitive-building stage is manual and data-driven, not AI-assisted.** Use **Video → timeline** to import and segment a source video. After selecting **Use in editor**, click a shot in the timeline and expand **3D Primitive Scene Editor** under Project settings. Choose **Example room** to get a visible blockout, or add your own box, cylinder, sphere, plane or torus.
