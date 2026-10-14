@@ -32,3 +32,7 @@ The first raw HTTP Zen Responses test got HTTP 403 with the configured secret. F
 ## Multi-model Zen experiment
 
 The experimental workflow `.github/workflows/zen-free-model-benchmark.yml` tests MiMo-V2.6 Flash Free, MiMo-V2.5 Free, Nemotron 3.5 Lightning Free and Big Pickle. It distinguishes text-only API acceptance from true image-to-geometry success. Only the already-public reference `hall` clip may be sent, using `zen_api` inside GitHub Actions. Read sanitized model artifacts before making any integration claim. The original Muse Contributor free model returned a 403 free-tier restriction; do not pretend the limitation is resolved until evidenced.
+
+## Private PHP → Worker backend
+
+See [docs/PHP_AI_SCENE_SETUP.md](docs/PHP_AI_SCENE_SETUP.md). The actual server file `/www/certificates/paiver.php` is manually created OUTSIDE the public FTP directory; do not put its values anywhere in the repository or ZIP. The public `scene-proxy.php` is protected by editor passphrase, PHP session, CSRF, strict workers.dev target and bounded JPEG requests. The Worker uses `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN` runtime secrets for Gemini 2.5 Flash-Lite. Never create an open browser-to-Worker auth path. Do not claim live functionality until hosting PHP/cURL and deployed Cloudflare Worker are independently confirmed.
