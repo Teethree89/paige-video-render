@@ -29,8 +29,8 @@ jobs:
         run: python tests/test_workspace.py
       - name: Check and test video importer
         run: |
-          for file in app.js render.js shot-analysis.js video-import.js draft-world.js; do node --check --input-type=module < "$file"; done
-          node --test tests/test_video_analysis.mjs
+          for file in app.js render.js shot-analysis.js chapter-analysis.js video-import.js draft-world.js; do node --check --input-type=module < "$file"; done
+          node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs
       - name: Build versioned workspace export
         run: python scripts/build_workspace.py --output dist
       - uses: actions/upload-artifact@v4
