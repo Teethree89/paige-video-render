@@ -32,6 +32,20 @@ function meanSignature(samples,start,end){
  * the frames on both sides must also differ over a longer time window.
  * This is video-independent and never assumes a fixed outro timestamp.
  */
+function medianSignature(samples,start,end) {
+  const grid=[],histogram=[];
+  const median=(key,k)=>{
+    const values=[];
+    for(let i=start;i<end;i++)values.push(samples[i].signature[key][k]);
+    values.sort((a,b)=>a-b);
+    const mid=Math.floor(values.length/2);
+    return values.length%2?values[mid]:(values[mid-1]+values[mid])/2;
+  };
+  for(let k=0;k<samples[0].signature.grid.length;k++)grid.push(median('grid',k));
+  for(let k=0;k<samples[0].signature.histogram.length;k++)histogram.push(median('histogram',k));
+  return {grid,histogram};
+}
+
 export function recoverTailChapter(samples, selected, {
   minShotDuration = 1.5, maxChapters = 80, windowSeconds = 1.5
 } = {}) {
@@ -56,8 +70,9 @@ export function recoverTailChapter(samples, selected, {
     const prev = i>1?distance(samples[i-1].signature,samples[i-2].signature):0;
     const next = i<samples.length-1?distance(samples[i+1].signature,samples[i].signature):0;
     if (current < 0.075 || current < prev || current < next) continue;
-    const before=meanSignature(samples,i-n,i);
-    const after=meanSignature(samples,i+1,i+n+1);
+    // Median rejects one-frame flashes that otherwise pollute the averages.
+    const before=medianSignature(samples,i-n,i);
+    const after=medianSignature(samples,i+1,i+n+1);
     const sustained=distance(before,after);
     if (sustained < 0.045) continue; // Reject isolated flashes.
     candidates.push({at:round(at),score:round(current+0.5*sustained),
