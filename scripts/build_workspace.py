@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = [
     "index.html", "render.html", "styles.css", "app.js", "world.js", "render.js",
     "model-tools.js", "zip-utils.js", "shot-analysis.js", "video-import.js",
-    "draft-world.js", "timeline.json", "README.md", "AGENTS.md",
+    "draft-world.js", "chapter-analysis.js", "timeline.json", "README.md", "AGENTS.md",
     "EXTERNAL_MODELS.md", "VIDEO_AND_AFTER_EFFECTS.md",
     "start.sh", "convert_to_mp4.sh", "convert_to_mp4.bat",
     ".gitignore", ".env.example", "GITHUB_AND_FTP.md",
