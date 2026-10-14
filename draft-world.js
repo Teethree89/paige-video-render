@@ -25,8 +25,8 @@ export function createDraftWorld(scene) {
   scene.add(root);root.visible=false;
   let previousId=null;
   return {
-    update(shot) {
-      const draft = !!(shot && (shot.draft === true || /^draft_/.test(shot.id)));
+    update(shot, hasCustomObjects = false) {
+      const draft = !!(shot && !hasCustomObjects && (shot.draft === true || /^draft_/.test(shot.id)));
       root.visible=draft;
       if (!draft) {previousId=null;return;}
       if (shot.id!==previousId) {

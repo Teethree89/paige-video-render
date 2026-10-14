@@ -59,3 +59,24 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
   background:#112c3b;border:1px solid #407688;border-radius:5px;}
 .video-end-frame img{width:64px!important;max-width:64px;aspect-ratio:16/9;object-fit:cover;border-radius:3px}
 .video-end-frame span{font-size:10px;color:#b0e4e9;font-family:ui-monospace,monospace;}
+
+
+/* Phase 2 — per-shot primitive scene objects (editable data, no AI yet). */
+.primitive-inspector{border:1px solid #34546a;border-radius:8px;padding:12px;margin:12px 0;background:#102231}
+.primitive-inspector summary{font-weight:800;letter-spacing:.12em;font-size:10px;color:#9cebee;cursor:pointer;margin-bottom:12px}
+.primitive-inspector .model-status{margin-bottom:13px}
+.primitive-inspector .field{display:flex;flex-direction:column;gap:5px;font-size:11px;color:#aec5d0;margin:10px 0}
+.primitive-inspector select,.primitive-inspector input:not([type=color]){background:#081a2a;color:#f0fcff;border:1px solid #36576e;border-radius:5px;padding:7px;max-width:100%;min-width:0}
+.primitive-inspector input[type=color]{background:#081a2a;border:1px solid #36576e;border-radius:5px;padding:2px;width:100%;height:32px}
+.primitive-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:9px 0}
+.primitive-buttons button{font-size:10px;padding:9px 5px;border-radius:5px;min-width:0;white-space:normal}
+.primitive-inspector .secondary{background:#284b5e;border:1px solid #4c7585;color:#edfcff}
+.primitive-inspector .ghost{background:#142d41;border:1px solid #3d5b72;color:#e1f4fc}
+.primitive-inspector .danger{background:#4a2736;border:1px solid #985e70;color:#ffe1e4}
+.primitive-inspector .triple-input{gap:5px;margin-bottom:9px}
+.primitive-inspector .triple-input input{width:100%}
+.primitive-materials{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.primitive-materials .field{min-width:0}
+.primitive-field-note{font-size:10px;color:#aacbd4;margin:9px 0}
+#primitiveFields[hidden]{display:none}
+.primitive-inspector .divider{margin:12px 0}

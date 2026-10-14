@@ -1,7 +1,7 @@
 # Video → Editable 3D Flythrough: AI Roadmap
 
 **Project:** Teethree89/paige-video-render  
-**Status:** Phase 1 underway; future AI stages are proposals, not completed features.  
+**Status:** Phases 1–2 implemented; AI semantic recognition (Phase 3) remains planned.  
 **Design principle:** Replicate our successful *Atoms to AI* workflow rather than claiming full automatic 3D reconstruction from 2D video.
 
 ## Starting point / benchmark
@@ -22,9 +22,11 @@ Goal: Import an arbitrary reference MP4; draft shots and frame references; infer
 
 Acceptance: current 56 s MP4 imports in a modern desktop browser, shot cards appear, manual cut editing works, playback/scrubbing works, the timeline imports/exports, and the browser video exporter can render the draft guide world. Existing default sequence and seven GLBs remain unaltered. No key required. Cut detection is heuristic and manually reviewed, not guaranteed accurate.
 
-## Phase 2 — JSON primitives engine
+## Phase 2 — JSON primitives engine (implemented: manual authoring)
 
-Define a *versioned and validated* scene schema, separate from camera/text timeline:
+The implemented **manual** editor validates shot-specific primitive data in an optional `timeline.primitiveScenes` property, renders it through the same runtime as video export, and can export GLBs. The standalone schema is documented in [PRIMITIVE_SCENE_FORMAT.md](PRIMITIVE_SCENE_FORMAT.md). The next phase will generate this exact validated structure from AI vision analysis rather than manual editing.
+
+Example of the underlying data format:
 
 ```json
 {
@@ -97,3 +99,15 @@ Phase 1.1's windowed visual-chapter mode and editable names make the storyboard 
 ## Phase 1.2 — Ending / outro coverage
 
 A frame-by-frame check of the original source confirms the final aerial campus/title shot appears around 48–49 seconds and continues through 56.47 seconds. Earlier chapter detection ranked the bright optical changes at about 46.5 seconds higher and its early-in-shot thumbnail showed server equipment, hiding the closing shot. The visual-chapter detector now considers strong **sustained late transitions** when its candidate quota is filled (with safeguards against isolated flash frames); final-shot thumbnails use the middle of the scene and explicitly show the last actual sampled video frame. This is general video behavior, **not** a hardcoded 48-second cut or semantic recognition of an outro. Test with the original video and inspect the reported segment boundaries in the browser.
+
+### Phase 2 actual delivery
+
+- [x] Versioned JSON primitive document with bounded whitelist and validation.
+- [x] Per-shot box, sphere, cylinder, plane and torus geometry rendering.
+- [x] Editable position, rotation, dimensions and PBR color/metalness/roughness.
+- [x] Local save, standalone JSON import/export, timeline JSON persistence, single-shot GLB export.
+- [x] Same data-driven primitive world in editor preview and MP4 renderer.
+- [x] CI schema tests and public FTP packaging.
+- [ ] AI vision-driven scene proposals (Phase 3).
+- [ ] Automated video-derived camera recovery (Phase 4).
+
