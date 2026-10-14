@@ -19,11 +19,18 @@ jobs:
       FTP_PASSWORD: ${{ secrets.FTP_PASS || secrets.FTP_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - name: Validate workspace
         run: python tests/test_workspace.py
+      - name: Check and test video importer
+        run: |
+          for file in app.js render.js shot-analysis.js video-import.js draft-world.js; do node --check --input-type=module < "$file"; done
+          node --test tests/test_video_analysis.mjs
       - name: Build versioned workspace export
         run: python scripts/build_workspace.py --output dist
       - uses: actions/upload-artifact@v4

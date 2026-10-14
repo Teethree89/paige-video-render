@@ -15,6 +15,16 @@ The reference is *not* being projected on the canvas: the canvas runs a real Thr
 
 No npm installation or build step is needed.
 
+## Import a reference video and generate a draft timeline (Phase 1)
+
+Use **Video → timeline** in the top toolbar to begin. Choose an MP4, MOV, or WebM that your browser supports, then click **Analyze cuts & extract thumbnails**. The importer samples frames locally, estimates hard shot cuts, and displays a storyboard. Change sensitivity, minimum shot length or frame-sample interval, and re-analyze if needed. Remove false boundaries or **Add cut at time** before applying.
+
+Click **Use in editor →** to replace the working timeline with estimated shots and placeholder dolly-camera keyframes. The source clip appears in the synchronized reference-video panel, and newly imported shots get visible **generic guide geometry** while the AI primitive generation phase is developed. The seven original project scenes and the committed default `timeline.json` are unchanged.
+
+Use **Export timeline** or **Download JSON** to retain your shot/keyframe changes. **Keep the original video file too**: the importer uses a temporary browser URL and does not upload or permanently store the source. On reload, JSON/local timeline edits may persist, but the source video must be selected again. Imported shot cuts are only approximate; these are **not** recovered 3D objects or true camera poses.
+
+A full implementation plan for future AI-powered primitive reconstruction, provider benchmarking and camera refinement lives at **[docs/VIDEO_TO_3D_AI_ROADMAP.md](docs/VIDEO_TO_3D_AI_ROADMAP.md)**. AI contributors should start with **[AGENTS.md](AGENTS.md)**. No OpenCode key is required or used by Phase 1.
+
 ## Controls
 
 The Reset original timeline button is in **Inspector → Project settings**. Playback and editing controls remain disabled until `timeline.json` loads successfully.
