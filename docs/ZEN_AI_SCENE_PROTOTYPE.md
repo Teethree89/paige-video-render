@@ -13,7 +13,7 @@ Open [Zen AI scene proposal workflow](https://github.com/Teethree89/paige-video-
 - **shot_id:** `hall` (initial benchmark), or another shot id from root `timeline.json` such as `pcb`, `laser`, or `finale`.
 - **model:** `muse-spark-1.3-contributor-free` (the only allowlisted model, listed free in the current OpenCode Zen catalog).
 
-GitHub Actions reconstructs the bundled reference MP4, samples **three frames inside the selected shot**, and sends those frames to Zen's documented Responses endpoint. The model receives spatial-layout instructions and is asked to produce 0–16 allowed primitive objects. Its response is checked against the same `primitive-schema.js` validator as the editor. On success the workflow uploads the `zen-primitive-proposal-<run-id>` artifact containing `hall-primitives.json`.
+GitHub Actions reconstructs the bundled reference MP4, samples **three frames inside the selected shot**, and attaches those frames to the **official OpenCode CLI** running noninteractively with the built-in Zen provider. The script uses the `zen_api` secret via environment-variable substitution. The model receives spatial-layout instructions and is asked to produce 0–16 allowed primitive objects. Its response is checked against the same `primitive-schema.js` validator as the editor. On success the workflow uploads the `zen-primitive-proposal-<run-id>` artifact containing `hall-primitives.json`.
 
 In the editor, load the original timeline (or a compatible timeline with matching shot IDs), select **3D Primitive Scene Editor → Import JSON**, and choose the downloaded `hall-primitives.json`. This replaces the **primitive scenes** in the current working timeline after confirmation, not the original camera/text timeline or the GitHub default. Export the full timeline to keep the results. The editor does not ingest ZIP artifacts directly: unzip the artifact first.
 
@@ -31,10 +31,11 @@ The deployed FTP site is static; it cannot securely read `zen_api` from GitHub. 
 
 ## Validation and failure modes
 
-The unit tests do not contact Zen. The first live run will establish whether the account authorizes Muse Contributor Free *and* whether Zen's gateway accepts `input_image` entries. If it fails, inspect the Actions step for HTTP status (without raw response or secrets), and check provider documentation/permissions. No invalid model output will be committed or automatically applied.
+The offline unit tests do not contact Zen. The first live `urllib` Responses API test returned HTTP 403 even though GitHub had access to `zen_api`. OpenCode restricts some free variants when called outside its official client, so a follow-up test uses the supported `opencode run --standalone --model opencode/muse-spark-1.3-contributor-free --file ...` interface rather than impersonating client headers. The CLI trial still needs live confirmation of model access and image support. If it fails, inspect the Actions step for HTTP status (without raw response or secrets), and check provider documentation/permissions. No invalid model output will be committed or automatically applied.
 
 Implementation:
-- `scripts/zen_scene.py`: video frame extraction, sanitized Responses API call, JSON decoding.
+- `scripts/zen_scene.py`: reusable video frame extraction and strict response schema (direct API remains diagnostic-only for free models).
+- `scripts/zen_cli_scene.py`: first-party OpenCode CLI adapter and JSON event decoding; avoids the 403 raw-client restriction without header spoofing.
 - `scripts/validate_zen_scene.mjs`: exact existing JavaScript schema validation.
 - `tests/test_zen_scene.py`: offline regression tests.
 - `.github/workflows/ai-scene-zen.yml`: private manual workflow + first-time smoke test.
