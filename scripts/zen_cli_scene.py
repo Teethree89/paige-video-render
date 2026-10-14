@@ -39,6 +39,31 @@ def opencode_text(stdout: str) -> str:
     raise ValueError("Official OpenCode CLI returned no text events; check CLI version")
 
 
+def classify_cli_failure(stdout: str, stderr: str) -> str:
+    """Report a coarse error category, never provider response bodies or prompts."""
+    # Match only hardcoded classification labels; never echo content from the CLI.
+    data = (stdout + "\\n" + stderr).lower()
+    if "freetiererror" in data or "free tier can only be used" in data:
+        return "FREE_TIER_CLIENT_RESTRICTION"
+    if "regionerror" in data or "not available in your country" in data:
+        return "MODEL_REGION_RESTRICTION"
+    if "invalid api key" in data or "unauthorized" in data or "http 401" in data:
+        return "INVALID_OR_UNAUTHORIZED_ZEN_KEY"
+    if "model" in data and ("not found" in data or "unknown" in data or "does not exist" in data):
+        return "MODEL_NOT_AVAILABLE_IN_CLI"
+    if "provider" in data and ("not found" in data or "not configured" in data):
+        return "PROVIDER_CONFIGURATION_ERROR"
+    if "model access" in data or "model is disabled" in data or "does not have access" in data:
+        return "MODEL_DISABLED_FOR_WORKSPACE"
+    if "permission" in data or "denied" in data:
+        return "OPENCODE_PERMISSION_REJECTION"
+    if "rate limit" in data or "429" in data:
+        return "MODEL_RATE_LIMIT"
+    if "error" in data or "failed" in data:
+        return "OTHER_CLI_OR_PROVIDER_ERROR"
+    return "CLI_EXIT_WITHOUT_DIAGNOSTIC"
+
+
 def run_opencode(model: str, shot_id: str, paths: list[Path], seconds: list[float], api_key: str) -> str:
     if model not in FREE_MODELS:
         raise ValueError("Only explicitly approved free models may be used")
@@ -78,8 +103,9 @@ def run_opencode(model: str, shot_id: str, paths: list[Path], seconds: list[floa
     except subprocess.TimeoutExpired:
         raise RuntimeError("Official OpenCode CLI timed out") from None
     if done.returncode:
-        raise RuntimeError(f"Official OpenCode CLI failed (exit {done.returncode}). "
-                           "Inspect OpenCode model access, region and free-tier terms.")
+        label = classify_cli_failure(done.stdout, done.stderr)
+        raise RuntimeError(f"Official OpenCode CLI failed (exit {done.returncode}; "
+                           f"category {label}). No provider logs or secrets were printed.")
     return opencode_text(done.stdout)
 
 

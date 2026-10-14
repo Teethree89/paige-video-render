@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from zen_cli_scene import opencode_text, run_opencode
+from zen_cli_scene import opencode_text, run_opencode, classify_cli_failure
 
 
 class ZenCliTests(unittest.TestCase):
@@ -27,6 +27,13 @@ class ZenCliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"free"):
             run_opencode("muse-spark-1.3","hall",[],[],"example-key")
 
+
+
+    def test_safe_failure_categories(self):
+        self.assertEqual(classify_cli_failure('', '403 FreeTierError'), 'FREE_TIER_CLIENT_RESTRICTION')
+        self.assertEqual(classify_cli_failure('', 'RegionError: not available in your country'), 'MODEL_REGION_RESTRICTION')
+        self.assertEqual(classify_cli_failure('{"error":"Invalid API key"}', ''), 'INVALID_OR_UNAUTHORIZED_ZEN_KEY')
+        self.assertEqual(classify_cli_failure('private content with no error', ''), 'OTHER_CLI_OR_PROVIDER_ERROR')
 
 if __name__ == "__main__":
     unittest.main()
