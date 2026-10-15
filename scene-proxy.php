@@ -87,23 +87,16 @@ if (!is_array($config)) reject(503, 'Private server configuration is invalid');
 
 $secret = $config['scene_access_token'] ?? '';
 $passphrase = $config['editor_passphrase'] ?? '';
-$workerEndpoint = $config['worker_endpoint'] ?? '';
+// The Gemini endpoint is public infrastructure, not a credential.
+// Fix it server-side so a mistyped .private config URL cannot break the gateway.
+// Do NOT allow requests or user-controlled configuration to alter this target.
+$workerEndpoint = 'https://paige-video-render.ivaniscreative.workers.dev/api/scene';
+
 if (!is_string($secret) || strlen($secret) < 32 ||
     !is_string($passphrase) || strlen($passphrase) < 16 ||
-    !is_string($workerEndpoint) ||
-    strpos($secret, 'PASTE_') !== false || strpos($passphrase, 'CHOOSE_') !== false ||
-    strpos($workerEndpoint, 'YOUR_WORKER') !== false) {
+    strpos($secret, 'PASTE_') !== false ||
+    strpos($passphrase, 'CHOOSE_') !== false) {
     reject(503, 'Private server configuration needs valid values');
-}
-
-// Only permit the intended Cloudflare workers.dev endpoint; no arbitrary URLs.
-$urlParts = parse_url($workerEndpoint);
-if (!is_array($urlParts) || ($urlParts['scheme'] ?? '') !== 'https' ||
-    !preg_match('/^[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.workers\\.dev$/i', (string) ($urlParts['host'] ?? '')) ||
-    ($urlParts['path'] ?? '') !== '/api/scene' ||
-    isset($urlParts['port']) || isset($urlParts['user']) ||
-    isset($urlParts['pass']) || isset($urlParts['query']) || isset($urlParts['fragment'])) {
-    reject(503, 'Worker endpoint must be an HTTPS workers.dev /api/scene URL');
 }
 
 ini_set('session.use_strict_mode', '1');
