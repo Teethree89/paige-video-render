@@ -132,6 +132,7 @@ async function boot(){
    getSequence:()=>sequence,
    getActiveShot:()=>shotAt(playhead),
    getReferenceVideo:()=>referenceVideo,
+   getPlayheadTime:()=>playhead,
    onPreview:entry=>{
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
