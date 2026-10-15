@@ -12,6 +12,7 @@ class Element {
     this.checked=true;this.textContent='';
   }
   addEventListener(type,fn){this.handlers.set(type,fn);}
+  removeEventListener(type,fn){if(this.handlers.get(type)===fn)this.handlers.delete(type);}
   async fire(type) {
     const fn=this.handlers.get(type);
     assert.ok(fn,'Expected '+type+' listener');
