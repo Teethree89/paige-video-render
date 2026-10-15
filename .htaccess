@@ -1,10 +1,12 @@
-# Public Paige editor root: intercept private URLs before filesystem access.
-# This is a presentation redirect ONLY. The .private/.htaccess still DENIES
-# every request independently via `Require all denied`.
-# If mod_rewrite is unsupported, remove only these Rewrite directives;
-# never remove the actual protection inside .private/.
+# Public editor-root redirect. Apache mod_alias RedirectMatch runs at URL
+# translation, before directory-level authorization can generate the host's
+# verbose AH01630 error page. This never serves private data.
+RedirectMatch 302 ^/Indium/paiver/\\.private(/|$) /Indium/paiver/
+
+# Defensive fallback: mod_rewrite may be available on some 50webs setups.
 RewriteEngine On
 RewriteRule ^\\.private(?:/|$) /Indium/paiver/ [R=302,L,NC]
 
-# Fallback for other 403s; host may replace this response.
+# Independent, mandatory protection is .private/.htaccess Require all denied.
+# This fallback page is public, contains no secret, and returns to editor.
 ErrorDocument 403 /Indium/paiver/403.html
