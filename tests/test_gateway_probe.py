@@ -40,6 +40,16 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertNotIn(token, output.getvalue())
         self.assertNotIn(csrf, output.getvalue())
 
+    def test_php_error_mapping_is_fixed_and_never_echoes_remote_error(self):
+        self.assertEqual(
+            probe.proxy_error_category(b'{"ok":false,"error":"Private server configuration needs valid values"}'),
+            "private-config-values-invalid",
+        )
+        self.assertEqual(
+            probe.proxy_error_category(b'{"ok":false,"error":"super-sensitive-passphrase-would-be-here"}'),
+            "other",
+        )
+
     def test_leaked_host_path_or_public_secret_url_fails_closed(self):
         def fake_get(url, inspect_body=False):
             if url.endswith("/health"):
