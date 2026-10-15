@@ -186,7 +186,9 @@ export function validateLayerRequest(payload,shotId) {
   }))};
 }
 function layerPrompt(layer,existing) {
-  return PROMPT.replace('SHOT_ID','SHOT_ID') +
+  return PROMPT
+    .replace('these three chronological video frames','these three reference video frames')
+    .replace('Use at most 36 editable objects','Use at most 24 editable objects') +
     '\\nLAYERED FULL-ENVIRONMENT RECONSTRUCTION. Current pass: '+layer+'.\\n'+
     PASS_GUIDANCE[layer]+'\\n'+
     'Treat the first reference image as the current playhead and PRIMARY view. The two other frames are context views. '+ 
