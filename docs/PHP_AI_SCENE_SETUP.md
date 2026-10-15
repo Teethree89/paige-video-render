@@ -88,13 +88,14 @@ The browser calls the proxy relative to the existing page (no CORS required). Th
 
 GitHub CI can test PHP syntax, Worker authorization, JSON validation and packaging. It cannot validate the actual remote `/www/certificates/paiver.php`, the 50webs PHP runtime, or the Cloudflare worker build outcome without access to those services. A successful GitHub Actions FTP transfer does not prove the backend has working credentials.
 
-## Temporary PHP filesystem diagnostic (remove after troubleshooting)
+## 50webs PHP site isolation and protected private config
 
-If the public PHP proxy returns `Private server configuration is not available` even though the 50webs panel lists the file, temporarily request:
+The temporary diagnostics (now removed) confirmed:
 
-`https://paige-lighthouse.50webs.org/Indium/paiver/scene-proxy.php?diagnose_private_config=1`
+- `scene-proxy.php` and the PHP document root exist and are visible to PHP.
+- The file-manager-owned `/www/certificates/paiver.php` and the attempted `/home/www/`, relative ancestor, and document-root ancestor variants are invisible to PHP (no directories or file detected).
+- PHP reports `open_basedir` disabled. That does **not** prove all account folders are reachable.
 
-This GET returns **only boolean flags** for three fixed private-path candidates (`home_www`, `installed_www_root`, `virtual_www`), and whether PHP reported an `open_basedir` restriction. It does **not read, evaluate, or return** the PHP configuration file or any secret. A `directory_visible=false` result may also indicate sandbox path translation or directory traverse restrictions. A `file_visible=true, file_readable=false` result indicates permission or policy blocks, while `open_basedir_warning=true` confirms that PHP emitted that restriction. The exact cause may still require host support.
+50webs advertises the **JailHost** option for website isolation. If enabled on the `paige-lighthouse.50webs.org` domain, it may prevent PHP from seeing directories outside this domain, including `/www/certificates`. Verify the JailHost setting and directory ownership/permissions in 50webs before inferring the cause conclusively. Do **not** disable website isolation just to reach secrets, make protected files world-writable, or upload secrets into the public editor.
 
-**Important:** This is a public diagnostic surface, not an authentication endpoint. Remove it from `scene-proxy.php` after identifying the filesystem issue and before considering the integration production-hardened. Do not share a screenshot of the private PHP file's contents.
-
+If JailHost is confirmed as the blocker, prefer a separately protected private configuration directory *within the domain's accessible storage*, secured by the host's supported deny-access mechanism and verified with an HTTP 403 direct-access test, before adding an explicit, fixed include path. Host support can recommend a non-HTTP-served directory accessible to the jailed PHP process. Never put real tokens in the GitHub repo, project ZIP, or frontend JavaScript.
