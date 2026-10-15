@@ -1,7 +1,4 @@
-# Ensure browsers requesting ANY /Indium/paiver/.private/ path are redirected
-# before the shared host can generate its account-path-disclosing 403 page.
-# The server-side Require all denied rule MUST remain for defense in depth
-# if mod_alias redirect handling is unavailable or bypassed.
-RedirectMatch 302 "^/Indium/paiver/\\.private(?:/.*)?$" "https://paige-lighthouse.50webs.org/Indium/paiver/"
+# Deny ALL HTTP requests for private configuration and backups.
+# Apache's visible error page is configured at the public editor root.
 Require all denied
-ErrorDocument 403 https://paige-lighthouse.50webs.org/Indium/paiver/
+ErrorDocument 403 /Indium/paiver/403.html
