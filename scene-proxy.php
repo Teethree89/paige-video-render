@@ -59,6 +59,10 @@ if (!function_exists('session_start')) reject(503, 'PHP sessions are required');
 // public: <account-www>/paige-lighthouse.50webs.org/Indium/paiver/
 // private: <account-www>/certificates/paiver.php
 $privateConfigCandidates = [
+    // Only use this option after confirming /.private/deny-check.txt
+    // returns HTTP 403 (or a host-confirmed equivalent access denial).
+    // Web requests must never be able to retrieve this file or its backups.
+    __DIR__ . '/.private/paiver.php',
     '/home/www/certificates/paiver.php',
     dirname(__DIR__, 3) . '/certificates/paiver.php',
     '/www/certificates/paiver.php',
