@@ -87,3 +87,14 @@ The browser calls the proxy relative to the existing page (no CORS required). Th
 ## Current deployment verification boundary
 
 GitHub CI can test PHP syntax, Worker authorization, JSON validation and packaging. It cannot validate the actual remote `/www/certificates/paiver.php`, the 50webs PHP runtime, or the Cloudflare worker build outcome without access to those services. A successful GitHub Actions FTP transfer does not prove the backend has working credentials.
+
+## Temporary PHP filesystem diagnostic (remove after troubleshooting)
+
+If the public PHP proxy returns `Private server configuration is not available` even though the 50webs panel lists the file, temporarily request:
+
+`https://paige-lighthouse.50webs.org/Indium/paiver/scene-proxy.php?diagnose_private_config=1`
+
+This GET returns **only boolean flags** for three fixed private-path candidates (`home_www`, `installed_www_root`, `virtual_www`), and whether PHP reported an `open_basedir` restriction. It does **not read, evaluate, or return** the PHP configuration file or any secret. A `directory_visible=false` result may also indicate sandbox path translation or directory traverse restrictions. A `file_visible=true, file_readable=false` result indicates permission or policy blocks, while `open_basedir_warning=true` confirms that PHP emitted that restriction. The exact cause may still require host support.
+
+**Important:** This is a public diagnostic surface, not an authentication endpoint. Remove it from `scene-proxy.php` after identifying the filesystem issue and before considering the integration production-hardened. Do not share a screenshot of the private PHP file's contents.
+

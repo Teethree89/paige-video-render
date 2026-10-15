@@ -63,6 +63,47 @@ $privateConfigCandidates = [
     dirname(__DIR__, 3) . '/certificates/paiver.php',
     '/www/certificates/paiver.php',
 ];
+// TEMPORARY READ-ONLY DIAGNOSTIC. No secret/config is opened, no filesystem
+// paths are returned, and no supplied path can influence these fixed probes.
+// Remove this route when the private-config problem is resolved.
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET'
+    && ($_GET['diagnose_private_config'] ?? '') === '1') {
+    $probes = [];
+    $labels = ['home_www', 'installed_www_root', 'virtual_www'];
+    foreach ($privateConfigCandidates as $index => $candidate) {
+        error_clear_last();
+        $parentVisible = @is_dir(dirname($candidate));
+        $parentError = (string) (error_get_last()['message'] ?? '');
+        error_clear_last();
+        $fileVisible = @is_file($candidate);
+        $fileError = (string) (error_get_last()['message'] ?? '');
+        error_clear_last();
+        $fileReadable = @is_readable($candidate);
+        $readError = (string) (error_get_last()['message'] ?? '');
+        $allErrors = $parentError . ' ' . $fileError . ' ' . $readError;
+        $probes[$labels[$index]] = [
+            'directory_visible' => $parentVisible,
+            'file_visible' => $fileVisible,
+            'file_readable' => $fileReadable,
+            'open_basedir_warning' => stripos($allErrors, 'open_basedir') !== false,
+        ];
+    }
+    $anyReadable = false;
+    foreach ($probes as $probe) {
+        if ($probe['file_visible'] && $probe['file_readable']) {
+            $anyReadable = true;
+        }
+    }
+    answer(200, [
+        'ok' => true,
+        'diagnostic' => 'private_config_paths_v1',
+        'configuration_readable' => $anyReadable,
+        'open_basedir_configured' => trim((string) ini_get('open_basedir')) !== '',
+        'probes' => $probes,
+        'temporary' => true,
+    ]);
+}
+
 $privateConfigPath = null;
 foreach ($privateConfigCandidates as $candidate) {
     // Intentionally do not disclose internal paths or PHP warnings to clients.
