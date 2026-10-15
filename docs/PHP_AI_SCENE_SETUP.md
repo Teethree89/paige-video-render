@@ -107,7 +107,7 @@ If the non-hosted `/www/certificates/` directory is unavailable to PHP under the
 
 This repository automatically uploads **only** these harmless, non-secret files to the public editor's `.private/` directory:
 
-- `.private/.htaccess`: `Require all denied` (Apache 2.4 authorization).
+- `.private/.htaccess`: `Require all denied` (Apache 2.4 authorization), plus `ErrorDocument 403 "Forbidden"` to avoid the host's verbose error page revealing its internal filesystem path.
 - `.private/deny-check.txt`: harmless constant text to test that the rule is effective.
 
 **Before uploading or moving ANY secrets**, open:
