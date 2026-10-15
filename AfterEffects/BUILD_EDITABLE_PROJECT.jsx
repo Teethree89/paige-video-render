@@ -8,12 +8,35 @@
 (function () {
   app.beginUndoGroup("Build Atoms to AI editable project");
   var W=1920,H=1080,FPS=30;
+  var warnings=[];
+  var currentStage="initialization";
+  // IMPORTANT: After Effects ExtendScript throws again if a caught Error is
+  // concatenated with a string. Never use ("error: " + err) or String(err).
+  function errorDetails(err) {
+    if(typeof err==="string")return err;
+    if(err===null || typeof err==="undefined")return "Unknown error";
+    var msg="";
+    try {if(typeof err.message==="string"&&err.message.length)msg=err.message;}catch(ignored){}
+    if(!msg)try {if(typeof err.description==="string"&&err.description.length)msg=err.description;}catch(ignored){}
+    if(!msg)msg="Unspecified After Effects API error";
+    try {if(typeof err.line==="number")msg+=" (line "+err.line+")";}catch(ignored){}
+    return msg;
+  }
+  function reportWarning(area,err) {
+    var details=area+": "+errorDetails(err);
+    warnings.push(details);
+    try{$.writeln(details);}catch(ignored){}
+  }
+  function indexIn(list,value){
+    for(var i=0;i<list.length;i++){if(list[i]===value)return i;}
+    return -1;
+  }
   var base=new Folder(new File($.fileName).parent.parent.fsName);
   function path(rel){return new File(base.fsName + "/" + rel);}
   function safeImport(file, folder) {
     if (!file.exists) return null;
     try { var opts=new ImportOptions(file);var item=app.project.importFile(opts);if(folder)item.parentFolder=folder;return item; }
-    catch(err){ $.writeln("Could not import " + file.fsName + ": " + err);return null; }
+    catch(err){reportWarning("Could not import "+file.fsName,err);return null;}
   }
   function readTimeline(){
     var src=path("timeline.json");if(!src.exists)throw new Error("Missing timeline.json next to project files.");
@@ -57,7 +80,10 @@
   }
   function addCameraKeys(comp,seq,shot,sceneOffset) {
     var camera=comp.layers.addCamera("Camera path reference — approximate AE axes",[W/2,H/2]);
-    var tr=camera.property("ADBE Transform Group"),pos=tr.property("ADBE Position"),poi=tr.property("ADBE Point of Interest");
+    // In ExtendScript camera Point of Interest uses the Anchor Point matchName,
+    // NOT "ADBE Point of Interest" (which returns null on many AE versions).
+    var tr=camera.property("ADBE Transform Group"),pos=tr.property("ADBE Position"),poi=tr.property("ADBE Anchor Point");
+    if(!pos || !poi)throw new Error("Two-node camera Position or Point of Interest property unavailable");
     var samples=Math.ceil((shot.end-shot.start)*5);
     for(var n=0;n<=samples;n++) {
       var t=shot.start+(shot.end-shot.start)*n/samples;
@@ -78,8 +104,12 @@
     return null;
   }
   try {
+    currentStage="open project";
     if (!app.project) app.newProject();
+    currentStage="read timeline.json";
     var seq=readTimeline();var duration=seq.duration;
+    if(!seq.shots || !seq.shots.length || !seq.camera || !seq.camera.length || !seq.text)throw new Error("Timeline missing shots, camera, or text entries");
+    currentStage="create project folders and master composition";
     var assetsFolder=makeFolder("01 — Linked GLB assets"),compsFolder=makeFolder("02 — 3D scene workspaces"),otherFolder=makeFolder("03 — Media and references");
     var comp=app.project.items.addComp("ATOMS TO AI — MASTER EDITABLE",W,H,1,duration,FPS);comp.parentFolder=compsFolder;
     comp.bgColor=[.015,.030,.050];
@@ -88,41 +118,54 @@
     var sceneNames=["Campus exterior","Server and power hall","GaN circuit board","Atomic lattice","InP laser","Optical fiber","Garnet isolator"];
     var glbs={},modelsImported=0;
     for(var i=0;i<fileIds.length;i++) {
+      currentStage="import model "+fileIds[i];
       var id=fileIds[i];var item=safeImport(path("assets/models/"+id+".glb"),assetsFolder);
       if(item){glbs[id]=item;modelsImported++;}
     }
     var offsets={exterior:0,hall:180,pcb:360,atoms:440,laser:560,fiber:690,optics:815};
     for(var i=0;i<seq.shots.length;i++){
       var shot=seq.shots[i],sid=shot.id==="finale"?"exterior":shot.id==="hallreturn"?"hall":shot.id;
+      currentStage="build 3D workspace "+shot.name;
       var workspace=app.project.items.addComp((i+1<10?"0":"")+(i+1)+" — "+shot.name+" [3D WORKSPACE]",W,H,1,shot.end-shot.start,FPS);workspace.parentFolder=compsFolder;workspace.bgColor=[.01,.025,.045];
       // Imported GLB models require the Advanced 3D composition renderer.
-      try {var rendererList=workspace.renderers;for(var ri=0;ri<rendererList.length;ri++){if(/advanced/i.test(rendererList[ri])){workspace.renderer=rendererList[ri];break;}}}catch(renderError){$.writeln("Select Advanced 3D renderer manually: "+renderError);}
+      try {var rendererList=workspace.renderers;for(var ri=0;ri<rendererList.length;ri++){if(/advanced/i.test(rendererList[ri])){workspace.renderer=rendererList[ri];break;}}}catch(renderError){reportWarning("Select Advanced 3D renderer manually for "+shot.name,renderError);}
       addMarker(comp,shot.start,"SCENE " +(i+1)+" — "+shot.name);
       if(glbs[sid]) {
-        try {var m=workspace.layers.add(glbs[sid]);m.name=sceneNames[fileIds.indexOf(sid)] +" (linked GLB)";m.threeDLayer=true;m.property("ADBE Transform Group").property("ADBE Position").setValue([W/2,H/2,0]);}
-        catch(e){$.writeln("Model layer could not be added to "+sid+": "+e);}
+        try {var m=workspace.layers.add(glbs[sid]);m.name=sceneNames[indexIn(fileIds,sid)] +" (linked GLB)";m.threeDLayer=true;m.property("ADBE Transform Group").property("ADBE Position").setValue([W/2,H/2,0]);}
+        catch(e){reportWarning("Model layer could not be added to "+sid,e);}
       }
-      try{addCameraKeys(workspace,seq,shot,offsets[sid]);}catch(e){$.writeln("Camera import warning: "+e);}
+      try{addCameraKeys(workspace,seq,shot,offsets[sid]);}
+      catch(e){reportWarning("Camera import warning for "+shot.name,e);}
       // GLB scale and material conversion differs between Three.js and AE; adjust manually in workspaces.
     }
+    currentStage="import background plate";
     var plate=findPlate(),isClean=false;
     if(plate){
       var plateItem=safeImport(plate.file,otherFolder);if(plateItem){isClean=plate.clean;var bg=comp.layers.add(plateItem);bg.name=isClean?"RENDERED CLEAN VIDEO — replaceable background":"DRAFT PREVIEW — titles already burned in";
         bg.startTime=0;bg.inPoint=0;bg.outPoint=duration;bg.property("ADBE Transform Group").property("ADBE Scale").setValue([W/plateItem.width*100,H/plateItem.height*100]);bg.moveToEnd();bg.locked=true;}
     }
     // Editable overlays. When using the preview MP4, disable these by default to avoid duplicated titles.
+    currentStage="create editable text overlays";
     for(var i=0;i<seq.text.length;i++){
       var t=seq.text[i],size={small:36,medium:54,large:76,hero:96}[t.size]||54;
       var title=makeText(comp,"TITLE "+t.id+" — "+t.value.replace(/\n/g," / "),t.value,t.x,t.y,size,t.tone,t.start,t.end);
       if(!isClean)title.enabled=false;
       if(t.subtitle){var sub=makeText(comp,"SUBTITLE "+t.id,t.subtitle,t.x,t.y+6,Math.round(size*.46),t.tone,t.start,t.end);if(!isClean)sub.enabled=false;}
     }
+    currentStage="import reference video";
     var ref=safeImport(path("assets/reference.mp4"),otherFolder);
     if(ref)ref.comment="Reference only — not used for rendering";
     var readme=comp.layers.addText("EDITABLE TEXT: all TITLE/SUBTITLE layers above.\n3D GLB source scenes: open 02 — 3D scene workspaces.\nThe MP4 background is a preview and is NOT full-fidelity Three.js lighting.\nTo replace with a clean Three.js render: use Render video ↗ in index.html; export without titles; place MP4 in exports/; rerun builder.");
     readme.name="INSTRUCTIONS — guide layer (not rendered)";readme.guideLayer=true;readme.enabled=false;
+    currentStage="save AEP";
     var file=path("AfterEffects/ATOMS_TO_AI_EDITABLE.aep");app.project.save(file);
-    alert("After Effects project created and saved:\n"+file.fsName+"\n\n"+modelsImported+"/7 GLBs imported.\n"+seq.camera.length+" camera keys mapped into per-scene reference workspaces.\n"+seq.text.length+" editable title entries.\n"+(isClean?"Clean plate found: text layers are visible.":"Preview has baked titles: editable layers are disabled until you render a clean plate."));
-  } catch(e){alert("After Effects setup failed: "+e.toString()+"\nLine: "+e.line);throw e;}
+    var notice="After Effects project created and saved:\n"+file.fsName+"\n\n"+modelsImported+"/7 GLBs imported.\n"+seq.camera.length+" source camera keyframes; approximate camera paths sampled for scene workspaces.\n"+seq.text.length+" editable title entries.\n"+(isClean?"Clean plate found: text layers are visible.":"Preview has baked titles: editable layers are disabled until you render a clean plate.");
+    if(warnings.length){
+      notice+="\n\nCompleted with "+warnings.length+" warning(s):";
+      for(var wi=0;wi<Math.min(4,warnings.length);wi++)notice+="\n- "+warnings[wi];
+      if(warnings.length>4)notice+="\n(+ "+(warnings.length-4)+" more; see ExtendScript console)";
+    }
+    alert(notice);
+  } catch(e){alert("After Effects setup failed during "+currentStage+": "+errorDetails(e));}
   finally { app.endUndoGroup(); }
 }());
