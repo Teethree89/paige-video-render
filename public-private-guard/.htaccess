@@ -1,4 +1,6 @@
-# Deny ALL HTTP requests for private configuration and backups.
-# Apache's visible error page is configured at the public editor root.
+# Mandatory authorization boundary: never serve paiver.php or its backups.
 Require all denied
-ErrorDocument 403 /Indium/paiver/403.html
+# Host-generated internal 403 bodies reveal filesystem details. Apache can
+# redirect the denied request to the public editor without serving its bytes.
+# If 50webs disallows external ErrorDocument, the denial MUST remain in place.
+ErrorDocument 403 https://paige-lighthouse.50webs.org/Indium/paiver/
