@@ -68,6 +68,7 @@ jobs:
           # rule and a harmless probe. NEVER stage paiver.php or other secrets.
           # Fail the publish if either the access-deny rule or quiet 403 error page is missing.
           grep -Fxq 'Require all denied' public-private-guard/.htaccess
+          grep -Fq 'RedirectMatch 302' public-private-guard/.htaccess
           grep -Fxq 'ErrorDocument 403 https://paige-lighthouse.50webs.org/Indium/paiver/' public-private-guard/.htaccess
           mkdir -p ftp-public/.private
           cp public-private-guard/.htaccess public-private-guard/deny-check.txt ftp-public/.private/
