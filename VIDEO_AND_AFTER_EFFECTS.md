@@ -15,6 +15,16 @@ There are **two video render paths**:
 4. By default the included offline preview has text baked in, so the script creates editable title layers **disabled** to prevent doubling the captions. To have enabled editable titles over a clean plate, export the 3D-only movie from **Render video ↗**, convert to H.264 MP4 if needed, save it under `exports/` with a filename beginning `Atoms-to-AI-clean-` and ending `.mp4`, and **rerun the builder** (preferably in a new AE project).
 5. If you update the timeline in the editor, click **Export timeline** and replace `timeline.json` in the package before running the JSX script. The browser also reads locally saved edits; AE builder deliberately reads the JSON on disk.
 
+### Troubleshooting After Effects builder errors
+
+The previous `BUILD_EDITABLE_PROJECT.jsx` could fail with **"Object of type Error found where a Number, Array, or Property is needed"** at the camera-workspace setup line. That was a **secondary error** from interpolating a native ExtendScript `Error` into a log string; it hid the original camera API failure. The script also requested an invalid camera Point of Interest match name, `ADBE Point of Interest`. For AE cameras, the property is addressed through `ADBE Anchor Point` in the Transform group. Both are now fixed.
+
+Download the **latest** `AfterEffects/BUILD_EDITABLE_PROJECT.jsx` and replace the older copy in your locally extracted project before running it. If using the workspace ZIP, download a newly published ZIP after this fix is merged; old ZIPs contain the old JSX.
+
+If your AE version or renderer rejects a camera or GLB, the builder reports a **warning with the actual error message** and continues creating the editable project. The final dialog shows warnings and whether the `.aep` was saved. For any fatal error it now reports the stage and underlying message rather than throwing again from its error handler.
+
+Keep `timeline.json`, `assets/`, `exports/`, and `AfterEffects/` together. We statically validate the JSX and its camera/catch patterns in CI, but cannot run Adobe After Effects inside GitHub Actions: the final compatibility test is rerunning the script in your local AE installation.
+
 ### What remains editable
 
 - Text: title content, styling, position, timing, opacity transitions, subtitles
