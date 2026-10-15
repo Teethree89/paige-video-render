@@ -144,7 +144,17 @@ export default {
       });
     }catch(error){return fail(502,'AI provider connection failed');}
     if(result.status===429)return fail(429,'Provider rate limit reached');
-    if(!result.ok)return fail(502,'AI provider refused the request');
+    // Classify only the HTTP status; never return or log Gemini's raw error
+    // response, which can include provider-specific account information.
+    if(!result.ok){
+      if(result.status===401||result.status===403)
+        return fail(502,'AI provider authentication or permission failed');
+      if(result.status===404)return fail(502,'Requested AI model is unavailable');
+      if(result.status===400||result.status===422)
+        return fail(502,'AI provider rejected request format');
+      if(result.status>=500)return fail(502,'AI provider temporarily unavailable');
+      return fail(502,'AI provider refused the request');
+    }
     let providerResponse;
     try {providerResponse=await result.json();}
     catch(error){return fail(502,'Invalid provider response');}
