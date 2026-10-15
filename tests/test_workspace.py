@@ -48,8 +48,13 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_source_files(self):
         for f in ('index.html','app.js','world.js','render.html','render.js',
+                  'ae-package-export.js','ae-package-plan.js',
                   'AfterEffects/BUILD_EDITABLE_PROJECT.jsx'):
             self.assertGreater((ROOT/f).stat().st_size, 100)
+        publish_manifest=(ROOT/'scripts/build_workspace.py').read_text()
+        for entry in ('ae-package-export.js','ae-package-plan.js'):
+            self.assertIn('"'+entry+'"',publish_manifest,
+                          f'{entry} must ship with the FTP/ZIP workspace')
 
 
 if __name__ == '__main__':
