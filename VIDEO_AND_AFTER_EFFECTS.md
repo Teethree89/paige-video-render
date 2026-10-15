@@ -5,6 +5,15 @@ There are **two video render paths**:
 1. **Best-looking export from Three.js:** Start `python3 -m http.server 8000`, open `http://localhost:8000/index.html`, then click **Render video ↗**. The separate renderer uses the seven linked `assets/models/*.glb` files, live Three.js lighting, optical beams, particles, and the same saved timeline. Select 1280×720 or 1920×1080 and 24/30 fps. To make an After Effects background, **uncheck "Burn editable timeline titles into video"** before recording. This leaves all 13 captions fully editable in AE. It records in real time; **keep the browser tab visible until finished**. Chrome/Edge may offer an MP4 container; if not, it exports WebM. Convert with `convert_to_mp4.sh yourfile.webm` or drag the WebM onto `convert_to_mp4.bat` (FFmpeg required). The browser only exports local video (no original video audio).
 2. **Included offline draft MP4:** `exports/flythrough-preview.mp4` (960×540, 24fps, 56.50 seconds). It's an actual render using the linked GLB geometry, exact shot/camera schedule, and baked text. **It is not the Three.js renderer**; the lighting, glows and particle FX will differ. This is for immediate offline viewing and editorial timing checks.
 
+## Export directly from the live editor
+
+Choose **Export timeline ▾** in the editor header and select:
+
+- **Timeline JSON (.json):** exports only the live edited camera, shot, caption, and accepted primitive data. It is a backup and can be imported back into the editor.
+- **After Effects package (.zip):** exports that same timeline as `timeline.json`, the matching `AfterEffects/BUILD_EDITABLE_PROJECT.jsx`, all seven **currently displayed** editable scene GLBs, a model manifest, and a readme. Accepted custom primitives export as shot-specific `assets/shots/shot-XX.glb` assets and take priority over legacy model geometry in the corresponding AE workspace.
+
+The ZIP is assembled in the browser. It includes imported GLB model replacements being previewed in the current editor session, but does **not** export unaccepted AI geometry. Accept or discard an AI proposal first. The package does **not** contain an .aep project, a reference MP4, or the Three.js runtime FX: AE must run the JSX to build a fresh editable .aep. Retain the original video separately if you need a background plate. The source camera and model scale conversions still need visual inspection in AE.
+
 ## Create a native After Effects `.aep`
 
 **Requirements:** Adobe After Effects 24.1+ is recommended for direct GLB import. Its 3D materials/render pipeline differs from Three.js. See [Adobe's GLB import documentation](https://helpx.adobe.com/after-effects/desktop/import-files/import-and-add-3d-models/import-3d-model.html).
