@@ -44,6 +44,21 @@ test('worker rejects script primitives and unsupported transforms',()=>{
   bad.scenes[0].objects[0].position[1]=Infinity;
   assert.throws(()=>validateOutput(bad,'draft_001'),/transform/);
 });
+test('detailed 36-object geometry is accepted, 37th is rejected, and source is never mutated',()=>{
+  const dense=structuredClone(scene);
+  dense.scenes[0].objects=Array.from({length:36},(_,i)=>({
+    ...structuredClone(scene.scenes[0].objects[0]),
+    id:'detail_'+i,name:'Architectural part '+i,
+    position:[i%6,1,Math.floor(i/6)]
+  }));
+  const before=structuredClone(dense);
+  const parsed=validateOutput(dense,'draft_001');
+  assert.equal(parsed.scenes[0].objects.length,36);
+  assert.deepEqual(dense,before);
+  const tooMany=structuredClone(dense);
+  tooMany.scenes[0].objects.push({...structuredClone(dense.scenes[0].objects[0]),id:'detail_36'});
+  assert.throws(()=>validateOutput(tooMany,'draft_001'),/object budget/);
+});
 test('authorized request returns valid primitive JSON and keeps API key out of output',async()=>{
   const previous=globalThis.fetch;
   let providerInvoked=false;
@@ -55,6 +70,13 @@ test('authorized request returns valid primitive JSON and keeps API key out of o
     providerInvoked=true;
     assert.ok(opts.headers['x-goog-api-key']===env.GEMINI_API_KEY);
     assert.ok(opts.body.includes('inlineData'));
+    assert.equal(JSON.parse(opts.body).generationConfig.maxOutputTokens,7500);
+    const prompt=JSON.parse(opts.body).contents[0].parts[0].text;
+    assert.match(prompt,/architectural and environment blockout artist/);
+    assert.match(prompt,/observed footprint/);
+    assert.match(prompt,/recognizable silhouette/);
+    assert.match(prompt,/three chronological video frames/);
+
     return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(scene)}]}}]}),{
       status:200,headers:{'content-type':'application/json'}
     });
