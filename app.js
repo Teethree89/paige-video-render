@@ -31,6 +31,18 @@ reviewKey.position.set(24,35,40);reviewLights.add(reviewKey);
 const reviewFill=new THREE.DirectionalLight(0xffdcb7,1.35);
 reviewFill.position.set(-25,18,-10);reviewLights.add(reviewFill);
 reviewLights.visible=false;scene.add(reviewLights);
+// Temporary reference grid grounds the generated geometry during inspection.
+// It never enters primitiveScenes or GLB exports.
+const reviewStage=new THREE.Group();
+const reviewFloor=new THREE.Mesh(
+  new THREE.PlaneGeometry(1,1),
+  new THREE.MeshBasicMaterial({color:0x13283a,side:THREE.DoubleSide,transparent:true,opacity:.6,depthWrite:false})
+);
+reviewFloor.rotation.x=-Math.PI/2;
+reviewStage.add(reviewFloor);
+const reviewGrid=new THREE.GridHelper(40,20,0x5f9eab,0x325768);
+reviewGrid.material.transparent=true;reviewGrid.material.opacity=.42;
+reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
 let primitiveEditor=null,aiSceneEditor=null,lastPrimitiveShotId=null,reviewShotId=null;
@@ -52,7 +64,7 @@ function endGeometryReview(){
   el('inspectBtn').classList.remove('active');
   el('returnTimelineCameraBtn').hidden=true;
   camera.near=.35;camera.far=500;
-  reviewLights.visible=false;renderer.toneMappingExposure=1.35;
+  reviewLights.visible=false;reviewStage.visible=false;renderer.toneMappingExposure=1.35;
   applyCamera();renderWorld();
 }
 function showGeneratedGeometry(shotId,scroll=false){
@@ -69,6 +81,12 @@ function showGeneratedGeometry(shotId,scroll=false){
   el('inspectBtn').classList.add('active');
   el('returnTimelineCameraBtn').hidden=false;
   const center=new THREE.Vector3(...bounds.center);
+  const stageSize=Math.max(20,Math.min(200,bounds.radius*3));
+  reviewFloor.position.set(center.x,-.20,center.z);
+  reviewFloor.scale.set(stageSize,stageSize,1);
+  reviewGrid.position.set(center.x,-.18,center.z);
+  reviewGrid.scale.setScalar(stageSize/40);
+  reviewStage.visible=true;
   const distance=fitDistance(bounds.radius,52,camera.aspect);
   const direction=new THREE.Vector3(.58,.38,1).normalize();
   camera.fov=52;camera.position.copy(center).addScaledVector(direction,distance);
