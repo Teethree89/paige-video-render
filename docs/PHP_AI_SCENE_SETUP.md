@@ -144,3 +144,10 @@ The 50webs hosting layer continued displaying its verbose `AH01630` page even wi
 Apache may answer the original forbidden-resource request with HTTP **302** and a `Location` to the editor rather than an HTTP 403 page. The external ErrorDocument redirect is presentation only; the **directory access-denial rule remains mandatory**. The automated smoke test observes the initial HTTP response without following redirects. It requires either (a) HTTP 403 without path disclosure or (b) HTTP 30x to exactly the editor homepage. HTTP 200 from a protected file is rejected.
 
 If 50webs ignores this setting and still renders its own 403 body, do **not** remove `Require all denied` or use a stand-alone rewrite redirect as the only protection. Request host configuration assistance or migrate authentication to Cloudflare Access.
+
+
+### 50webs alternative redirect preflight
+
+After observing that a post-denial `ErrorDocument 403` **still returned a verbose host-generated 403** with the internal hosting account path, the private directory guard also tries an early `RedirectMatch 302` for the complete `/Indium/paiver/.private/` URL prefix. It sends ordinary browser visits to the editor rather than triggering the shared host's verbose error response. The mandatory `Require all denied` remains unchanged as defense in depth if the redirect cannot run. Automated post-FTP checks accept **only** an initial HTTP 403 with no internal path in its body or an initial HTTP 30x whose Location is the editor's exact HTTPS URL, and never read the secret PHP response body.
+
+The local runtime PHP config currently loads successfully but the proxy reports `private-config-values-invalid`. In `.private/paiver.php`, check the **three exact keys** `worker_endpoint`, `scene_access_token`, and `editor_passphrase`. The worker URL must be `https://paige-video-render.ivaniscreative.workers.dev/api/scene`; token length must be at least 32 characters; the editor passphrase must be at least 16 characters. Verify all values are strings and no placeholder text remains. Never send or commit the values.
