@@ -87,6 +87,6 @@ export function setupModelTools(world,{onSceneChanged=()=>{}}={}){
  el('restoreModelBtn').addEventListener('click',()=>{const id=slot();world.restoreModel(id);onSceneChanged();mark();});
  for(const id of ['exportModelBtn','exportAllModelsBtn','importModelBtn','reloadModelsBtn','restoreModelBtn'])el(id).disabled=false;
  // Loading linked models is async and must not block animation startup.
- void loadLinked();
- return{loadLinked,mark};
+ const ready=loadLinked();
+ return{loadLinked,mark,ready};
 }

@@ -94,3 +94,17 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
 .review-return{position:absolute;right:16px;top:56px;z-index:45;background:#102c39e8;border:1px solid #7ce8dc;color:#d6fffa;border-radius:5px;padding:10px 12px;font-size:12px;font-weight:700;box-shadow:0 5px 22px #0008;touch-action:manipulation}
 .review-return[hidden]{display:none!important}
 @media(max-width:680px){.review-return{right:10px;top:52px;font-size:11px;padding:9px 10px}}
+
+/* Timeline export format chooser: keep both downloads under one header action. */
+.timeline-export-picker{position:relative;display:inline-flex;align-items:center}
+.timeline-export-menu[hidden]{display:none!important}
+.timeline-export-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:500;
+ width:min(340px,calc(100vw - 20px));padding:9px;display:grid;gap:7px;
+ background:#101e2e;border:1px solid #4a6b7c;border-radius:8px;
+ box-shadow:0 12px 38px #000a}
+.timeline-export-menu button{display:flex;flex-direction:column;align-items:flex-start;
+ text-align:left;width:100%;padding:11px 12px;gap:4px;border:1px solid #34596d;
+ border-radius:5px;background:#182c3e;color:#e8faff;font-size:12px;cursor:pointer}
+.timeline-export-menu button:hover{background:#25485b}
+.timeline-export-menu button small{font-size:10px;color:#a8cbd8;font-weight:400}
+.timeline-export-menu p{margin:3px 5px;font:11px/1.4 ui-monospace,monospace;color:#a5d9e0}
