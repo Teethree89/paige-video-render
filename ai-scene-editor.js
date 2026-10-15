@@ -64,10 +64,10 @@ async function sampleVideo(reference,shot) {
     video.removeAttribute('src');video.load();
   }
 }
-export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,onPreview,onDiscard,onAccept}) {
+export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,onPreview,onDiscard,onAccept,onInspect}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
-  const create=el('aiSceneGenerate'),accept=el('aiSceneAccept');
+  const create=el('aiSceneGenerate'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
   const discard=el('aiSceneDiscard'),message=el('aiSceneStatus');
   let csrf=null,authenticated=false,pending=null,pendingShot=null,busy=true;
   const status=text=>{message.textContent=text;};
@@ -76,6 +76,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     controls.hidden=!authenticated;
     loginButton.disabled=busy;
     create.disabled=busy||!authenticated;
+    inspect.hidden=!pending;inspect.disabled=busy||!pending;
     accept.hidden=!pending; discard.hidden=!pending;
     accept.disabled=busy;discard.disabled=busy;
   };
@@ -139,7 +140,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(getActiveShot()?.id!==shot.id)throw Error('Selected chapter changed; generate again.');
       pending=doc.scenes[0];pendingShot=shot.id;
       onPreview(pending);
-      status('Preview: '+pending.objects.length+' editable object(s). Accept to save, or discard. No changes saved yet.');
+      status('Preview: '+pending.objects.length+' editable object(s). Viewport focused on this scene; use View proposed shapes to revisit it. Accept to save, or discard. Nothing saved yet.');
     }catch(error){
       if(error.status===401){
         // PHP rejected generation because its session was lost between
@@ -163,6 +164,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       }
       onDiscard();pending=null;pendingShot=null;
     }finally{busy=false;ui();}
+  });
+  inspect.addEventListener('click',()=>{
+    if(pending&&!busy&&getActiveShot()?.id===pendingShot)onInspect?.(pendingShot);
   });
   accept.addEventListener('click',()=>{
     if(!pending||busy)return;

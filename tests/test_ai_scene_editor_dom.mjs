@@ -70,6 +70,7 @@ test('three sampled video frames become previewable and accepted without alterin
   const preservedOriginal=structuredClone(sequence);
   const env={GEMINI_API_KEY:'mock-only-provider-key',SCENE_ACCESS_TOKEN:'mock-only-scene-token-12345678901234567890'};
   let preview=null,generatedCalls=0,acceptedCalls=0,discardCalls=0;
+  const inspected=[];
   let phpAuthenticated=false;
   globalThis.fetch=async (url,opts={})=>{
     if(String(url).includes('generativelanguage.googleapis.com/')){
@@ -118,6 +119,7 @@ test('three sampled video frames become previewable and accepted without alterin
       getSequence:()=>sequence,getActiveShot:()=>sequence.shots[0],
       getReferenceVideo:()=>({src:'blob:synthetic-video'}),
       onPreview:entry=>{preview=entry;},
+      onInspect:shotId=>{inspected.push(shotId);},
       onDiscard:()=>{discardCalls++;preview=null;},
       onAccept:entry=>{
         acceptedCalls++;
@@ -135,9 +137,14 @@ test('three sampled video frames become previewable and accepted without alterin
     assert.equal(ids.get('aiScenePassphrase').value,'');
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(preview.objects[0].id,'gemini_box');
+    assert.equal(ids.get('aiSceneInspect').hidden,false);
+    await ids.get('aiSceneInspect').fire('click');
+    assert.deepEqual(inspected,['shot_a']);
+
     assert.deepEqual(sequence,preservedOriginal,'Preview must not save or edit the timeline');
     await ids.get('aiSceneDiscard').fire('click');
     assert.equal(preview,null);
+    assert.equal(ids.get('aiSceneInspect').hidden,true);
     assert.deepEqual(sequence,preservedOriginal,'Discard must preserve the original timeline');
     await ids.get('aiSceneGenerate').fire('click');
     await ids.get('aiSceneAccept').fire('click');

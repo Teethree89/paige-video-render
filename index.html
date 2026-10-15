@@ -27,6 +27,7 @@
       <section class="viewport" id="viewport">
         <canvas id="scene"></canvas>
         <div class="vignette"></div>
+        <button id="returnTimelineCameraBtn" class="review-return" type="button" hidden>← Return to timeline camera</button>
         <div class="stage-top"><span class="pill"><span class="pulse-dot"></span> 3D PREVIEW</span><span id="shotTitle">01 / ESTABLISHING THE INFRASTRUCTURE</span></div>
         <div id="overlayLayer" class="overlay-layer"></div>
         <div id="cutFlash" class="cut-flash"></div>
@@ -115,6 +116,7 @@
             </div>
             <div id="aiSceneControls" hidden>
               <button id="aiSceneGenerate" type="button" class="wide primary">Generate 3D scene for this chapter</button>
+              <button id="aiSceneInspect" type="button" class="wide secondary" hidden>View proposed shapes in 3D ↗</button>
               <div class="primitive-buttons">
                 <button id="aiSceneAccept" type="button" class="secondary" hidden>Accept proposed geometry</button>
                 <button id="aiSceneDiscard" type="button" class="ghost" hidden>Discard preview</button>

@@ -20,7 +20,7 @@ FILES = [
     "index.html", "render.html", "403.html", "private-denied.html", "styles.css", "app.js", "world.js", "render.js",
     "model-tools.js", "zip-utils.js", "shot-analysis.js", "video-import.js",
     "draft-world.js", "chapter-analysis.js", "primitive-schema.js",
-    "primitive-world.js", "primitive-editor.js", "ai-scene-editor.js",
+    "primitive-world.js", "primitive-editor.js", "ai-scene-editor.js", "primitive-preview.js",
     "scene-proxy.php", "wrangler.toml", "timeline.json", "README.md", "AGENTS.md",
     "EXTERNAL_MODELS.md", "VIDEO_AND_AFTER_EFFECTS.md",
     "start.sh", "convert_to_mp4.sh", "convert_to_mp4.bat",

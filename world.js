@@ -153,7 +153,7 @@ export function buildWorld(scene){scene.background=new THREE.Color(C.bg);scene.f
  }
 
  const lamp1=new THREE.PointLight(0x8bebff,22,50);lamp1.position.set(180,11,14);scene.add(lamp1);const lamp2=new THREE.PointLight(0xffa86b,17,35);lamp2.position.set(360,8,10);scene.add(lamp2);const lamp3=new THREE.PointLight(0x80faff,14,48);lamp3.position.set(560,5,0);scene.add(lamp3);const lamp4=new THREE.PointLight(0x99ecff,17,50);lamp4.position.set(815,6,0);scene.add(lamp4);const lamps=[lamp1,lamp2,lamp3,lamp4];
- function update(t,shotId){const key=shotId==='hallreturn'?'hall':shotId==='finale'?'exterior':shotId;for(let [id,g] of Object.entries(groups))g.visible=id===key;for(let [id,g] of Object.entries(replacements))g.visible=id===key;for(let i=0;i<lamps.length;i++)lamps[i].visible=[key==='hall',key==='pcb',key==='laser'||key==='fiber',key==='optics'][i];actors.spin.rotation.y=.2+t*.045;actors.spin.rotation.z=Math.sin(t*.2)*.04;
+ function update(t,shotId,hasCustomPrimitives=false){const key=shotId==='hallreturn'?'hall':shotId==='finale'?'exterior':shotId;for(let [id,g] of Object.entries(groups))g.visible=id===key&&!hasCustomPrimitives;for(let [id,g] of Object.entries(replacements))g.visible=id===key&&!hasCustomPrimitives;for(let i=0;i<lamps.length;i++)lamps[i].visible=[key==='hall',key==='pcb',key==='laser'||key==='fiber',key==='optics'][i];actors.spin.rotation.y=.2+t*.045;actors.spin.rotation.z=Math.sin(t*.2)*.04;
  const linkedLattice=replacements.atoms?.getObjectByName('lattice_spin');
  if(linkedLattice){linkedLattice.rotation.y=actors.spin.rotation.y;linkedLattice.rotation.z=actors.spin.rotation.z;}
  const linkedGem=replacements.optics?.getObjectByName('garnet_crystal');

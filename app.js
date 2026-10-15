@@ -8,6 +8,7 @@ import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
+import {shotAnchorMap,fitDistance} from './primitive-preview.js';
 
 const el=id=>document.getElementById(id);
 const canvas=el('scene'),viewport=el('viewport');
@@ -24,9 +25,10 @@ controls.enabled=false;controls.enableDamping=true;controls.dampingFactor=.08;co
 const world=buildWorld(scene);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
-let primitiveEditor=null,aiSceneEditor=null,lastPrimitiveShotId=null;
+let primitiveEditor=null,aiSceneEditor=null,lastPrimitiveShotId=null,reviewShotId=null;
+function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
-  primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
+  primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id),primitiveAnchors());
   lastPrimitiveShotId=null;
   primitiveEditor?.refresh();
 }
@@ -35,6 +37,36 @@ for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','insp
 let sequence,originalSequence,ready=false,playhead=0,playing=false,lastFrame=performance.now(),speed=1,selection=null,orbitMode=false;
 const overlayEls=new Map();
 const clamp=(n,a,b)=>Math.min(b,Math.max(a,n));
+function endGeometryReview(){
+  if(!reviewShotId)return;
+  reviewShotId=null;
+  orbitMode=false;controls.enabled=false;
+  el('inspectBtn').classList.remove('active');
+  el('returnTimelineCameraBtn').hidden=true;
+  camera.near=.35;camera.far=500;
+  applyCamera();
+}
+function showGeneratedGeometry(shotId,scroll=false){
+  const bounds=primitiveWorld.getBounds(shotId);
+  if(!bounds)return false;
+  // Freeze cinematic playback and inspect the proposed geometry without
+  // modifying authored camera keys or saving unaccepted primitives.
+  setPlaying(false);
+  reviewShotId=shotId;orbitMode=true;controls.enabled=true;
+  el('inspectBtn').classList.add('active');
+  el('returnTimelineCameraBtn').hidden=false;
+  const center=new THREE.Vector3(...bounds.center);
+  const distance=fitDistance(bounds.radius,52,camera.aspect);
+  const direction=new THREE.Vector3(.58,.38,1).normalize();
+  camera.fov=52;camera.position.copy(center).addScaledVector(direction,distance);
+  camera.near=Math.max(.01,Math.min(.35,distance*.01));
+  camera.far=Math.max(500,distance+bounds.radius*5);
+  camera.lookAt(center);camera.updateProjectionMatrix();
+  controls.target.copy(center);controls.update();
+  if(scroll)viewport.scrollIntoView?.({behavior:'smooth',block:'start'});
+  return true;
+}
+el('returnTimelineCameraBtn').addEventListener('click',()=>endGeometryReview());
 const lerp=(a,b,u)=>a+(b-a)*u;
 const ease=u=>u*u*(3-2*u);
 const fmt=t=>{let m=Math.floor(Math.max(0,t)/60),s=Math.max(0,t)-m*60;return String(m).padStart(2,'0')+':'+s.toFixed(2).padStart(5,'0');};
@@ -73,10 +105,12 @@ async function boot(){
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
      doc.scenes.push(entry);
-     primitiveWorld.setDocument(doc,sequence.shots.map(s=>s.id));
+     primitiveWorld.setDocument(doc,sequence.shots.map(s=>s.id),primitiveAnchors());
      renderWorld();
+     if(entry.objects.length)showGeneratedGeometry(entry.shotId,true);
    },
-   onDiscard:()=>{syncPrimitiveWorld();renderWorld();},
+   onInspect:shotId=>showGeneratedGeometry(shotId,true),
+   onDiscard:()=>{endGeometryReview();syncPrimitiveWorld();renderWorld();},
    onAccept:entry=>{
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
@@ -87,7 +121,7 @@ async function boot(){
  });
  setupVideoImport({onApply:({timeline,videoUrl})=>{
    if(!validSequence(timeline))throw Error('Generated timeline is invalid');
-   setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;
+   endGeometryReview();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;
    referenceVideo.pause();referenceVideo.src=videoUrl;referenceVideo.load();
    referenceVideo.style.display='block';el('showRef').checked=true;
    aiSceneEditor?.reset();sequence=timeline;syncPrimitiveWorld();refreshAll();seek(0);saveLocal();
@@ -99,9 +133,10 @@ function saveLocal(){try{localStorage.setItem('atoms-ai-sequence-v1',JSON.string
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
 function cameraAt(t){let keys=sequence.camera.slice().sort((a,b)=>a.at-b.at);let first=keys[0];if(t<=first.at)return first;for(let i=0;i<keys.length-1;i++){let a=keys[i],b=keys[i+1];if(t>=a.at&&t<b.at){if(b.cut)return a;let u=ease(clamp((t-a.at)/(b.at-a.at),0,1));return{p:a.p.map((v,j)=>lerp(v,b.p[j],u)),t:a.t.map((v,j)=>lerp(v,b.t[j],u)),fov:lerp(a.fov,b.fov,u)};}}return keys[keys.length-1];}
 function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.updateProjectionMatrix();controls.target.set(...c.t);}
-function seek(t,opts={}){playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
-function renderWorld(){const shot=shotAt(playhead);world.update(playhead,shot.id);primitiveWorld.showShot(shot.id);
- draftWorld.update(shot,primitiveWorld.hasObjects(shot.id));
+function seek(t,opts={}){if(reviewShotId&&shotAt(t)?.id!==reviewShotId)endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
+function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
+ world.update(playhead,shot.id,custom);primitiveWorld.showShot(shot.id);
+ draftWorld.update(shot,custom);
  if(lastPrimitiveShotId!==shot.id){lastPrimitiveShotId=shot.id;primitiveEditor?.refresh();}
  let cuts=sequence.camera.filter(k=>k.cut&&k.at>0).map(k=>k.at);let alpha=0;for(let cut of cuts){let diff=Math.abs(playhead-cut);if(diff<.17)alpha=Math.max(alpha,(1-diff/.17)*.72);}el('cutFlash').style.opacity=String(alpha);}
 function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
@@ -128,7 +163,7 @@ function renderInspector(){let item=selectedData();el('projectPanel').hidden=!!i
  if(selection.type==='camera'){el('camTime').textContent='KEYFRAME @ '+fmt(item.at);for(let input of document.querySelectorAll('[data-cam]')){let [k,i]=input.dataset.cam.split('.');input.value=String(+item[k][Number(i)].toFixed(2));}el('camFov').value=item.fov;el('camCut').checked=!!item.cut;}
  else{el('textValue').value=item.value;el('textSubtitle').value=item.subtitle||'';for(let field of ['Start','End','X','Y'])el('text'+field).value=item[field.toLowerCase()];el('textSize').value=item.size||'medium';el('textAlign').value=item.align||'center';el('textTone').value=item.tone||'white';}
 }
-function setPlaying(value){if(!ready||!sequence)return;playing=!!value;el('playBtn').textContent=playing?'Ⅱ':'▶';if(playing){orbitMode=false;controls.enabled=false;el('inspectBtn').classList.remove('active');if(playhead>=sequence.duration-.01)seek(0);if(el('showRef').checked){let p=referenceVideo.play();if(p?.catch)p.catch(()=>{});}}else referenceVideo.pause();lastFrame=performance.now();}
+function setPlaying(value){if(!ready||!sequence)return;if(value&&reviewShotId)endGeometryReview();playing=!!value;el('playBtn').textContent=playing?'Ⅱ':'▶';if(playing){orbitMode=false;controls.enabled=false;el('inspectBtn').classList.remove('active');if(playhead>=sequence.duration-.01)seek(0);if(el('showRef').checked){let p=referenceVideo.play();if(p?.catch)p.catch(()=>{});}}else referenceVideo.pause();lastFrame=performance.now();}
 function shotBoundary(direction){if(!ready||!sequence)return;let shot=shotAt(playhead);let val;if(direction<0){let prev=sequence.shots.filter(s=>s.start<shot.start-.03).at(-1);val=playhead-shot.start>.6?shot.start:prev?.start??0;}else val=sequence.shots.find(s=>s.start>playhead+.05)?.start??sequence.duration;setPlaying(false);seek(val+.001);}
 function addCameraKey(){if(!ready||!sequence)return;setPlaying(false);const pos=camera.position.toArray(),tar=controls.target.toArray(),at=+playhead.toFixed(3);let id='c'+Date.now();let key={id,at,p:pos.map(x=>+x.toFixed(3)),t:tar.map(x=>+x.toFixed(3)),fov:camera.fov,cut:false};sequence.camera.push(key);sequence.camera.sort((a,b)=>a.at-b.at);select('camera',id);saveLocal();}
 function addText(){if(!ready||!sequence)return;setPlaying(false);const at=+playhead.toFixed(3),id='tx'+Date.now(),item={id,start:at,end:Math.min(at+3,sequence.duration),value:'Your headline here',subtitle:'Supporting detail',x:50,y:42,size:'medium',align:'center',tone:'white'};sequence.text.push(item);selection={type:'text',id};refreshAll();saveLocal();}
@@ -166,8 +201,8 @@ el('camCut').onchange=e=>{let d=selectedData();if(!d)return;d.cut=e.target.check
 el('removeCameraBtn').onclick=deleteSelected;el('removeTextBtn').onclick=deleteSelected;
 for(let [field,key] of [['textValue','value'],['textSubtitle','subtitle'],['textStart','start'],['textEnd','end'],['textX','x'],['textY','y'],['textSize','size'],['textAlign','align'],['textTone','tone']])el(field).addEventListener('input',e=>{let d=selectedData();if(!d)return;const numeric=['start','end','x','y'].includes(key);d[key]=numeric?safeNum(e.target.value):e.target.value;if(key==='start')d.start=clamp(d.start,0,sequence.duration-.1);if(key==='end')d.end=clamp(d.end,d.start+.1,sequence.duration);if(key==='x'||key==='y')d[key]=clamp(d[key],0,100);renderTimeline();renderOverlays();saveLocal();});
 el('exportBtn').onclick=()=>{if(!ready||!sequence)return;const json=JSON.stringify(sequence,null,2),blob=new Blob([json],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='atoms-to-ai-timeline.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);el('saveStatus').textContent='● EXPORTED';};
-el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;aiSceneEditor?.reset();sequence=structuredClone(originalSequence);syncPrimitiveWorld();referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();};
-el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));aiSceneEditor?.reset();sequence=data;syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
+el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;endGeometryReview();aiSceneEditor?.reset();sequence=structuredClone(originalSequence);syncPrimitiveWorld();referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();};
+el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));endGeometryReview();aiSceneEditor?.reset();sequence=data;syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
 el('showRef').onchange=e=>{referenceVideo.style.display=e.target.checked?'block':'none';if(!e.target.checked)referenceVideo.pause();else if(playing)referenceVideo.play().catch(()=>{});};
 referenceVideo.addEventListener('loadedmetadata',()=>{try{referenceVideo.currentTime=playhead;}catch(e){}});
 window.addEventListener('keydown',e=>{const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
