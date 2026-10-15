@@ -1,0 +1,4 @@
+# Public Paige editor document-root 403 override.
+# Keep this OUTSIDE .private so the host may serve the error document.
+# Do not put any secret or private directory content here.
+ErrorDocument 403 /Indium/paiver/403.html
