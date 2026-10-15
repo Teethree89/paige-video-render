@@ -58,3 +58,27 @@ test('Every run writes a new file rather than overwriting previous AEP work',()=
   assert.match(code,/while\(file\.exists\)/);
   assert.doesNotMatch(code,/path\("AfterEffects\/ATOMS_TO_AI_EDITABLE\.aep"\)/);
 });
+
+test('Both inspection and shot cameras are explicitly aimed at their Point of Interest',()=>{
+  assert.match(code,/function requireTargetedCamera\(cam,label\)/);
+  assert.match(code,/cam\.autoOrient=AutoOrientType\.CAMERA_OR_POINT_OF_INTEREST/);
+  assert.match(code,/requireTargetedCamera\(cam,"model inspection "\+id\)/);
+  assert.match(code,/requireTargetedCamera\(camera,shot\.name\)/);
+});
+
+test('Camera sampling cannot use the next shot cut as the previous shot endpoint',()=>{
+  assert.match(code,/var visibleEnd=Math\.max\(shot\.start,shot\.end-1\/FPS\)/);
+  assert.match(code,/var t=shot\.start\+\(visibleEnd-shot\.start\)\*n\/samples/);
+  assert.doesNotMatch(code,/var t=shot\.start\+\(shot\.end-shot\.start\)\*n\/samples/);
+
+  // Execute the real script's pure interpolation function against the real timeline.
+  const match=jsx.match(/function interpCamera\(seq,t\) \{([\s\S]*?)\n  \}/);
+  assert.ok(match,'camera interpolation function found');
+  const interpolate=new Function('seq','t',match[1]);
+  const sequence=JSON.parse(readFileSync(new URL('../timeline.json',import.meta.url),'utf8'));
+  const exterior=sequence.shots[0];
+  const frameBeforeCut=interpolate(sequence,exterior.end-1/sequence.fps);
+  const followingScene=interpolate(sequence,exterior.end);
+  assert.equal(frameBeforeCut.p[0],39,'last exterior frame still uses exterior camera');
+  assert.equal(followingScene.p[0],180,'hall camera only begins at the hall cut');
+});
