@@ -130,7 +130,7 @@ If 50webs does not honor `.htaccess`, choose another server-supported deny rule 
 
 ### Suppressing Apache's verbose shared-host error page
 
-In the live post-deploy test, 50webs continued to return a path-disclosing `AH01630` error page even when the private guard specified `ErrorDocument 403 "Forbidden"`. The access rule *did* block the private file (HTTP 403). The updated guard keeps `Require all denied` but points Apache to a generic document at `/Indium/paiver/private-denied.html` in the site's **public, non-secret** root. The FTP build includes that HTML page.
+In the live post-deploy test, 50webs continued to return a path-disclosing `AH01630` error page even when the private guard specified `ErrorDocument 403 "Forbidden"`. The access rule *did* block the private file (HTTP 403). The updated guard keeps `Require all denied` but points Apache to a generic document at `/Indium/paiver/private-denied.html` in the site's **public, non-secret** root. The FTP build includes that HTML page. It contains no sensitive data and immediately returns browsers to `/Indium/paiver/` via meta refresh and `location.replace`. The server-side denial must **still** return HTTP 403; the browser navigation is presentation only, not a replacement for access control.
 
 Keep verifying that `.private/deny-check.txt` and `.private/paiver.php` both return HTTP **403**, and that the harmless test's response no longer contains an absolute hosting account path. If the host ignores or blocks this new ErrorDocument, do not remove `Require all denied`; ask the provider about customizing 403 responses while retaining the directory denial.
 
