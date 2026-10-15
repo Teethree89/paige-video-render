@@ -31,14 +31,30 @@ class GatewaySmokeTests(unittest.TestCase):
                                         "csrf": csrf, "password": token}).encode(), None
             self.fail(f"Unexpected URL: {url}")
 
+        def fake_protected(url, inspect_body=False):
+            if url.endswith("/.private/deny-check.txt"):
+                return 302, b"", probe.EDITOR
+            if url.endswith("/.private/paiver.php"):
+                self.assertFalse(inspect_body)
+                return 302, b"", probe.EDITOR
+            self.fail(f"Unexpected protected URL: {url}")
+
         output = io.StringIO()
-        with patch.object(probe, "fetch", side_effect=fake_get):
+        with patch.object(probe, "fetch", side_effect=fake_get), \
+             patch.object(probe, "fetch_protected", side_effect=fake_protected):
             with patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": ""}):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(probe.run(), 0)
         self.assertIn("RESULT: PASS", output.getvalue())
         self.assertNotIn(token, output.getvalue())
         self.assertNotIn(csrf, output.getvalue())
+
+    def test_only_exact_editor_redirect_is_considered_safe(self):
+        self.assertTrue(probe.is_safe_denial(403, "", path_exposed=False))
+        self.assertTrue(probe.is_safe_denial(302, probe.EDITOR, path_exposed=False))
+        self.assertFalse(probe.is_safe_denial(302, "https://attacker.example/", path_exposed=False))
+        self.assertFalse(probe.is_safe_denial(200, "", path_exposed=False))
+        self.assertFalse(probe.is_safe_denial(403, "", path_exposed=True))
 
     def test_php_error_mapping_is_fixed_and_never_echoes_remote_error(self):
         self.assertEqual(
@@ -61,8 +77,17 @@ class GatewaySmokeTests(unittest.TestCase):
                 return 200, b"", None
             return 503, b'{"ok":false,"error":"Private server configuration is not available"}', None
 
+        def fake_protected(url, inspect_body=False):
+            if url.endswith("/.private/deny-check.txt"):
+                return 403, b"AH01630: /services/users/PRIVATEACCOUNT/file", ""
+            if url.endswith("/.private/paiver.php"):
+                self.assertFalse(inspect_body)
+                return 200, b"", ""
+            self.fail(f"Unexpected protected URL: {url}")
+
         output = io.StringIO()
-        with patch.object(probe, "fetch", side_effect=fake_get):
+        with patch.object(probe, "fetch", side_effect=fake_get), \
+             patch.object(probe, "fetch_protected", side_effect=fake_protected):
             with patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": ""}):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(probe.run(), 1)
