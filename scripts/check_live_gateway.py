@@ -82,16 +82,19 @@ def is_safe_denial(status, location, *, path_exposed=False):
 
 
 def check_session_continuity():
-    """Confirm two anonymous GETs share a PHP session without logging its IDs.
-
-    A successful POST login alone does not prove PHP persisted the session.
-    Compare non-public CSRF values IN MEMORY across two requests with a
-    disposable cookie jar. Never return, print, log or persist either value.
-    """
+    """Return status categories, never session cookie or CSRF contents."""
     jar = CookieJar()
     opener = build_opener(HTTPCookieProcessor(jar))
     csrf_values = []
-    for _ in range(2):
+    last_status = None
+
+    def has_secure_cookie():
+        return any(
+            cookie.name == "__Host-paiver-scene" and cookie.secure and cookie.path == "/"
+            for cookie in jar
+        )
+
+    for index in range(2):
         request = Request(EDITOR + "scene-proxy.php", headers={
             "User-Agent": "PaigeSceneDeploymentCheck/1.0",
             "Accept": "application/json",
@@ -99,22 +102,31 @@ def check_session_continuity():
         })
         try:
             with opener.open(request, timeout=18) as response:
-                if response.status != 200:
-                    return False, False
+                last_status = response.status
+                if last_status != 200:
+                    return has_secure_cookie(), False, "non-200-get", last_status
                 payload = json.loads(response.read(MAX_PUBLIC_BODY))
-        except (ValueError, UnicodeDecodeError, HTTPError, URLError, TimeoutError, OSError):
-            return False, False
-        if (not isinstance(payload, dict) or payload.get("ok") is not True or
-                payload.get("authenticated") is not False or
-                not isinstance(payload.get("csrf"), str) or
-                len(payload["csrf"]) != 64):
-            return False, False
+        except HTTPError as error:
+            last_status = error.code
+            error.close()
+            return has_secure_cookie(), False, "http-error", last_status
+        except (URLError, TimeoutError, OSError):
+            return has_secure_cookie(), False, "connection-error", last_status
+        except (ValueError, UnicodeDecodeError):
+            return has_secure_cookie(), False, "invalid-json", last_status
+        if not isinstance(payload, dict) or payload.get("ok") is not True or (
+                payload.get("authenticated") is not False):
+            return has_secure_cookie(), False, "invalid-response-shape", last_status
+        if not isinstance(payload.get("csrf"), str) or len(payload["csrf"]) != 64:
+            return has_secure_cookie(), False, "missing-session-nonce", last_status
         csrf_values.append(payload["csrf"])
-    cookie_present = any(
-        cookie.name == "__Host-paiver-scene" and cookie.secure and cookie.path == "/"
-        for cookie in jar
-    )
-    return cookie_present, cookie_present and csrf_values[0] == csrf_values[1]
+
+    cookie_present = has_secure_cookie()
+    if not cookie_present:
+        return False, False, "secure-session-cookie-not-retained", last_status
+    if csrf_values[0] != csrf_values[1]:
+        return True, False, "server-session-rotated", last_status
+    return True, True, "ok", last_status
 
 
 def bool_from_json(body, key):
@@ -206,10 +218,11 @@ def run():
 
     # Anonymous-only follow-up: check cookie persistence without any login or
     # model invocation. Only booleans are reported; never log cookie/CSRF data.
-    cookie_present, csrf_stable = check_session_continuity()
-    record("PHP anonymous session continuity", 200 if csrf_stable else None,
+    cookie_present, csrf_stable, reason, session_status = check_session_continuity()
+    record("PHP anonymous session continuity", session_status,
            f"secure_cookie_present={str(cookie_present).lower()} "
-           f"session_persisted={str(csrf_stable).lower()}; values_not_logged=true",
+           f"session_persisted={str(csrf_stable).lower()} "
+           f"diagnostic={reason}; values_not_logged=true",
            failure=not csrf_stable)
 
     output = "\n".join(entries + [
