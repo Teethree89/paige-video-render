@@ -79,6 +79,26 @@ The browser calls the proxy relative to the existing page (no CORS required). Th
 - Only non-secret Worker code and the public proxy live in GitHub.
 - The PHP template contains placeholders and may be included in the downloadable project ZIP without leaking credentials.
 - Cloudflare Workers secret values remain configured privately in the dashboard.
+### Detailed but still editable AI scenes
+
+The first end-to-end Gemini result was a sparse architectural blockout. The Worker
+previously asked for only 16 basic shapes and capped Gemini output at 3,500 tokens.
+The improved prompt now analyzes all 3 chronological frames together, budgets at
+most **36 editable objects** (typically 18–32 when supported by the images),
+and calls for identifiable roof, wall, glazing, entrance, site, machinery and
+equipment details. The output cap is now 7,500 tokens. The new temporary
+Three.js inspection lights and floor grid make dark materials easier to see
+without changing the saved timeline, original authored world or GLB geometry.
+
+These results remain **approximate primitives**, not photogrammetry, textured
+meshes or a faithful reconstruction of hidden details. A model may return
+fewer than 36 objects when evidence is weak. Gemini output costs/latency can
+increase with a longer response if the API project is on a paid tier;
+Google's free-tier availability depends on the account and its limits.
+Accepting an AI proposal replaces only the selected chapter's primitive scene,
+after confirmation if it already has objects. Export timeline JSON before
+making major edits to preserve a backup of the original geometry.
+
 - The fixed model is `gemini-3.5-flash-lite`. Google's Gemini 2.5 Flash-Lite access is now restricted to projects with prior use, so newer projects can receive HTTP 404 from that older model. The new model supports image inputs and structured JSON output. **There is no automatic model fallback**. Google's Developer API pricing lists a free tier for 3.5 Flash-Lite, but whether a specific request incurs charges depends on the key's billing tier; free-tier availability, rate limits and terms vary.
 - `GET /health` reports a public `model` identifier alongside `ready` so production can verify the deployed Worker actually uses `gemini-3.5-flash-lite`. This is NOT a Gemini entitlement check or a successful model inference. Do not infer live generation works until an authenticated editor request returns validated primitives.
 - Under some free-tier conditions, submitted data may be used for service improvement. **Start with the already-public reference video only**; review Google's current terms before submitting client/private footage.
