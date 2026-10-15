@@ -68,3 +68,36 @@ test('authorized request returns valid primitive JSON and keeps API key out of o
     assert.ok(!body.includes(token));
   }finally{globalThis.fetch=previous;}
 });
+
+test('Gemini failure statuses are classified without relaying raw provider errors',async()=>{
+  const cases=[
+    [400,502,'AI provider rejected request format'],
+    [401,502,'AI provider authentication or permission failed'],
+    [403,502,'AI provider authentication or permission failed'],
+    [404,502,'Requested AI model is unavailable'],
+    [422,502,'AI provider rejected request format'],
+    [429,429,'Provider rate limit reached'],
+    [500,502,'AI provider temporarily unavailable'],
+    [503,502,'AI provider temporarily unavailable'],
+    [418,502,'AI provider refused the request']
+  ];
+  const previous=globalThis.fetch;
+  try{
+    for(const [providerStatus,workerStatus,workerError] of cases){
+      globalThis.fetch=async()=>new Response(
+        JSON.stringify({error:'PRIVATE_PROVIDER_ACCOUNT_DETAILS_DO_NOT_RELAY'}),
+        {status:providerStatus,headers:{'content-type':'application/json'}}
+      );
+      const result=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+        method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+        body:JSON.stringify(sample)
+      }),env);
+      assert.equal(result.status,workerStatus);
+      const raw=await result.text();
+      assert.deepEqual(JSON.parse(raw),{ok:false,error:workerError});
+      assert.ok(!raw.includes('PRIVATE_PROVIDER_ACCOUNT_DETAILS_DO_NOT_RELAY'));
+      assert.ok(!raw.includes(env.GEMINI_API_KEY));
+      assert.ok(!raw.includes(token));
+    }
+  }finally{globalThis.fetch=previous;}
+});
