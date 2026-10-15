@@ -135,3 +135,12 @@ In the live post-deploy test, 50webs continued to return a path-disclosing `AH01
 Keep verifying that `.private/deny-check.txt` and `.private/paiver.php` both return HTTP **403**, and that the harmless test's response no longer contains an absolute hosting account path. If the host ignores or blocks this new ErrorDocument, do not remove `Require all denied`; ask the provider about customizing 403 responses while retaining the directory denial.
 
 The live smoke checker classifies PHP startup failures with **fixed labels** (for example, `private-file-not-readable`, `private-config-values-invalid`, and `worker-url-invalid`); it never outputs PHP's raw JSON response because that can include CSRF values.
+
+
+### Native post-denial redirect (50webs fallback)
+
+The 50webs hosting layer continued displaying its verbose `AH01630` page even with an internal custom `ErrorDocument 403` and client-side navigation. The `.private/.htaccess` rule now tries a native **external Apache ErrorDocument redirect** to `https://paige-lighthouse.50webs.org/Indium/paiver/`, while preserving `Require all denied`.
+
+Apache may answer the original forbidden-resource request with HTTP **302** and a `Location` to the editor rather than an HTTP 403 page. The external ErrorDocument redirect is presentation only; the **directory access-denial rule remains mandatory**. The automated smoke test observes the initial HTTP response without following redirects. It requires either (a) HTTP 403 without path disclosure or (b) HTTP 30x to exactly the editor homepage. HTTP 200 from a protected file is rejected.
+
+If 50webs ignores this setting and still renders its own 403 body, do **not** remove `Require all denied` or use a stand-alone rewrite redirect as the only protection. Request host configuration assistance or migrate authentication to Cloudflare Access.

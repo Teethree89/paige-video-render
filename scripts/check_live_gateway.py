@@ -9,7 +9,7 @@ import json
 import os
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
 
 EDITOR = "https://paige-lighthouse.50webs.org/Indium/paiver/"
 WORKER = "https://paige-video-render.ivaniscreative.workers.dev/health"
@@ -35,6 +35,48 @@ def fetch(url, *, inspect_body=False):
     except (URLError, TimeoutError, OSError) as error:
         # Some networking exceptions embed internal proxy hostnames. Do not print them.
         return None, b"", type(error).__name__
+
+
+class DoNotFollow(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def fetch_protected(url, *, inspect_body=False):
+    """Observe the initial denial/redirect, never following into another page.
+
+    Only the harmless test file's response body may be read. The secret PHP
+    file is requested for status + Location header ONLY, never for its body.
+    """
+    request = Request(url, headers={
+        "User-Agent": "PaigeSceneDeploymentCheck/1.0",
+        "Cache-Control": "no-store",
+    })
+    opener = build_opener(DoNotFollow)
+    try:
+        with opener.open(request, timeout=18) as response:
+            status = response.status
+            location = response.headers.get("Location", "")
+            body = response.read(MAX_PUBLIC_BODY) if inspect_body else b""
+            return status, body, location
+    except HTTPError as error:
+        status = error.code
+        location = error.headers.get("Location", "")
+        body = error.read(MAX_PUBLIC_BODY) if inspect_body else b""
+        error.close()
+        return status, body, location
+    except (URLError, TimeoutError, OSError):
+        return None, b"", ""
+
+
+def is_safe_denial(status, location, *, path_exposed=False):
+    # Apache may serve the tiny local 403 body, or emit a real redirect via
+    # the *post-denial* ErrorDocument. Neither case may disclose file bytes.
+    if status == 403:
+        return not path_exposed
+    if status in (301, 302, 303, 307, 308):
+        return location == EDITOR and not path_exposed
+    return False
 
 
 def bool_from_json(body, key):
@@ -86,19 +128,22 @@ def run():
            failure=(status != 200 or worker_ready is not True))
 
     probe = EDITOR + ".private/deny-check.txt"
-    status, body, error = fetch(probe, inspect_body=True)
+    status, body, location = fetch_protected(probe, inspect_body=True)
     text = body.decode("utf-8", "replace")
     path_exposed = any(marker in text.lower() for marker in (
         "/services/users/", "ah01630", "/home/www/", "/www/paige-lighthouse",
     ))
+    harmless_safe = is_safe_denial(status, location, path_exposed=path_exposed)
     record("Private guard harmless file", status,
-           f"internal_path_disclosed={str(path_exposed).lower()}",
-           failure=(status != 403 or path_exposed))
+           f"internal_path_disclosed={str(path_exposed).lower()} safe_denial={harmless_safe}",
+           failure=not harmless_safe)
 
-    # Never inspect, print or otherwise persist the contents of this response.
-    status, _, error = fetch(EDITOR + ".private/paiver.php", inspect_body=False)
-    record("Secret PHP direct URL (status only)", status, "body_not_read=true",
-           failure=(status != 403))
+    # NEVER inspect, print or persist any protected PHP response body.
+    status, _, location = fetch_protected(EDITOR + ".private/paiver.php", inspect_body=False)
+    secret_safe = is_safe_denial(status, location)
+    record("Secret PHP direct URL (status only)", status,
+           f"body_not_read=true safe_denial={secret_safe}",
+           failure=not secret_safe)
 
     status, body, error = fetch(EDITOR + "scene-proxy.php", inspect_body=True)
     ok = bool_from_json(body, "ok")
