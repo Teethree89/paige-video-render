@@ -157,6 +157,10 @@ def proxy_error_category(body):
         "PHP cURL extension is required": "php-curl-unavailable",
         "PHP sessions are required": "php-sessions-unavailable",
         "Secure PHP cookie sessions are required": "php-cookie-sessions-unavailable",
+        "Secure PHP session setting unavailable: use-cookies": "php-use-cookies-unavailable",
+        "Secure PHP session setting unavailable: only-cookies": "php-only-cookies-unavailable",
+        "Secure PHP session setting unavailable: trans-sid": "php-trans-sid-unavailable",
+        "Secure PHP session setting unavailable: strict-mode": "php-strict-mode-unavailable",
         "Could not start a private PHP session": "php-session-start-failed",
         "HTTPS is required": "php-https-unavailable",
     }
