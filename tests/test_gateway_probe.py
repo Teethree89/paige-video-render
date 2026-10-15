@@ -49,7 +49,7 @@ class GatewaySmokeTests(unittest.TestCase):
 
         def fake_get(url, inspect_body=False):
             if url.endswith("/health"):
-                return 200, b'{"ready":true,"model":"gemini-3.5-flash-lite"}', None
+                return 200, b'{"ready":true,"model":"gemini-3.5-flash-lite","generationProfile":"detailed-36-v2"}', None
             if url.endswith("/403.html"):
                 return 200, b"<html>Access denied. Return to editor.</html>", None
             if url.endswith("/.private/deny-check.txt"):
@@ -78,6 +78,7 @@ class GatewaySmokeTests(unittest.TestCase):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(probe.run(), 0)
         self.assertIn("model_current=true", output.getvalue())
+        self.assertIn("detail_profile_live=true", output.getvalue())
         self.assertIn("RESULT: PASS", output.getvalue())
         self.assertNotIn(token, output.getvalue())
         self.assertNotIn(csrf, output.getvalue())
