@@ -116,6 +116,25 @@ class GatewaySmokeTests(unittest.TestCase):
              patch.object(probe, "build_opener", return_value=RotatedOpener()):
             self.assertEqual(probe.check_session_continuity(), (True, False, "server-session-rotated", 200))
 
+    def test_php_requires_secure_cookie_only_sessions_before_start(self):
+        script = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        start = script.index("if (!session_start())")
+        for setting, value in (("session.use_cookies", "1"),
+                               ("session.use_only_cookies", "1"),
+                               ("session.use_trans_sid", "0"),
+                               ("session.use_strict_mode", "1")):
+            declaration = f"ini_set('{setting}', '{value}');"
+            self.assertIn(declaration, script[:start])
+        self.assertIn("'httponly' => true", script[:start])
+        self.assertIn("'secure' => true", script[:start])
+        self.assertIn("'samesite' => 'Strict'", script[:start])
+        self.assertIn("Secure PHP cookie sessions are required", script[:start])
+        self.assertEqual(
+            probe.proxy_error_category(
+                b'{"ok":false,"error":"Secure PHP cookie sessions are required"}'),
+            "php-cookie-sessions-unavailable"
+        )
+
     def test_only_exact_editor_redirect_is_considered_safe(self):
         self.assertTrue(probe.is_safe_denial(403, "", path_exposed=False))
         self.assertTrue(probe.is_safe_denial(302, probe.EDITOR, path_exposed=False))
