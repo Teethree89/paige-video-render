@@ -99,12 +99,26 @@ if (!is_string($secret) || strlen($secret) < 32 ||
     reject(503, 'Private server configuration needs valid values');
 }
 
+// 50webs shared hosting may override the PHP defaults. A POST login can
+// succeed within one request even when PHP does not issue a session cookie,
+// leaving the next POST unauthenticated. Require safe, cookie-only sessions.
+ini_set('session.use_cookies', '1');
+ini_set('session.use_only_cookies', '1');
+ini_set('session.use_trans_sid', '0');
 ini_set('session.use_strict_mode', '1');
+if ((string) ini_get('session.use_cookies') !== '1' ||
+    (string) ini_get('session.use_only_cookies') !== '1' ||
+    (string) ini_get('session.use_trans_sid') !== '0' ||
+    (string) ini_get('session.use_strict_mode') !== '1') {
+    reject(503, 'Secure PHP cookie sessions are required');
+}
 session_name('__Host-paiver-scene');
-session_set_cookie_params([
+if (!session_set_cookie_params([
     'lifetime' => 0, 'path' => '/', 'secure' => true,
     'httponly' => true, 'samesite' => 'Strict'
-]);
+])) {
+    reject(503, 'Secure PHP cookie sessions are required');
+}
 if (!session_start()) reject(503, 'Could not start a private PHP session');
 
 if (!isset($_SESSION['csrf'])) {
