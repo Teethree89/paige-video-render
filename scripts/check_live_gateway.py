@@ -187,7 +187,7 @@ def run():
     except (ValueError, UnicodeDecodeError, AttributeError):
         worker_model_current = False
     try:
-        detail_profile_live = (json.loads(body).get("generationProfile") == "detailed-36-v2")
+        detail_profile_live = (json.loads(body).get("generationProfile") == "layered-environment-v1")
     except (ValueError, UnicodeDecodeError, AttributeError):
         detail_profile_live = False
     record("Cloudflare Worker /health", status,
