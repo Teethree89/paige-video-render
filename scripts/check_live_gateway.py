@@ -186,9 +186,15 @@ def run():
         worker_model_current = (json.loads(body).get("model") == "gemini-3.5-flash-lite")
     except (ValueError, UnicodeDecodeError, AttributeError):
         worker_model_current = False
+    try:
+        detail_profile_live = (json.loads(body).get("generationProfile") == "detailed-36-v2")
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        detail_profile_live = False
     record("Cloudflare Worker /health", status,
-           f"ready={worker_ready} model_current={str(worker_model_current).lower()}",
-           failure=(status != 200 or worker_ready is not True or not worker_model_current))
+           f"ready={worker_ready} model_current={str(worker_model_current).lower()} "
+           f"detail_profile_live={str(detail_profile_live).lower()}",
+           failure=(status != 200 or worker_ready is not True or
+                    not worker_model_current or not detail_profile_live))
 
     # Confirm the configured ErrorDocument itself is publicly retrievable:
     # no sensitive information is stored there, and an incorrect URL may
