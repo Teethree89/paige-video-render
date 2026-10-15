@@ -1,8 +1,8 @@
 /*
  Atoms / AI: Adobe After Effects project builder (CC 2024/24.1 or newer recommended)
  File > Scripts > Run Script File… > select this file.
- Creates a native .aep on your computer, 56.47s master comp, 13 editable titles,
- chapter markers, a camera-key reference, and seven linked GLB assets/workspaces.
+ Creates a native .aep on your computer with editable text, shot workspaces,
+ camera references and linked GLBs (including optional per-shot primitives).
  The Three.js VFX are NOT translated into AE geometry or effects.
 */
 (function () {
@@ -161,8 +161,8 @@
     for(var n=0;n<=samples;n++) {
       var t=shot.start+(visibleEnd-shot.start)*n/samples;
       var a=interpCamera(seq,Math.min(t,seq.duration));
-      var p=[W/2+(a.p[0]-sceneOffset)*AE_PX_PER_WORLD_UNIT,H/2-a.p[1]*AE_PX_PER_WORLD_UNIT,-a.p[2]*AE_PX_PER_WORLD_UNIT];
-      var q=[W/2+(a.t[0]-sceneOffset)*AE_PX_PER_WORLD_UNIT,H/2-a.t[1]*AE_PX_PER_WORLD_UNIT,-a.t[2]*AE_PX_PER_WORLD_UNIT];
+      var p=[W/2+(a.p[0]-sceneOffset[0])*AE_PX_PER_WORLD_UNIT,H/2-(a.p[1]-sceneOffset[1])*AE_PX_PER_WORLD_UNIT,-(a.p[2]-sceneOffset[2])*AE_PX_PER_WORLD_UNIT];
+      var q=[W/2+(a.t[0]-sceneOffset[0])*AE_PX_PER_WORLD_UNIT,H/2-(a.t[1]-sceneOffset[1])*AE_PX_PER_WORLD_UNIT,-(a.t[2]-sceneOffset[2])*AE_PX_PER_WORLD_UNIT];
       var local=t-shot.start;pos.setValueAtTime(local,p);poi.setValueAtTime(local,q);
       // Three.js stores vertical? fov of a PerspectiveCamera is vertical,
       // whereas After Effects camera Zoom uses comp height for equivalent FOV.
@@ -215,6 +215,14 @@
       }catch(e){reportWarning("Model inspection workspace failed for "+modelId,e);}
     }
     var offsets={exterior:0,hall:180,pcb:360,atoms:440,laser:560,fiber:690,optics:815};
+    // Optional per-shot GLBs contain accepted custom primitive geometry. Import
+    // them in preference to the shared model because the live browser also
+    // hides the original model when a shot has custom primitives.
+    var shotGlbs=[];
+    for(var si=0;si<seq.shots.length;si++){
+      var filename="assets/shots/shot-"+(si+1<10?"0":"")+(si+1)+".glb";
+      if(path(filename).exists)shotGlbs[si]=safeImport(path(filename),assetsFolder);
+    }
     for(var i=0;i<seq.shots.length;i++){
       var shot=seq.shots[i],sid=shot.id==="finale"?"exterior":shot.id==="hallreturn"?"hall":shot.id;
       currentStage="build 3D workspace "+shot.name;
@@ -222,14 +230,23 @@
       // Imported GLB models require the Advanced 3D composition renderer.
       useAdvancedRenderer(workspace);
       addMarker(comp,shot.start,"SCENE " +(i+1)+" — "+shot.name);
-      if(glbs[sid]) {
+      var shotModel=shotGlbs[i]||glbs[sid];
+      if(shotModel) {
         try {
-          var m=workspace.layers.add(glbs[sid]);
-          positionGLBLayer(m,sceneNames[indexIn(fileIds,sid)]+" (linked GLB)");
+          var m=workspace.layers.add(shotModel);
+          var modelIndex=indexIn(fileIds,sid);
+          var modelLabel=shotGlbs[i]?shot.name+" (custom shot GLB)":(modelIndex>=0?sceneNames[modelIndex]:shot.name)+" (linked GLB)";
+          positionGLBLayer(m,modelLabel);
         }
-        catch(e){reportWarning("Model layer could not be added to "+sid,e);}
+        catch(e){reportWarning("Model layer could not be added to "+shot.name,e);}
       }
-      try{addCameraKeys(workspace,seq,shot,offsets[sid]);}
+      // The package serializes the same origin used to localize its GLBs.
+      // Preserve the old seven scene offsets when reading legacy timeline JSON.
+      // New arbitrary shots use their opening camera target as the local origin.
+      var startTarget=interpCamera(seq,shot.start).t;
+      var fallbackOrigin=typeof offsets[sid]==="number"?[offsets[sid],0,0]:[startTarget[0],0,startTarget[2]];
+      var origin=(shot.aeOrigin && shot.aeOrigin.length===3)?shot.aeOrigin:fallbackOrigin;
+      try{addCameraKeys(workspace,seq,shot,origin);}
       catch(e){reportWarning("Camera import warning for "+shot.name,e);}
       // Source keyframes are an approximation; inspect MODEL CHECK comps first.
       // For a visually incorrect model use Layer > Model Settings (Y Up, Make Comp Size).
