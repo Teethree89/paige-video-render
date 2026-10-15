@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite'});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite'});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -48,6 +48,10 @@ test('authorized request returns valid primitive JSON and keeps API key out of o
   const previous=globalThis.fetch;
   let providerInvoked=false;
   globalThis.fetch=async (_url,opts)=>{
+    assert.equal(_url,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');
+    assert.equal(opts.method,'POST');
+    assert.equal(JSON.parse(opts.body).generationConfig.responseMimeType,'application/json');
     providerInvoked=true;
     assert.ok(opts.headers['x-goog-api-key']===env.GEMINI_API_KEY);
     assert.ok(opts.body.includes('inlineData'));
@@ -84,10 +88,14 @@ test('Gemini failure statuses are classified without relaying raw provider error
   const previous=globalThis.fetch;
   try{
     for(const [providerStatus,workerStatus,workerError] of cases){
-      globalThis.fetch=async()=>new Response(
+      globalThis.fetch=async (url)=> {
+        assert.equal(url,
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');
+        return new Response(
         JSON.stringify({error:'PRIVATE_PROVIDER_ACCOUNT_DETAILS_DO_NOT_RELAY'}),
         {status:providerStatus,headers:{'content-type':'application/json'}}
       );
+      };
       const result=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
         method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
         body:JSON.stringify(sample)
