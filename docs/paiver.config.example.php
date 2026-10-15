@@ -7,9 +7,8 @@
  * or any folder downloadable over HTTP.
  */
 return [
-    // From Cloudflare dashboard → Workers → paige-video-render → Domains & Routes.
-    // Use the actual workers.dev HTTPS hostname, ending in /api/scene.
-    'worker_endpoint' => 'https://YOUR_WORKER_SUBDOMAIN.workers.dev/api/scene',
+    // The public Cloudflare Worker URL is now pinned in scene-proxy.php.
+    // Only these two private credentials belong in this file.
 
     // Exactly the same long token configured in the Cloudflare Worker
     // secret SCENE_ACCESS_TOKEN. It must never appear in browser JS.

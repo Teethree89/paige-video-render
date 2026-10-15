@@ -48,13 +48,12 @@ Create the new file **`/www/certificates/paiver.php`** by copying [the placehold
 ```php
 <?php
 return [
-    'worker_endpoint' => 'https://YOUR_WORKER_SUBDOMAIN.workers.dev/api/scene',
     'scene_access_token' => 'PASTE_THE_SAME_SCENE_ACCESS_TOKEN_HERE',
     'editor_passphrase' => 'CHOOSE_YOUR_OWN_UNIQUE_PASSPHRASE_HERE',
 ];
 ```
 
-Replace the URL with the *actual* public Worker hostname from Cloudflare → Domains & Routes, followed by `/api/scene`. The URL is not a credential. Replace the token placeholder with exactly the long token bound to `SCENE_ACCESS_TOKEN` in Cloudflare. Choose a new, unique **memorable passphrase of 16+ characters**, not your FTP password, Cloudflare password, or other existing secret. The short sign-in interface asks for this passphrase once per PHP session. The private PHP file is deliberately server-only and contains plaintext secrets; ensure it is not HTTP accessible and use restrictive filesystem permissions such as `0600` when supported by the host.
+The Worker URL is pinned in `scene-proxy.php` and does not belong in the private configuration. Replace the token placeholder with exactly the long token bound to `SCENE_ACCESS_TOKEN` in Cloudflare. Choose a new, unique **memorable passphrase of 16+ characters**, not your FTP password, Cloudflare password, or other existing secret. The short sign-in interface asks for this passphrase once per PHP session. The private PHP file is deliberately server-only and contains plaintext secrets; ensure it is not HTTP accessible and use restrictive filesystem permissions such as `0600` when supported by the host.
 
 **You must create that private file manually.** The repository/FTP publishing job cannot and must not upload it.
 
@@ -158,11 +157,11 @@ ErrorDocument 403 /Indium/paiver/403.html
 
 The PHP gateway now *can* load the manually moved `.private/paiver.php` file, but the production smoke test reported `private-config-values-invalid`. This is a **configuration-value** issue, not a file-read failure. Verify in the 50webs HTTPS file editor:
 
-- `worker_endpoint` is exactly `https://paige-video-render.ivaniscreative.workers.dev/api/scene`
+- The public Worker URL is fixed in `scene-proxy.php`; an old `worker_endpoint` entry in the private config is ignored
 - `scene_access_token` is a quoted string of **at least 32 characters**, and matches Cloudflare's runtime `SCENE_ACCESS_TOKEN`.
 - `editor_passphrase` is a quoted string of **at least 16 characters**.
 
-All three must be present as PHP array keys, with no placeholders (`PASTE_`, `CHOOSE_`, `YOUR_WORKER`). Do not show these values in screenshots, GitHub issues, or chats.
+Both secret values must be present as PHP array keys, with no placeholders (`PASTE_`, `CHOOSE_`). Do not show these values in screenshots, GitHub issues, or chats.
 
 
 ### Preemptive private-URL redirect experiment
@@ -178,7 +177,7 @@ The private directory **still** contains `Require all denied`. The rewrite affec
 
 If `mod_rewrite` is unavailable or 50webs processes access denial before the editor-root rule, remove the rewrite but **do not remove the independent `Require all denied` rule**. In that case the remaining information disclosure is controlled by the host's error template and may require host support.
 
-The separate PHP integration remains blocked until all three values in the manually installed `.private/paiver.php` pass validation. The runtime token/passphrase lengths are checked without printing any values.
+The separate PHP integration remains blocked until the two required private values in `.private/paiver.php` pass validation. The runtime token/passphrase lengths are checked without printing any values.
 
 
 ### mod_alias request-translation redirect (last host test)
@@ -192,3 +191,14 @@ RedirectMatch 302 ^/Indium/paiver/\\.private(/|$) /Indium/paiver/
 This matches only the protected prefix. The prior rewrite and generic 403 ErrorDocument remain fallbacks. The real protection is unchanged: `.private/.htaccess` still contains `Require all denied`.
 
 The automated smoke test will only accept a 302/other approved redirect to the exact editor URL, or a path-free 403. It follows no redirect and reads **no content from paiver.php**. If the host still displays a detailed 403, stop trying more PHP/Apache user-space overrides; 50webs must change its server-level error handling or the site must move to hosting that permits custom error pages. Do not reduce secret-file protection to suppress this error.
+
+
+### SSH-assisted verification without displaying secrets
+
+If you have shell/SSH access, navigate to the public editor directory and run the following read-only validation. **Do not paste or show the file contents.**
+
+```bash
+php -r '$c=require ".private/paiver.php"; foreach (["scene_access_token"=>32,"editor_passphrase"=>16] as $k=>$n) { $v=$c[$k]??null; echo $k, ": ", is_string($v)&&strlen($v)>=$n ? "length-ok" : "missing-or-too-short", PHP_EOL; }'
+```
+
+This prints only whether the secret token and passphrase are present with acceptable lengths. Do **not** use `cat` or post screenshots of your configuration; keep all secret values off the command line. Because the Worker URL is no longer read from the private file, a mistyped `worker_endpoint` entry cannot break PHP startup.
