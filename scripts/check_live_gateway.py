@@ -180,8 +180,15 @@ def run():
 
     status, body, error = fetch(WORKER, inspect_body=True)
     worker_ready = bool_from_json(body, "ready")
-    record("Cloudflare Worker /health", status, f"ready={worker_ready}",
-           failure=(status != 200 or worker_ready is not True))
+    # Confirm that the production Worker build actually switched to the
+    # approved model. Compare in memory; never echo arbitrary provider fields.
+    try:
+        worker_model_current = (json.loads(body).get("model") == "gemini-3.5-flash-lite")
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        worker_model_current = False
+    record("Cloudflare Worker /health", status,
+           f"ready={worker_ready} model_current={str(worker_model_current).lower()}",
+           failure=(status != 200 or worker_ready is not True or not worker_model_current))
 
     # Confirm the configured ErrorDocument itself is publicly retrievable:
     # no sensitive information is stored there, and an incorrect URL may
