@@ -15,7 +15,8 @@ test('Adobe ExtendScript catch paths do not coerce native Error objects',()=>{
   assert.match(code,/function errorDetails\(err\)/);
   assert.match(code,/typeof err\.message==="string"/);
   assert.match(code,/reportWarning\("Camera import warning for "\+shot\.name,e\)/);
-  assert.doesNotMatch(code,/\+\s*(?:err|renderError|e)\b/);
+  // Reading a primitive field such as err.line is safe; coercing the Error itself is not.
+  assert.doesNotMatch(code,/\+\s*(?:err|renderError|e)\b(?!\s*[.([])/);
   assert.doesNotMatch(code,/(?:String\s*\(\s*(?:err|renderError|e)\s*\)|(?:err|renderError|e)\.toString\s*\(\))/);
 });
 
