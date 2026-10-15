@@ -43,6 +43,7 @@ function endGeometryReview(){
   orbitMode=false;controls.enabled=false;
   el('inspectBtn').classList.remove('active');
   el('returnTimelineCameraBtn').hidden=true;
+  camera.near=.35;camera.far=500;
   applyCamera();
 }
 function showGeneratedGeometry(shotId,scroll=false){
