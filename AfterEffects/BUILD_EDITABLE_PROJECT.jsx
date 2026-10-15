@@ -6,8 +6,26 @@
  The Three.js VFX are NOT translated into AE geometry or effects.
 */
 (function () {
+  // Never append another set of GLBs and workspaces to an existing project.
+  // AE will offer to save/close the current project if it contains edits.
+  if (app.project && app.project.numItems > 0) {
+    if (!confirm("This builder creates a complete NEW After Effects project.\n\n"
+      + "The current project already contains " + app.project.numItems + " item(s). "
+      + "Running in it would duplicate all the GLB assets and 3D workspaces.\n\n"
+      + "Create a new project instead? After Effects can prompt you to save your current work.")) return;
+    var freshProject=app.newProject();
+    if (!freshProject || (app.project && app.project.numItems > 0)) {
+      alert("Project switch was canceled. No new folders or models were created.");
+      return;
+    }
+  }
   app.beginUndoGroup("Build Atoms to AI editable project");
   var W=1920,H=1080,FPS=30;
+  // Both the GLB layers and the keyframed cameras use the SAME conversion.
+  // GLBs were exported with scene-local meters and must be transformed into
+  // AE's pixel-based 3D coordinate space.
+  var AE_PX_PER_WORLD_UNIT=18;
+  var GLB_SCALE_PERCENT=AE_PX_PER_WORLD_UNIT*100;
   var warnings=[];
   var currentStage="initialization";
   // IMPORTANT: After Effects ExtendScript throws again if a caught Error is
@@ -49,6 +67,40 @@
     var m=new MarkerValue(label);comp.markerProperty.setValueAtTime(t,m);
   }
   function makeFolder(name,parent){var folder=app.project.items.addFolder(name);if(parent)folder.parentFolder=parent;return folder;}
+  function useAdvancedRenderer(comp){
+    try {
+      var choices=comp.renderers;
+      for(var i=0;i<choices.length;i++){
+        if(/advanced/i.test(choices[i])){comp.renderer=choices[i];return true;}
+      }
+      reportWarning("Advanced 3D renderer not available for "+comp.name,"Select Advanced 3D in Composition Settings");
+    }catch(e){reportWarning("Select Advanced 3D renderer manually for "+comp.name,e);}
+    return false;
+  }
+  function positionGLBLayer(layer,label){
+    layer.name=label;
+    // In AE model layers are natively 3D. Assign transforms independently so
+    // a read-only threeDLayer property cannot skip Position and Scale.
+    try {layer.threeDLayer=true;}catch(e){}
+    var tr=layer.property("ADBE Transform Group");
+    tr.property("ADBE Position").setValue([W/2,H/2,0]);
+    var scale=tr.property("ADBE Scale");
+    if(!scale)throw new Error("GLB model layer has no Scale property");
+    scale.setValue([GLB_SCALE_PERCENT,GLB_SCALE_PERCENT,GLB_SCALE_PERCENT]);
+  }
+  function addInspectionCamera(comp,id){
+    // A neutral, editable overview that does NOT depend on the shot keyframes.
+    // This remains a practical starting point even when the source GLB differs
+    // from the procedural geometry or imported Model Settings.
+    var distances={exterior:225,hall:110,pcb:52,atoms:46,laser:102,fiber:115,optics:94};
+    var distance=distances[id]||100;
+    var targetY=id==="exterior"?8:5;
+    var cam=comp.layers.addCamera("MODEL VIEW — neutral overview",[W/2,H/2]);
+    var tr=cam.property("ADBE Transform Group");
+    tr.property("ADBE Position").setValue([W/2,H/2-(targetY+8)*AE_PX_PER_WORLD_UNIT,-distance*AE_PX_PER_WORLD_UNIT]);
+    tr.property("ADBE Anchor Point").setValue([W/2,H/2-targetY*AE_PX_PER_WORLD_UNIT,0]);
+    return cam;
+  }
   function AEcolor(tone){return tone==="cyan"?[.67,1,1]:tone==="amber"?[1,.84,.63]:[.968,.980,1];}
   function fadeOpacity(layer,start,end){
     var fadeIn=Math.min(.58,(end-start)/3),fadeOut=Math.min(.55,(end-start)/3);
@@ -83,14 +135,21 @@
     // In ExtendScript camera Point of Interest uses the Anchor Point matchName,
     // NOT "ADBE Point of Interest" (which returns null on many AE versions).
     var tr=camera.property("ADBE Transform Group"),pos=tr.property("ADBE Position"),poi=tr.property("ADBE Anchor Point");
+    var cameraOptions=camera.property("ADBE Camera Options Group");
+    var zoom=cameraOptions?cameraOptions.property("ADBE Camera Zoom"):null;
+    if(!zoom)reportWarning("Camera zoom keyframes unavailable for "+comp.name,"Adjust Zoom manually in Camera Options");
     if(!pos || !poi)throw new Error("Two-node camera Position or Point of Interest property unavailable");
     var samples=Math.ceil((shot.end-shot.start)*5);
     for(var n=0;n<=samples;n++) {
       var t=shot.start+(shot.end-shot.start)*n/samples;
       var a=interpCamera(seq,Math.min(t,seq.duration));
-      var p=[W/2+(a.p[0]-sceneOffset)*18,H/2-a.p[1]*18,-a.p[2]*18];
-      var q=[W/2+(a.t[0]-sceneOffset)*18,H/2-a.t[1]*18,-a.t[2]*18];
+      var p=[W/2+(a.p[0]-sceneOffset)*AE_PX_PER_WORLD_UNIT,H/2-a.p[1]*AE_PX_PER_WORLD_UNIT,-a.p[2]*AE_PX_PER_WORLD_UNIT];
+      var q=[W/2+(a.t[0]-sceneOffset)*AE_PX_PER_WORLD_UNIT,H/2-a.t[1]*AE_PX_PER_WORLD_UNIT,-a.t[2]*AE_PX_PER_WORLD_UNIT];
       var local=t-shot.start;pos.setValueAtTime(local,p);poi.setValueAtTime(local,q);
+      // Three.js stores vertical? fov of a PerspectiveCamera is vertical,
+      // whereas After Effects camera Zoom uses comp height for equivalent FOV.
+      if(zoom && a.fov>1 && a.fov<179)
+        zoom.setValueAtTime(local,(H/2)/Math.tan(a.fov*Math.PI/360));
     }
     camera.shy=true;return camera;
   }
@@ -110,7 +169,9 @@
     var seq=readTimeline();var duration=seq.duration;
     if(!seq.shots || !seq.shots.length || !seq.camera || !seq.camera.length || !seq.text)throw new Error("Timeline missing shots, camera, or text entries");
     currentStage="create project folders and master composition";
-    var assetsFolder=makeFolder("01 — Linked GLB assets"),compsFolder=makeFolder("02 — 3D scene workspaces"),otherFolder=makeFolder("03 — Media and references");
+    var projectRoot=makeFolder("ATOMS TO AI — GENERATED PROJECT");
+    var assetsFolder=makeFolder("01 — Linked GLB assets",projectRoot),compsFolder=makeFolder("02 — 3D scene workspaces",projectRoot);
+    var otherFolder=makeFolder("03 — Media and references",projectRoot),inspectionFolder=makeFolder("04 — Model inspection (camera checks)",projectRoot);
     var comp=app.project.items.addComp("ATOMS TO AI — MASTER EDITABLE",W,H,1,duration,FPS);comp.parentFolder=compsFolder;
     comp.bgColor=[.015,.030,.050];
     // Create workspaces separately so they remain editable but don't double-render over the background preview.
@@ -122,21 +183,38 @@
       var id=fileIds[i];var item=safeImport(path("assets/models/"+id+".glb"),assetsFolder);
       if(item){glbs[id]=item;modelsImported++;}
     }
+    // Separate model inspection comps expose every model without the shot camera
+    // obscuring it. AE still uses its own GLB import Model Settings.
+    for(var mi=0;mi<fileIds.length;mi++){
+      var modelId=fileIds[mi],model=glbs[modelId];if(!model)continue;
+      try {
+        var inspection=app.project.items.addComp("MODEL CHECK — "+modelId,W,H,1,6,FPS);
+        inspection.parentFolder=inspectionFolder;inspection.bgColor=[.04,.05,.07];
+        useAdvancedRenderer(inspection);
+        var inspectionLayer=inspection.layers.add(model);
+        positionGLBLayer(inspectionLayer,sceneNames[mi]+" — edit Scale and Model Settings");
+        addInspectionCamera(inspection,modelId);
+      }catch(e){reportWarning("Model inspection workspace failed for "+modelId,e);}
+    }
     var offsets={exterior:0,hall:180,pcb:360,atoms:440,laser:560,fiber:690,optics:815};
     for(var i=0;i<seq.shots.length;i++){
       var shot=seq.shots[i],sid=shot.id==="finale"?"exterior":shot.id==="hallreturn"?"hall":shot.id;
       currentStage="build 3D workspace "+shot.name;
       var workspace=app.project.items.addComp((i+1<10?"0":"")+(i+1)+" — "+shot.name+" [3D WORKSPACE]",W,H,1,shot.end-shot.start,FPS);workspace.parentFolder=compsFolder;workspace.bgColor=[.01,.025,.045];
       // Imported GLB models require the Advanced 3D composition renderer.
-      try {var rendererList=workspace.renderers;for(var ri=0;ri<rendererList.length;ri++){if(/advanced/i.test(rendererList[ri])){workspace.renderer=rendererList[ri];break;}}}catch(renderError){reportWarning("Select Advanced 3D renderer manually for "+shot.name,renderError);}
+      useAdvancedRenderer(workspace);
       addMarker(comp,shot.start,"SCENE " +(i+1)+" — "+shot.name);
       if(glbs[sid]) {
-        try {var m=workspace.layers.add(glbs[sid]);m.name=sceneNames[indexIn(fileIds,sid)] +" (linked GLB)";m.threeDLayer=true;m.property("ADBE Transform Group").property("ADBE Position").setValue([W/2,H/2,0]);}
+        try {
+          var m=workspace.layers.add(glbs[sid]);
+          positionGLBLayer(m,sceneNames[indexIn(fileIds,sid)]+" (linked GLB)");
+        }
         catch(e){reportWarning("Model layer could not be added to "+sid,e);}
       }
       try{addCameraKeys(workspace,seq,shot,offsets[sid]);}
       catch(e){reportWarning("Camera import warning for "+shot.name,e);}
-      // GLB scale and material conversion differs between Three.js and AE; adjust manually in workspaces.
+      // Source keyframes are an approximation; inspect MODEL CHECK comps first.
+      // For a visually incorrect model use Layer > Model Settings (Y Up, Make Comp Size).
     }
     currentStage="import background plate";
     var plate=findPlate(),isClean=false;
@@ -158,7 +236,16 @@
     var readme=comp.layers.addText("EDITABLE TEXT: all TITLE/SUBTITLE layers above.\n3D GLB source scenes: open 02 — 3D scene workspaces.\nThe MP4 background is a preview and is NOT full-fidelity Three.js lighting.\nTo replace with a clean Three.js render: use Render video ↗ in index.html; export without titles; place MP4 in exports/; rerun builder.");
     readme.name="INSTRUCTIONS — guide layer (not rendered)";readme.guideLayer=true;readme.enabled=false;
     currentStage="save AEP";
-    var file=path("AfterEffects/ATOMS_TO_AI_EDITABLE.aep");app.project.save(file);
+    // Never overwrite an existing project or the prior (potentially edited) .aep.
+    var stamp=new Date();
+    function pad(n){return n<10?"0"+n:""+n;}
+    var outputName="ATOMS_TO_AI_EDITABLE_CLEAN_"+
+      stamp.getFullYear()+pad(stamp.getMonth()+1)+pad(stamp.getDate())+"_"+
+      pad(stamp.getHours())+pad(stamp.getMinutes())+pad(stamp.getSeconds());
+    var file=path("AfterEffects/"+outputName+".aep");
+    var suffix=2;
+    while(file.exists){file=path("AfterEffects/"+outputName+"_"+suffix+".aep");suffix++;}
+    app.project.save(file);
     var notice="After Effects project created and saved:\n"+file.fsName+"\n\n"+modelsImported+"/7 GLBs imported.\n"+seq.camera.length+" source camera keyframes; approximate camera paths sampled for scene workspaces.\n"+seq.text.length+" editable title entries.\n"+(isClean?"Clean plate found: text layers are visible.":"Preview has baked titles: editable layers are disabled until you render a clean plate.");
     if(warnings.length){
       notice+="\n\nCompleted with "+warnings.length+" warning(s):";
