@@ -1,4 +1,10 @@
-# Public Paige editor document-root 403 override.
-# Keep this OUTSIDE .private so the host may serve the error document.
-# Do not put any secret or private directory content here.
+# Public Paige editor root: intercept private URLs before filesystem access.
+# This is a presentation redirect ONLY. The .private/.htaccess still DENIES
+# every request independently via `Require all denied`.
+# If mod_rewrite is unsupported, remove only these Rewrite directives;
+# never remove the actual protection inside .private/.
+RewriteEngine On
+RewriteRule ^\\.private(?:/|$) /Indium/paiver/ [R=302,L,NC]
+
+# Fallback for other 403s; host may replace this response.
 ErrorDocument 403 /Indium/paiver/403.html
