@@ -117,20 +117,29 @@ if ((string) ini_get('session.use_trans_sid') !== '0')
 if ((string) ini_get('session.use_strict_mode') !== '1')
     reject(503, 'Secure PHP session setting unavailable: strict-mode');
 session_name('__Host-paiver-scene');
-// Shared hosting can return a misleading status from the cookie-params
-// setter. Verify the actual PHP policy instead of treating that return as
-// evidence that the cookie itself will be rejected by the browser.
-session_set_cookie_params([
-    'lifetime' => 0, 'path' => '/', 'domain' => '',
-    'secure' => true, 'httponly' => true, 'samesite' => 'Strict'
-]);
+// PHP < 7.3 has no array signature for session_set_cookie_params().
+// 50webs can silently ignore the array options while session_start() succeeds.
+// Keep Secure/HttpOnly and SameSite=Strict on BOTH paths, with no Domain
+// attribute (required by the __Host- prefix).
+$modernCookieApi = PHP_VERSION_ID >= 70300;
+$cookiePath = $modernCookieApi ? '/' : '/; SameSite=Strict';
+if ($modernCookieApi) {
+    session_set_cookie_params([
+        'lifetime' => 0, 'path' => '/', 'domain' => '',
+        'secure' => true, 'httponly' => true, 'samesite' => 'Strict'
+    ]);
+} else {
+    // PHP 7.0-7.2: the fixed, non-user-controlled Path suffix yields
+    // "Path=/; SameSite=Strict" in the outgoing Set-Cookie header.
+    session_set_cookie_params(0, $cookiePath, '', true, true);
+}
 $cookiePolicy = session_get_cookie_params();
 if ((int) ($cookiePolicy['lifetime'] ?? -1) !== 0 ||
-    ($cookiePolicy['path'] ?? '') !== '/' ||
+    ($cookiePolicy['path'] ?? '') !== $cookiePath ||
     ($cookiePolicy['domain'] ?? null) !== '' ||
     ($cookiePolicy['secure'] ?? false) !== true ||
     ($cookiePolicy['httponly'] ?? false) !== true ||
-    strcasecmp((string) ($cookiePolicy['samesite'] ?? ''), 'Strict') !== 0) {
+    ($modernCookieApi && strcasecmp((string) ($cookiePolicy['samesite'] ?? ''), 'Strict') !== 0)) {
     reject(503, 'Secure PHP cookie policy is unavailable');
 }
 if (!session_start()) reject(503, 'Could not start a private PHP session');
