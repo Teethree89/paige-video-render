@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {buildWorld} from './world.js';
 import {setupModelTools} from './model-tools.js';
+import {buildAfterEffectsPackage} from './ae-package-export.js';
 import {setupVideoImport} from './video-import.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
@@ -45,7 +46,7 @@ reviewGrid.material.transparent=true;reviewGrid.material.opacity=.42;
 reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
-let primitiveEditor=null,aiSceneEditor=null,lastPrimitiveShotId=null,reviewShotId=null;
+let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
   primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id),primitiveAnchors());
@@ -117,7 +118,7 @@ async function boot(){
  if(sequence.videoIntake){referenceVideo.style.display='none';el('showRef').checked=false;el('saveStatus').textContent='● REATTACH SOURCE VIDEO';}
  for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=false;
  window.__atomsEditorStarted=true;animate(performance.now());
- setupModelTools(world,{onSceneChanged:()=>renderWorld()});
+ modelTools=setupModelTools(world,{onSceneChanged:()=>renderWorld()});
  primitiveEditor=setupPrimitiveEditor({
    getSequence:()=>sequence,
    getActiveShot:()=>shotAt(playhead),
@@ -233,7 +234,50 @@ el('camFov').oninput=e=>{let d=selectedData();if(!d)return;d.fov=clamp(safeNum(e
 el('camCut').onchange=e=>{let d=selectedData();if(!d)return;d.cut=e.target.checked;renderTimeline();saveLocal();};
 el('removeCameraBtn').onclick=deleteSelected;el('removeTextBtn').onclick=deleteSelected;
 for(let [field,key] of [['textValue','value'],['textSubtitle','subtitle'],['textStart','start'],['textEnd','end'],['textX','x'],['textY','y'],['textSize','size'],['textAlign','align'],['textTone','tone']])el(field).addEventListener('input',e=>{let d=selectedData();if(!d)return;const numeric=['start','end','x','y'].includes(key);d[key]=numeric?safeNum(e.target.value):e.target.value;if(key==='start')d.start=clamp(d.start,0,sequence.duration-.1);if(key==='end')d.end=clamp(d.end,d.start+.1,sequence.duration);if(key==='x'||key==='y')d[key]=clamp(d[key],0,100);renderTimeline();renderOverlays();saveLocal();});
-el('exportBtn').onclick=()=>{if(!ready||!sequence)return;const json=JSON.stringify(sequence,null,2),blob=new Blob([json],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='atoms-to-ai-timeline.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);el('saveStatus').textContent='● EXPORTED';};
+function downloadExport(blob,name){
+ const url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),15000);
+}
+const exportMenu=el('exportChoices'),exportButton=el('exportBtn');
+function showExportMenu(open){
+ exportMenu.hidden=!open;exportButton.setAttribute('aria-expanded',String(open));
+}
+const exportFeedback=message=>{el('exportMessage').textContent=message;};
+exportButton.onclick=()=>{if(!ready||!sequence)return;showExportMenu(exportMenu.hidden);};
+el('exportJSONBtn').onclick=()=>{
+ if(!ready||!sequence)return;
+ downloadExport(new Blob([JSON.stringify(sequence,null,2)],{type:'application/json'}),'atoms-to-ai-timeline.json');
+ exportFeedback('Timeline JSON exported.');el('saveStatus').textContent='● JSON EXPORTED';showExportMenu(false);
+};
+el('exportAEBtn').onclick=async()=>{
+ if(!ready||!sequence)return;
+ const button=el('exportAEBtn');
+ button.disabled=true;exportButton.disabled=true;el('exportJSONBtn').disabled=true;
+ try{
+   if(aiSceneEditor?.hasPending?.())
+     throw Error('Accept or discard the current AI geometry preview before packaging.');
+   exportFeedback('Preparing current 3D scene and camera timeline…');
+   await modelTools?.ready;
+   const zip=await buildAfterEffectsPackage({
+     sequence,world,primitiveWorld,cameraAt,
+     onProgress:message=>exportFeedback(message)
+   });
+   downloadExport(zip,'atoms-to-ai-after-effects-package.zip');
+   el('saveStatus').textContent='● AE PACKAGE EXPORTED';
+   exportFeedback('After Effects package exported ('+(zip.size/1024/1024).toFixed(1)+' MB).');
+ }catch(error){
+   exportFeedback('Could not export AE package: '+error.message);
+   el('saveStatus').textContent='● EXPORT FAILED';
+   console.error('AE package export failed',error);
+ }finally{
+   button.disabled=false;exportButton.disabled=false;el('exportJSONBtn').disabled=false;
+ }
+};
+document.addEventListener('pointerdown',event=>{
+ if(!event.target.closest('.timeline-export-picker'))showExportMenu(false);
+});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')showExportMenu(false);});
 el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;endGeometryReview();aiSceneEditor?.reset();sequence=structuredClone(originalSequence);syncPrimitiveWorld();referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();};
 el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));endGeometryReview();aiSceneEditor?.reset();sequence=data;syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
 el('showRef').onchange=e=>{referenceVideo.style.display=e.target.checked?'block':'none';if(!e.target.checked)referenceVideo.pause();else if(playing)referenceVideo.play().catch(()=>{});};
