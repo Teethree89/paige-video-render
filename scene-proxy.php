@@ -106,12 +106,16 @@ ini_set('session.use_cookies', '1');
 ini_set('session.use_only_cookies', '1');
 ini_set('session.use_trans_sid', '0');
 ini_set('session.use_strict_mode', '1');
-if ((string) ini_get('session.use_cookies') !== '1' ||
-    (string) ini_get('session.use_only_cookies') !== '1' ||
-    (string) ini_get('session.use_trans_sid') !== '0' ||
-    (string) ini_get('session.use_strict_mode') !== '1') {
-    reject(503, 'Secure PHP cookie sessions are required');
-}
+// These fixed labels reveal configuration capability, never configured
+// secrets, cookies, session identifiers or filesystem locations.
+if ((string) ini_get('session.use_cookies') !== '1')
+    reject(503, 'Secure PHP session setting unavailable: use-cookies');
+if ((string) ini_get('session.use_only_cookies') !== '1')
+    reject(503, 'Secure PHP session setting unavailable: only-cookies');
+if ((string) ini_get('session.use_trans_sid') !== '0')
+    reject(503, 'Secure PHP session setting unavailable: trans-sid');
+if ((string) ini_get('session.use_strict_mode') !== '1')
+    reject(503, 'Secure PHP session setting unavailable: strict-mode');
 session_name('__Host-paiver-scene');
 if (!session_set_cookie_params([
     'lifetime' => 0, 'path' => '/', 'secure' => true,
