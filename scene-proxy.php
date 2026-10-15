@@ -59,6 +59,7 @@ if (!function_exists('session_start')) reject(503, 'PHP sessions are required');
 // public: <account-www>/paige-lighthouse.50webs.org/Indium/paiver/
 // private: <account-www>/certificates/paiver.php
 $privateConfigCandidates = [
+    '/home/www/certificates/paiver.php',
     dirname(__DIR__, 3) . '/certificates/paiver.php',
     '/www/certificates/paiver.php',
 ];
