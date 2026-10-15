@@ -28,6 +28,16 @@ The previous builder imported scene-local GLBs at 100% AE layer Scale but multip
 
 The original, already-duplicated `.aep` is not modified in place. Preserve it as a backup and use the generated `_CLEAN_` project for the corrected hierarchy.
 
+### If the model size is correct but the camera points away or jumps between scenes
+
+The builder uses the source Three.js camera's position, look-at target and vertical FOV, converting the scene's X origin to its local GLB coordinate space. In AE, camera auto-orientation depends on the last camera type selected by the operator. On older builds, a camera created as **One-Node** can accept Point of Interest keyframes without following them. The updated builder explicitly chooses **Orient Towards Point Of Interest (Two-Node)** for both each shot and the model inspection cameras.
+
+The earlier builder also sampled the pose exactly at each shot's **out-point**. If that timestamp is an immediate cut, the previous workspace accidentally acquired the next scene's camera pose (potentially hundreds of world units away). The builder now stops at the last visible frame of the shot, before the cut.
+
+Recreate the AE project with the updated JSX in a fresh project (the existing AEP is intentionally not overwritten). In a generated `[3D WORKSPACE]` composition, select the **Camera path reference** layer and verify **Layer → Transform → Auto-Orient → Orient Towards Point Of Interest**. Check framing at the **start, middle, and last visible frame** of each shot, not at its out-point. For an initial coordinate sanity check, the exterior starts with camera Position approximately `[2310, -180, -1422]` and Point of Interest `[960, 486, 0]` when using the builder's fixed 18-pixel conversion. The hall begins around Position `[960, 342, -756]` with Point of Interest `[960, 450, 630]`.
+
+If the camera aims correctly at these locations but the GLB is still displaced relative to the target, check **Layer → Model Settings**, model units, Y-up setting, model origin, and any re-centering applied on import. The builder cannot infer an importer's modified model origin from `timeline.json`; this final model-registration check must happen inside After Effects.
+
 ### Troubleshooting After Effects builder errors
 
 The previous `BUILD_EDITABLE_PROJECT.jsx` could fail with **"Object of type Error found where a Number, Array, or Property is needed"** at the camera-workspace setup line. That was a **secondary error** from interpolating a native ExtendScript `Error` into a log string; it hid the original camera API failure. The script also requested an invalid camera Point of Interest match name, `ADBE Point of Interest`. For AE cameras, the property is addressed through `ADBE Anchor Point` in the Transform group. Both are now fixed.
