@@ -88,6 +88,18 @@
     if(!scale)throw new Error("GLB model layer has no Scale property");
     scale.setValue([GLB_SCALE_PERCENT,GLB_SCALE_PERCENT,GLB_SCALE_PERCENT]);
   }
+  function requireTargetedCamera(cam,label){
+    // AE can retain the user's last One-Node Camera preference. A one-node
+    // camera ignores Point of Interest even when the property accepts keys.
+    // Force the Two-Node / Orient Towards Point Of Interest behavior explicitly.
+    try {
+      cam.autoOrient=AutoOrientType.CAMERA_OR_POINT_OF_INTEREST;
+      if(cam.autoOrient!==AutoOrientType.CAMERA_OR_POINT_OF_INTEREST)
+        throw new Error("Point of Interest auto-orientation was not enabled");
+    }catch(err){
+      throw new Error("Cannot set targeted camera for "+label+": "+errorDetails(err));
+    }
+  }
   function addInspectionCamera(comp,id){
     // A neutral, editable overview that does NOT depend on the shot keyframes.
     // This remains a practical starting point even when the source GLB differs
@@ -96,6 +108,7 @@
     var distance=distances[id]||100;
     var targetY=id==="exterior"?8:5;
     var cam=comp.layers.addCamera("MODEL VIEW — neutral overview",[W/2,H/2]);
+    requireTargetedCamera(cam,"model inspection "+id);
     var tr=cam.property("ADBE Transform Group");
     tr.property("ADBE Position").setValue([W/2,H/2-(targetY+8)*AE_PX_PER_WORLD_UNIT,-distance*AE_PX_PER_WORLD_UNIT]);
     tr.property("ADBE Anchor Point").setValue([W/2,H/2-targetY*AE_PX_PER_WORLD_UNIT,0]);
@@ -132,6 +145,7 @@
   }
   function addCameraKeys(comp,seq,shot,sceneOffset) {
     var camera=comp.layers.addCamera("Camera path reference — approximate AE axes",[W/2,H/2]);
+    requireTargetedCamera(camera,shot.name);
     // In ExtendScript camera Point of Interest uses the Anchor Point matchName,
     // NOT "ADBE Point of Interest" (which returns null on many AE versions).
     var tr=camera.property("ADBE Transform Group"),pos=tr.property("ADBE Position"),poi=tr.property("ADBE Anchor Point");
@@ -139,9 +153,13 @@
     var zoom=cameraOptions?cameraOptions.property("ADBE Camera Zoom"):null;
     if(!zoom)reportWarning("Camera zoom keyframes unavailable for "+comp.name,"Adjust Zoom manually in Camera Options");
     if(!pos || !poi)throw new Error("Two-node camera Position or Point of Interest property unavailable");
-    var samples=Math.ceil((shot.end-shot.start)*5);
+    // Sample only frames which belong to this shot. Sampling at shot.end
+    // reads the NEXT shot's cut pose and drags the prior camera toward the
+    // next scene, including a different world-space origin.
+    var visibleEnd=Math.max(shot.start,shot.end-1/FPS);
+    var samples=Math.max(1,Math.ceil((visibleEnd-shot.start)*5));
     for(var n=0;n<=samples;n++) {
-      var t=shot.start+(shot.end-shot.start)*n/samples;
+      var t=shot.start+(visibleEnd-shot.start)*n/samples;
       var a=interpCamera(seq,Math.min(t,seq.duration));
       var p=[W/2+(a.p[0]-sceneOffset)*AE_PX_PER_WORLD_UNIT,H/2-a.p[1]*AE_PX_PER_WORLD_UNIT,-a.p[2]*AE_PX_PER_WORLD_UNIT];
       var q=[W/2+(a.t[0]-sceneOffset)*AE_PX_PER_WORLD_UNIT,H/2-a.t[1]*AE_PX_PER_WORLD_UNIT,-a.t[2]*AE_PX_PER_WORLD_UNIT];
