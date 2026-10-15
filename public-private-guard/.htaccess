@@ -1,2 +1,6 @@
+# Keep the access decision server-side. Never expose anything under .private/.
 Require all denied
-ErrorDocument 403 /Indium/paiver/private-denied.html
+# The hosting provider overrides local 403 bodies with verbose internal paths.
+# Apache returns an external redirect only AFTER denial. The protected file
+# itself is never sent. Do not remove the Require directive.
+ErrorDocument 403 https://paige-lighthouse.50webs.org/Indium/paiver/
