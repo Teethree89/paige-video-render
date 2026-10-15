@@ -208,7 +208,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     status('Preview discarded; saved geometry is unchanged.');ui();
   });
   ui();checkLogin();
-  return {reset:()=>{
+  return {hasPending:()=>!!pending,reset:()=>{
     if(pending)onDiscard();
     pending=null;pendingShot=null;ui();
   }};
