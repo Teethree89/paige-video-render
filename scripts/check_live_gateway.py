@@ -156,6 +156,7 @@ def proxy_error_category(body):
         "Worker endpoint must be an HTTPS workers.dev /api/scene URL": "worker-url-invalid",
         "PHP cURL extension is required": "php-curl-unavailable",
         "PHP sessions are required": "php-sessions-unavailable",
+        "Secure PHP cookie sessions are required": "php-cookie-sessions-unavailable",
         "Could not start a private PHP session": "php-session-start-failed",
         "HTTPS is required": "php-https-unavailable",
     }
