@@ -127,6 +127,18 @@ def run():
     record("Cloudflare Worker /health", status, f"ready={worker_ready}",
            failure=(status != 200 or worker_ready is not True))
 
+    # Confirm the configured ErrorDocument itself is publicly retrievable:
+    # no sensitive information is stored there, and an incorrect URL may
+    # cause Apache to fall back to its verbose internal 403 page.
+    custom_status, custom_body, _ = fetch(EDITOR + "403.html", inspect_body=True)
+    custom_text = custom_body.decode("utf-8", "replace")
+    page_valid = (custom_status == 200
+                  and "Access denied" in custom_text
+                  and "/services/users/" not in custom_text.lower()
+                  and "ah01630" not in custom_text.lower())
+    record("Public custom 403 document", custom_status,
+           f"generic_page_accessible={page_valid}", failure=not page_valid)
+
     probe = EDITOR + ".private/deny-check.txt"
     status, body, location = fetch_protected(probe, inspect_body=True)
     text = body.decode("utf-8", "replace")

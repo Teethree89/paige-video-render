@@ -1,6 +1,4 @@
-# Keep the access decision server-side. Never expose anything under .private/.
+# Deny ALL HTTP requests for private configuration and backups.
+# Apache's visible error page is configured at the public editor root.
 Require all denied
-# The hosting provider overrides local 403 bodies with verbose internal paths.
-# Apache returns an external redirect only AFTER denial. The protected file
-# itself is never sent. Do not remove the Require directive.
-ErrorDocument 403 https://paige-lighthouse.50webs.org/Indium/paiver/
+ErrorDocument 403 /Indium/paiver/403.html

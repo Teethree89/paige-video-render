@@ -17,7 +17,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
-    "index.html", "render.html", "private-denied.html", "styles.css", "app.js", "world.js", "render.js",
+    "index.html", "render.html", "403.html", "private-denied.html", "styles.css", "app.js", "world.js", "render.js",
     "model-tools.js", "zip-utils.js", "shot-analysis.js", "video-import.js",
     "draft-world.js", "chapter-analysis.js", "primitive-schema.js",
     "primitive-world.js", "primitive-editor.js", "ai-scene-editor.js",

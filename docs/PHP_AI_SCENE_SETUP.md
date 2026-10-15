@@ -137,10 +137,29 @@ Keep verifying that `.private/deny-check.txt` and `.private/paiver.php` both ret
 The live smoke checker classifies PHP startup failures with **fixed labels** (for example, `private-file-not-readable`, `private-config-values-invalid`, and `worker-url-invalid`); it never outputs PHP's raw JSON response because that can include CSRF values.
 
 
-### Native post-denial redirect (50webs fallback)
+### Editor-root Apache error page (current approach)
 
-The 50webs hosting layer continued displaying its verbose `AH01630` page even with an internal custom `ErrorDocument 403` and client-side navigation. The `.private/.htaccess` rule now tries a native **external Apache ErrorDocument redirect** to `https://paige-lighthouse.50webs.org/Indium/paiver/`, while preserving `Require all denied`.
+The shared host displayed an internal account filesystem path for HTTP 403 responses even with the `.private` directory's `ErrorDocument 403` set to inline text, internal HTML, or an external URL. The next controlled experiment is to set the 403 mapping in the **public editor-root** `.htaccess`, as is customary for an Apache website:
 
-Apache may answer the original forbidden-resource request with HTTP **302** and a `Location` to the editor rather than an HTTP 403 page. The external ErrorDocument redirect is presentation only; the **directory access-denial rule remains mandatory**. The automated smoke test observes the initial HTTP response without following redirects. It requires either (a) HTTP 403 without path disclosure or (b) HTTP 30x to exactly the editor homepage. HTTP 200 from a protected file is rejected.
+```apache
+ErrorDocument 403 /Indium/paiver/403.html
+```
 
-If 50webs ignores this setting and still renders its own 403 body, do **not** remove `Require all denied` or use a stand-alone rewrite redirect as the only protection. Request host configuration assistance or migrate authentication to Cloudflare Access.
+The guard in `public-private-guard/.htaccess` must **still** include:
+
+```apache
+Require all denied
+ErrorDocument 403 /Indium/paiver/403.html
+```
+
+`403.html` contains only a generic “Access denied” message, and returns browser users to the editor. It is safe to load directly because it contains no protected data. The private URL must **never** return HTTP 200 with file contents. The post-deploy smoke test checks that the custom page is available, that the protected file cannot be downloaded, and that the response to the harmless `.private/deny-check.txt` does not contain the account's server path. An upstream 50webs-controlled error handler may still override both `.htaccess` files; in that case, host support must change the error template or its override settings.
+
+### Private configuration values
+
+The PHP gateway now *can* load the manually moved `.private/paiver.php` file, but the production smoke test reported `private-config-values-invalid`. This is a **configuration-value** issue, not a file-read failure. Verify in the 50webs HTTPS file editor:
+
+- `worker_endpoint` is exactly `https://paige-video-render.ivaniscreative.workers.dev/api/scene`
+- `scene_access_token` is a quoted string of **at least 32 characters**, and matches Cloudflare's runtime `SCENE_ACCESS_TOKEN`.
+- `editor_passphrase` is a quoted string of **at least 16 characters**.
+
+All three must be present as PHP array keys, with no placeholders (`PASTE_`, `CHOOSE_`, `YOUR_WORKER`). Do not show these values in screenshots, GitHub issues, or chats.

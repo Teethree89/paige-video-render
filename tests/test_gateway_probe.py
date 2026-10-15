@@ -21,6 +21,8 @@ class GatewaySmokeTests(unittest.TestCase):
         def fake_get(url, inspect_body=False):
             if url.endswith("/health"):
                 return 200, b'{"ready":true}', None
+            if url.endswith("/403.html"):
+                return 200, b"<html>Access denied. Return to editor.</html>", None
             if url.endswith("/.private/deny-check.txt"):
                 return 403, b"Forbidden", None
             if url.endswith("/.private/paiver.php"):
@@ -70,6 +72,8 @@ class GatewaySmokeTests(unittest.TestCase):
         def fake_get(url, inspect_body=False):
             if url.endswith("/health"):
                 return 200, b'{"ready":true}', None
+            if url.endswith("/403.html"):
+                return 200, b"<html>Access denied. Return to editor.</html>", None
             if url.endswith("/.private/deny-check.txt"):
                 return 403, b"AH01630: /services/users/PRIVATEACCOUNT/file", None
             if url.endswith("/.private/paiver.php"):
