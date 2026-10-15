@@ -26,7 +26,7 @@ export function createPrimitiveWorld(scene) {
     }
     groups.clear();
   }
-  function setDocument(value,allowedShotIds=null) {
+  function setDocument(value,allowedShotIds=null,anchors={}) {
     const next=validatePrimitiveDocument(value,allowedShotIds);
     clear();document=next;
     for(const entry of next.scenes){
@@ -34,6 +34,8 @@ export function createPrimitiveWorld(scene) {
       const root=new THREE.Group();
       root.name='Primitives_'+entry.shotId;
       root.userData.shotId=entry.shotId;
+      const anchor=anchors[entry.shotId]||[0,0,0];
+      root.position.set(...anchor);
       for(const item of entry.objects){
         const mesh=new THREE.Mesh(geometry(item.primitive),new THREE.MeshStandardMaterial({
           color:item.material.color,metalness:item.material.metalness,
@@ -54,6 +56,15 @@ export function createPrimitiveWorld(scene) {
     showShot(activeShotId);
   }
   function hasObjects(shotId){return groups.has(shotId);}
+  function getBounds(shotId){
+    const root=groups.get(shotId);
+    if(!root)return null;
+    // Include the shot anchor and every rotated/scaled primitive.
+    const bounds=new THREE.Box3().setFromObject(root);
+    if(bounds.isEmpty())return null;
+    const sphere=bounds.getBoundingSphere(new THREE.Sphere());
+    return {center:sphere.center.toArray(),radius:sphere.radius};
+  }
   function showShot(shotId){
     activeShotId=shotId;
     for(const [id,root] of groups)root.visible=id===shotId;
@@ -68,5 +79,5 @@ export function createPrimitiveWorld(scene) {
   }
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
-  return {setDocument,showShot,hasObjects,getSceneForExport,getDocument,dispose};
+  return {setDocument,showShot,hasObjects,getBounds,getSceneForExport,getDocument,dispose};
 }
