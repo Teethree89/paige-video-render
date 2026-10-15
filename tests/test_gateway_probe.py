@@ -128,7 +128,8 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("'httponly' => true", script[:start])
         self.assertIn("'secure' => true", script[:start])
         self.assertIn("'samesite' => 'Strict'", script[:start])
-        self.assertIn("Secure PHP cookie sessions are required", script[:start])
+        self.assertIn("Secure PHP cookie policy is unavailable", script[:start])
+        self.assertIn("'domain' => ''", script[:start])
         self.assertEqual(
             probe.proxy_error_category(
                 b'{"ok":false,"error":"Secure PHP cookie sessions are required"}'),
