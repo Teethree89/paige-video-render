@@ -70,6 +70,7 @@ test('three sampled video frames become previewable and accepted without alterin
   const preservedOriginal=structuredClone(sequence);
   const env={GEMINI_API_KEY:'mock-only-provider-key',SCENE_ACCESS_TOKEN:'mock-only-scene-token-12345678901234567890'};
   let preview=null,generatedCalls=0,acceptedCalls=0,discardCalls=0;
+  const requestedLayers=[];
   const inspected=[];
   let phpAuthenticated=false;
   globalThis.fetch=async (url,opts={})=>{
@@ -104,12 +105,18 @@ test('three sampled video frames become previewable and accepted without alterin
     assert.equal(payload.csrf,'logged-in-test-csrf');
     assert.equal(payload.shotId,'shot_a');
     assert.equal(payload.frames.length,3);
+    const expectedLayers=['structures','ground','vegetation','details'];
+    const index=generatedCalls%4;
+    assert.equal(payload.layer,expectedLayers[index]);
+    assert.equal(payload.existing.length,index);
+    requestedLayers.push(payload.layer);
     sampled.push(payload.frames.map(x=>x.at));
     generatedCalls++;
     const result=await sceneWorker.fetch(new Request('https://mock.workers.dev/api/scene',{
       method:'POST',
       headers:{Authorization:'Bearer '+env.SCENE_ACCESS_TOKEN,'Content-Type':'application/json'},
-      body:JSON.stringify({shotId:payload.shotId,frames:payload.frames})
+      body:JSON.stringify({shotId:payload.shotId,frames:payload.frames,
+        layer:payload.layer,existing:payload.existing})
     }),env);
     assert.equal(result.status,200);
     return new Response(JSON.stringify({ok:true,proposal:await result.json()}),{status:200});
@@ -117,6 +124,7 @@ test('three sampled video frames become previewable and accepted without alterin
   try{
     setupAiSceneEditor({
       getSequence:()=>sequence,getActiveShot:()=>sequence.shots[0],
+      getPlayheadTime:()=>2.8,
       getReferenceVideo:()=>({src:'blob:synthetic-video'}),
       onPreview:entry=>{preview=entry;},
       onInspect:shotId=>{inspected.push(shotId);},
@@ -136,7 +144,9 @@ test('three sampled video frames become previewable and accepted without alterin
     assert.equal(ids.get('aiSceneControls').hidden,false);
     assert.equal(ids.get('aiScenePassphrase').value,'');
     await ids.get('aiSceneGenerate').fire('click');
-    assert.equal(preview.objects[0].id,'gemini_box');
+    assert.equal(preview.objects[0].id,'structures_1');
+    assert.deepEqual(preview.objects.map(x=>x.layer),
+      ['structures','ground','vegetation','details']);
     assert.equal(ids.get('aiSceneInspect').hidden,false);
     await ids.get('aiSceneInspect').fire('click');
     assert.deepEqual(inspected,['shot_a']);
@@ -149,12 +159,16 @@ test('three sampled video frames become previewable and accepted without alterin
     await ids.get('aiSceneGenerate').fire('click');
     await ids.get('aiSceneAccept').fire('click');
     assert.equal(acceptedCalls,1);
-    assert.equal(generatedCalls,2);
+    assert.equal(generatedCalls,8);
+    assert.deepEqual(requestedLayers,Array(2).fill(['structures','ground','vegetation','details']).flat());
     assert.equal(discardCalls,1);
-    assert.deepEqual(sampled,[[1.5,3,4.5],[1.5,3,4.5]]);
+    assert.deepEqual(sampled,Array(8).fill([2.8,1.32,4.68]));
     assert.equal(videos.length,2);
     assert.deepEqual(sequence.primitiveScenes.scenes.find(x=>x.shotId==='shot_b'),untouched);
-    assert.deepEqual(sequence.primitiveScenes.scenes.find(x=>x.shotId==='shot_a'),generated.scenes[0]);
+    assert.deepEqual(sequence.primitiveScenes.scenes.find(x=>x.shotId==='shot_a'),{
+      shotId:'shot_a',objects:['structures','ground','vegetation','details'].map(
+        layer=>({...generated.scenes[0].objects[0],id:layer+'_1',layer}))
+    });
     assert.deepEqual(sequence.camera,preservedOriginal.camera);
     assert.deepEqual(sequence.shots,preservedOriginal.shots);
     assert.match(ids.get('aiSceneStatus').textContent,/Accepted/);

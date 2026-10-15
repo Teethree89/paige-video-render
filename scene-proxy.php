@@ -256,7 +256,22 @@ foreach ($frames as $frame) {
     }
     $validated[] = ['at' => (float) $at, 'imageDataUrl' => $image];
 }
-$body = json_encode(['shotId' => $shotId, 'frames' => $validated], JSON_UNESCAPED_SLASHES);
+$workerInput = ['shotId' => $shotId, 'frames' => $validated];
+// Authenticated four-pass environment generation. Validate pass name and count
+// before forwarding. The Worker validates every previous object's geometry;
+// PHP must never deserialize executable model code or send config secrets.
+if (array_key_exists('layer', $input)) {
+    $pass = $input['layer'];
+    $prior = $input['existing'] ?? [];
+    if (!is_string($pass) ||
+        !in_array($pass, ['structures','ground','vegetation','details'], true) ||
+        !is_array($prior) || count($prior) > 72) {
+        reject(400, 'Invalid environment pass');
+    }
+    $workerInput['layer'] = $pass;
+    $workerInput['existing'] = $prior;
+}
+$body = json_encode($workerInput, JSON_UNESCAPED_SLASHES);
 if (!is_string($body)) reject(400, 'Could not encode scene request');
 
 $_SESSION['ai_calls'] = (int) ($_SESSION['ai_calls'] ?? 0) + 1;

@@ -1,6 +1,7 @@
 // Versioned, AI-safe data contract for user-authored or future model-generated
 // primitive geometry. No generated JavaScript, remote URLs or arbitrary shaders.
 export const PRIMITIVE_TYPES = Object.freeze(['box','sphere','cylinder','plane','torus']);
+export const ENVIRONMENT_LAYERS = Object.freeze(['structures','ground','vegetation','details']);
 export const LIMITS = Object.freeze({scenes:120, objectsPerScene:200, totalObjects:2000});
 const fail = message => {throw Error('Primitive scene: '+message);};
 const finite = (value, label, min, max) => {
@@ -55,8 +56,11 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       if(!m||typeof m!=='object'||Array.isArray(m))fail(id+' is missing material');
       if(typeof m.color!=='string'||!/^#[0-9a-fA-F]{6}$/.test(m.color))
         fail(id+' color must be a #RRGGBB string');
+      const layer=item.layer;
+      if(layer!==undefined&&!ENVIRONMENT_LAYERS.includes(layer))fail(id+' has unsupported environment layer');
       return {id,name:displayName(item.name,item.primitive+' '+id),
         primitive:item.primitive,position,rotation,scale,
+        ...(layer===undefined?{}:{layer}),
         material:{color:m.color.toLowerCase(),metalness:finite(m.metalness,'metalness',0,1),
           roughness:finite(m.roughness,'roughness',0,1)}};
     });

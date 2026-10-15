@@ -12,6 +12,7 @@ const safeFile=id=>id.replace(/[^a-zA-Z0-9_-]/g,'-');
 export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world}) {
   let selectedId=null,previousShot=null;
   const editor=el('primitiveEditor'),objectSelect=el('primitiveObjectSelect');
+  const layerFilter=el('primitiveLayerFilter');
   const status=el('primitiveStatus');
   const editable=el('primitiveFields');
   const file=el('primitiveImportFile');
@@ -38,15 +39,19 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     if(previousShot!==shot.id){previousShot=shot.id;selectedId=null;}
     const doc=getPrimitiveDocument(),entry=sceneFor(doc,shot.id);
     const objects=entry?.objects||[];
-    const selected=objects.find(o=>o.id===selectedId);
+    const chosenLayer=layerFilter.value||'all';
+    const filtered=objects.filter(o=>chosenLayer==='all'||
+      (o.layer||'manual')===chosenLayer);
+    const selected=filtered.find(o=>o.id===selectedId);
     el('primitiveShotLabel').textContent=shot.name+' · '+objects.length+' object(s)';
     objectSelect.replaceChildren();
     const none=document.createElement('option');
-    none.value='';none.textContent=objects.length?'Select an object…':'No objects yet — add one below';
+    none.value='';none.textContent=filtered.length?'Select an object…':
+      (objects.length?'No objects in this layer':'No objects yet — add one below');
     objectSelect.append(none);
-    for(const item of objects){
+    for(const item of filtered){
       const option=document.createElement('option');
-      option.value=item.id;option.textContent=item.name+' · '+item.primitive;
+      option.value=item.id;option.textContent='['+(item.layer||'manual')+'] '+item.name+' · '+item.primitive;
       objectSelect.append(option);
     }
     if(selected){
@@ -84,6 +89,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     if(existing && !confirm('Replace the current shot\'s primitives with an example room blockout?'))return;
     apply(entry=>{entry.objects=makeExampleBlockout(shot.id).objects;selectedId='rack_0_0';});
   });
+  layerFilter.addEventListener('change',()=>{selectedId=null;refresh();});
   objectSelect.addEventListener('change',()=>{selectedId=objectSelect.value||null;refresh();});
   el('primitiveName').addEventListener('change',event=>apply(entry=>{
     const item=entry.objects.find(o=>o.id===selectedId);if(item)item.name=event.target.value;

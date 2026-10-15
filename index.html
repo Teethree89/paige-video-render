@@ -53,7 +53,7 @@
         <button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><div class="divider"></div>
         <details id="primitiveEditor" class="primitive-inspector" open>
           <summary>3D PRIMITIVE SCENE EDITOR</summary>
-          <p class="field-help">Build editable objects for the current shot. This phase is manual/data-driven; AI scene recognition comes next.</p>
+          <p class="field-help">Build and edit chapter geometry. AI scenes are organized by environment layer, with individual editable shapes.</p>
           <div id="primitiveShotLabel" class="model-status">Choose a shot to edit</div>
           <label class="field">Object type
             <select id="primitiveType">
@@ -65,6 +65,16 @@
             <button id="primitiveAdd" class="secondary" type="button">+ Add primitive</button>
             <button id="primitiveExample" class="ghost" type="button">Example room</button>
           </div>
+          <label class="field">Show objects from layer
+            <select id="primitiveLayerFilter">
+              <option value="all">All layers</option>
+              <option value="structures">Buildings &amp; structures</option>
+              <option value="ground">Roads &amp; terrain</option>
+              <option value="vegetation">Trees &amp; landscaping</option>
+              <option value="details">Props &amp; infrastructure</option>
+              <option value="manual">Manual shapes</option>
+            </select>
+          </label>
           <label class="field">Objects in current shot
             <select id="primitiveObjectSelect"><option value="">No objects yet</option></select>
           </label>
@@ -115,6 +125,13 @@
               <button id="aiSceneSignIn" type="button" class="wide secondary">Unlock AI generation</button>
             </div>
             <div id="aiSceneControls" hidden>
+              <label class="field">AI scene coverage
+                <select id="aiSceneScope">
+                  <option value="environment" selected>Full environment · 4 passes (buildings, roads, trees, objects)</option>
+                  <option value="subject">Primary subject only · 1 pass</option>
+                </select>
+              </label>
+              <p class="field-help">Uses the current reference frame first, plus two views from this chapter. Full environment makes four sequential Gemini requests and uses four of your 10 per-session hourly requests. Only visible evidence is modeled; absent layers can be empty. Nothing is saved until you accept.</p>
               <button id="aiSceneGenerate" type="button" class="wide primary">Generate 3D scene for this chapter</button>
               <button id="aiSceneInspect" type="button" class="wide secondary" hidden>View proposed shapes in 3D ↗</button>
               <div class="primitive-buttons">
