@@ -18,7 +18,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
     "index.html", "render.html", "403.html", "private-denied.html", "styles.css", "app.js", "world.js", "render.js",
-    "model-tools.js", "zip-utils.js", "shot-analysis.js", "video-import.js",
+    "model-tools.js", "ae-package-export.js", "ae-package-plan.js", "zip-utils.js", "shot-analysis.js", "video-import.js",
     "draft-world.js", "chapter-analysis.js", "primitive-schema.js",
     "primitive-world.js", "primitive-editor.js", "ai-scene-editor.js", "primitive-preview.js", "environment-generation.js",
     "scene-proxy.php", "wrangler.toml", "timeline.json", "README.md", "AGENTS.md",
