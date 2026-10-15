@@ -36,7 +36,15 @@ export function createPrimitiveWorld(scene) {
       root.userData.shotId=entry.shotId;
       const anchor=anchors[entry.shotId]||[0,0,0];
       root.position.set(...anchor);
+      const layerGroups=new Map();
       for(const item of entry.objects){
+        const key=item.layer||'manual';
+        if(!layerGroups.has(key)){
+          const layerRoot=new THREE.Group();
+          layerRoot.name='Layer_'+key;
+          layerRoot.userData.layer=key;
+          layerGroups.set(key,layerRoot);root.add(layerRoot);
+        }
         const mesh=new THREE.Mesh(geometry(item.primitive),new THREE.MeshStandardMaterial({
           color:item.material.color,metalness:item.material.metalness,
           roughness:item.material.roughness,side:THREE.DoubleSide
@@ -44,10 +52,11 @@ export function createPrimitiveWorld(scene) {
         mesh.name=item.name;
         mesh.userData.primitiveId=item.id;
         mesh.userData.primitiveType=item.primitive;
+        mesh.userData.layer=item.layer||'manual';
         mesh.position.set(...item.position);
         mesh.rotation.set(...item.rotation);
         mesh.scale.set(...item.scale);
-        root.add(mesh);
+        layerGroups.get(key).add(mesh);
       }
       root.visible=false;
       groups.set(entry.shotId,root);
