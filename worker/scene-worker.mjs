@@ -4,7 +4,11 @@
  * Secrets GEMINI_API_KEY and SCENE_ACCESS_TOKEN exist as encrypted Worker bindings.
  * It has no CORS exposure; all calls come from the authenticated PHP gateway.
  */
-const MODEL = 'gemini-2.5-flash-lite';
+// Google now restricts Gemini 2.5 Flash-Lite for projects without prior use.
+// 3.5 Flash-Lite is a stable, low-cost multimodal replacement with free-tier
+// availability. Keep one explicit model; never silently fall back to paid-only
+// or alternate endpoints.
+const MODEL = 'gemini-3.5-flash-lite';
 const MAX_BYTES = 1_600_000;
 const FRAME_LIMIT = 3;
 
@@ -119,7 +123,9 @@ export default {
     // Provide a public, non-sensitive status only: never return names or values.
     if(path==='/health'&&request.method==='GET'){
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
-      return reply({ok:ready,service:'paige-scene',ready},ready?200:503);
+      // Model ID is public configuration, not a secret. This field confirms
+      // which Worker version actually reached Cloudflare, NOT API entitlement.
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL},ready?200:503);
     }
     if(path!=='/api/scene')return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
