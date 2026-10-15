@@ -53,8 +53,24 @@ if (!is_https()) reject(403, 'HTTPS is required');
 if (!extension_loaded('curl')) reject(503, 'PHP cURL extension is required');
 if (!function_exists('session_start')) reject(503, 'PHP sessions are required');
 
-$privateConfigPath = '/www/certificates/paiver.php';
-if (!is_readable($privateConfigPath)) {
+// The 50webs file manager displays /www/... as a virtual path. The PHP
+// filesystem can have a different account prefix; resolve from this installed
+// script rather than assuming the file manager's /www is PHP's true root.
+// public: <account-www>/paige-lighthouse.50webs.org/Indium/paiver/
+// private: <account-www>/certificates/paiver.php
+$privateConfigCandidates = [
+    dirname(__DIR__, 3) . '/certificates/paiver.php',
+    '/www/certificates/paiver.php',
+];
+$privateConfigPath = null;
+foreach ($privateConfigCandidates as $candidate) {
+    // Intentionally do not disclose internal paths or PHP warnings to clients.
+    if (@is_file($candidate) && @is_readable($candidate)) {
+        $privateConfigPath = $candidate;
+        break;
+    }
+}
+if ($privateConfigPath === null) {
     reject(503, 'Private server configuration is not available');
 }
 try {
