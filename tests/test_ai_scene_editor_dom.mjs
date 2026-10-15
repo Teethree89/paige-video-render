@@ -70,6 +70,7 @@ test('three sampled video frames become previewable and accepted without alterin
   const preservedOriginal=structuredClone(sequence);
   const env={GEMINI_API_KEY:'mock-only-provider-key',SCENE_ACCESS_TOKEN:'mock-only-scene-token-12345678901234567890'};
   let preview=null,generatedCalls=0,acceptedCalls=0,discardCalls=0;
+  let phpAuthenticated=false;
   globalThis.fetch=async (url,opts={})=>{
     if(String(url).includes('generativelanguage.googleapis.com/')){
       const body=JSON.parse(opts.body);
@@ -80,14 +81,20 @@ test('three sampled video frames become previewable and accepted without alterin
       }),{status:200});
     }
     assert.equal(url,'./scene-proxy.php');
-    if(!opts.method)return new Response(JSON.stringify({
-      ok:true,authenticated:false,csrf:'temporary-test-csrf'
-    }),{status:200});
+    if(!opts.method){
+      assert.equal(opts.credentials,'same-origin');
+      assert.equal(opts.cache,'no-store');
+      return new Response(JSON.stringify({
+        ok:true,authenticated:phpAuthenticated,
+        csrf:phpAuthenticated?'logged-in-test-csrf':'temporary-test-csrf'
+      }),{status:200});
+    }
     assert.equal(opts.credentials,'same-origin');
     assert.equal(opts.headers['X-Paige-Client'],'SceneStudio');
     const payload=JSON.parse(opts.body);
     if(payload.action==='login'){
       assert.equal(payload.passphrase,'mock passphrase 12345');
+      phpAuthenticated=true;
       return new Response(JSON.stringify({
         ok:true,authenticated:true,csrf:'logged-in-test-csrf'
       }),{status:200});
