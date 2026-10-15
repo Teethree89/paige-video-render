@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import re
 import unittest
 from unittest.mock import patch
 
@@ -14,6 +15,34 @@ spec.loader.exec_module(probe)
 
 
 class GatewaySmokeTests(unittest.TestCase):
+    def test_private_url_rules_match_real_paths_and_keep_denial_mandatory(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        editor_rules = (root / ".htaccess").read_text()
+        private_rules = (root / "public-private-guard" / ".htaccess").read_text()
+
+        # These are the exact .htaccess files staged by the FTP publisher.
+        self.assertIn("Require all denied", private_rules.splitlines())
+        self.assertIn(
+            "ErrorDocument 403 https://paige-lighthouse.50webs.org/Indium/paiver/",
+            private_rules.splitlines(),
+        )
+        native_line = next(line for line in editor_rules.splitlines()
+                           if line.startswith("RedirectMatch 302 "))
+        rewrite_line = next(line for line in editor_rules.splitlines()
+                            if line.startswith("RewriteRule "))
+        native_pattern = native_line.split()[2]
+        rewrite_pattern = rewrite_line.split()[1]
+        for route in ("/Indium/paiver/.private/paiver.php",
+                      "/Indium/paiver/.private/deny-check.txt",
+                      "/Indium/paiver/.private/"):
+            self.assertIsNotNone(re.search(native_pattern, route), route)
+        self.assertIsNotNone(re.search(rewrite_pattern, ".private/paiver.php"))
+        for route in ("/Indium/paiver/.privacy/file",
+                      "/Indium/paiver/public.html"):
+            self.assertIsNone(re.search(native_pattern, route), route)
+        self.assertEqual(native_line.split()[3], "/Indium/paiver/")
+        self.assertEqual(rewrite_line.split()[2], "/Indium/paiver/")
+
     def test_safe_success_logs_only_status_and_flags(self):
         token = "PRIVATE_NEVER_LOG_123456"
         csrf = "CSRF_NEVER_LOG_7654321"
