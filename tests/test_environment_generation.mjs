@@ -74,7 +74,7 @@ test('layer Worker outputs remain editable, bounded, and collision-free',async()
     const data=JSON.parse(opts.body);
     assert.equal(data.contents[0].parts.filter(p=>p.inlineData).length,3);
     assert.match(data.contents[0].parts[0].text,/Current pass: structures/);
-    assert.match(data.contents[0].parts[0].text,/roads/i);
+    assert.match(data.contents[0].parts[0].text,/Buildings may be more/);
     return new Response(JSON.stringify({candidates:[{content:{parts:[{
       text:JSON.stringify({schemaVersion:1,scenes:[{shotId,objects:[obj('main')] }]})
     }]}}]}),{status:200});
@@ -90,10 +90,8 @@ test('layer Worker outputs remain editable, bounded, and collision-free',async()
     assert.equal(proposal.scenes[0].objects[0].layer,'structures');
     assert.equal(calls,1);
     assert.deepEqual(validatePrimitiveDocument(proposal,[shotId]),proposal);
-    const over=validateOutput({schemaVersion:1,scenes:[{shotId,
-      objects:Array.from({length:25},(_,i)=>obj('m'+i))}]},shotId,24);
-    assert.fail('Should reject 25 objects: '+over.scenes.length);
-  }catch(e) {
-    if(!/Incorrect shot or object budget/.test(e.message))throw e;
+    assert.throws(()=>validateOutput({schemaVersion:1,scenes:[{shotId,
+      objects:Array.from({length:25},(_,i)=>obj('m'+i))}]},shotId,24),
+      /Incorrect shot or object budget/);
   }finally{globalThis.fetch=old;}
 });
