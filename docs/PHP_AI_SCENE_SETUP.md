@@ -163,3 +163,19 @@ The PHP gateway now *can* load the manually moved `.private/paiver.php` file, bu
 - `editor_passphrase` is a quoted string of **at least 16 characters**.
 
 All three must be present as PHP array keys, with no placeholders (`PASTE_`, `CHOOSE_`, `YOUR_WORKER`). Do not show these values in screenshots, GitHub issues, or chats.
+
+
+### Preemptive private-URL redirect experiment
+
+The post-deployment smoke test found that **both** the local `.private` ErrorDocument and the public editor-root ErrorDocument are overridden by 50webs' verbose, path-revealing 403 page. The public `.htaccess` now has a narrowly scoped `mod_rewrite` redirect for `.private` URLs:
+
+```apache
+RewriteEngine On
+RewriteRule ^\\.private(?:/|$) /Indium/paiver/ [R=302,L,NC]
+```
+
+The private directory **still** contains `Require all denied`. The rewrite affects only requests whose relative URL begins with `.private`, and the server never sends private file contents. The smoke test observes the *initial* response without following redirects: only an HTTP 30x with `Location` exactly equal to the public editor URL, or HTTP 403 without internal path disclosure, counts as a safe outcome. HTTP 200 for either the private configuration or harmless probe is always a failure.
+
+If `mod_rewrite` is unavailable or 50webs processes access denial before the editor-root rule, remove the rewrite but **do not remove the independent `Require all denied` rule**. In that case the remaining information disclosure is controlled by the host's error template and may require host support.
+
+The separate PHP integration remains blocked until all three values in the manually installed `.private/paiver.php` pass validation. The runtime token/passphrase lengths are checked without printing any values.
