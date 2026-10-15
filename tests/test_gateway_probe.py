@@ -136,6 +136,14 @@ class GatewaySmokeTests(unittest.TestCase):
             "php-cookie-sessions-unavailable"
         )
 
+    def test_php_legacy_cookie_handling_has_fixed_samesite_suffix(self):
+        script = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        self.assertIn("PHP_VERSION_ID >= 70300", script)
+        self.assertIn("'/; SameSite=Strict'", script)
+        self.assertIn("session_set_cookie_params(0, $cookiePath, '', true, true);", script)
+        self.assertIn("'samesite' => 'Strict'", script)
+        self.assertIn("($modernCookieApi && strcasecmp(", script)
+
     def test_only_exact_editor_redirect_is_considered_safe(self):
         self.assertTrue(probe.is_safe_denial(403, "", path_exposed=False))
         self.assertTrue(probe.is_safe_denial(302, probe.EDITOR, path_exposed=False))
