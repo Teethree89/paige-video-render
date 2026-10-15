@@ -23,6 +23,26 @@ const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(50,16/9,.35,500
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enabled=false;controls.enableDamping=true;controls.dampingFactor=.08;controls.maxDistance=140;
 const world=buildWorld(scene);
+// Temporary studio lighting is ON only when examining a generated proposal.
+// It is never serialized, exported or applied to the authored timeline.
+const reviewLights=new THREE.Group();
+const reviewKey=new THREE.DirectionalLight(0xe1f8ff,3.0);
+reviewKey.position.set(24,35,40);reviewLights.add(reviewKey);
+const reviewFill=new THREE.DirectionalLight(0xffdcb7,1.35);
+reviewFill.position.set(-25,18,-10);reviewLights.add(reviewFill);
+reviewLights.visible=false;scene.add(reviewLights);
+// Temporary reference grid grounds the generated geometry during inspection.
+// It never enters primitiveScenes or GLB exports.
+const reviewStage=new THREE.Group();
+const reviewFloor=new THREE.Mesh(
+  new THREE.PlaneGeometry(1,1),
+  new THREE.MeshBasicMaterial({color:0x13283a,side:THREE.DoubleSide,transparent:true,opacity:.6,depthWrite:false})
+);
+reviewFloor.rotation.x=-Math.PI/2;
+reviewStage.add(reviewFloor);
+const reviewGrid=new THREE.GridHelper(40,20,0x5f9eab,0x325768);
+reviewGrid.material.transparent=true;reviewGrid.material.opacity=.42;
+reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
 let primitiveEditor=null,aiSceneEditor=null,lastPrimitiveShotId=null,reviewShotId=null;
@@ -44,7 +64,8 @@ function endGeometryReview(){
   el('inspectBtn').classList.remove('active');
   el('returnTimelineCameraBtn').hidden=true;
   camera.near=.35;camera.far=500;
-  applyCamera();
+  reviewLights.visible=false;reviewStage.visible=false;renderer.toneMappingExposure=1.35;
+  applyCamera();renderWorld();
 }
 function showGeneratedGeometry(shotId,scroll=false){
   const bounds=primitiveWorld.getBounds(shotId);
@@ -53,9 +74,19 @@ function showGeneratedGeometry(shotId,scroll=false){
   // modifying authored camera keys or saving unaccepted primitives.
   setPlaying(false);
   reviewShotId=shotId;orbitMode=true;controls.enabled=true;
+  reviewLights.visible=true;renderer.toneMappingExposure=1.65;
+  // The cinematic distance haze obscures small primitive details when viewing
+  // them close up. Keep the original fog object and restore it on exit.
+  if(scene.fog)scene.fog.density=0;
   el('inspectBtn').classList.add('active');
   el('returnTimelineCameraBtn').hidden=false;
   const center=new THREE.Vector3(...bounds.center);
+  const stageSize=Math.max(20,Math.min(200,bounds.radius*3));
+  reviewFloor.position.set(center.x,-.20,center.z);
+  reviewFloor.scale.set(stageSize,stageSize,1);
+  reviewGrid.position.set(center.x,-.18,center.z);
+  reviewGrid.scale.setScalar(stageSize/40);
+  reviewStage.visible=true;
   const distance=fitDistance(bounds.radius,52,camera.aspect);
   const direction=new THREE.Vector3(.58,.38,1).normalize();
   camera.fov=52;camera.position.copy(center).addScaledVector(direction,distance);
@@ -135,7 +166,8 @@ function cameraAt(t){let keys=sequence.camera.slice().sort((a,b)=>a.at-b.at);let
 function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.updateProjectionMatrix();controls.target.set(...c.t);}
 function seek(t,opts={}){if(reviewShotId&&shotAt(t)?.id!==reviewShotId)endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
 function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
- world.update(playhead,shot.id,custom);primitiveWorld.showShot(shot.id);
+ world.update(playhead,shot.id,custom);if(reviewShotId&&scene.fog)scene.fog.density=0;
+ primitiveWorld.showShot(shot.id);
  draftWorld.update(shot,custom);
  if(lastPrimitiveShotId!==shot.id){lastPrimitiveShotId=shot.id;primitiveEditor?.refresh();}
  let cuts=sequence.camera.filter(k=>k.cut&&k.at>0).map(k=>k.at);let alpha=0;for(let cut of cuts){let diff=Math.abs(playhead-cut);if(diff<.17)alpha=Math.max(alpha,(1-diff/.17)*.72);}el('cutFlash').style.opacity=String(alpha);}

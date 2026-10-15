@@ -71,22 +71,62 @@ export function validateInput(payload) {
   }
   return {shotId,content};
 }
-const PROMPT=`Build an approximate, EDITABLE 3D scene from these chronologically ordered video frames.
-Return ONLY JSON for the supported primitive schema.
-Coordinates: +Y up, floor Y=0, viewer at +Z looking toward -Z.
-Allowed primitives: box, sphere, cylinder, plane, torus.
-Each object: id, name, primitive, position [x,y,z], rotation [x,y,z] in radians,
-scale [x,y,z], material {color:"#RRGGBB",metalness:0..1,roughness:0..1}.
-Create no more than 16 visible, coherent objects, approximate rather than exact.
-Do not hallucinate invisible details; if evidence is weak use fewer primitives.
-Root must be {"schemaVersion":1,"scenes":[{"shotId":"SHOT_ID","objects":[...]}]}.
-No arbitrary code, animations, textures or extra metadata. JSON only.
+// Keep generated models bounded for mobile WebGL while allowing enough parts
+// to express actual architecture and equipment, not just rough silhouette.
+const MAX_GENERATED_OBJECTS = 36;
+const PROMPT=`You are an architectural and environment blockout artist. Reconstruct the VISIBLY OBSERVED scene
+from these three chronological video frames as a recognizable, editable Three.js model.
+Analyze all frames together: infer consistent relative proportions, visible materials,
+camera movement and placement. Do NOT treat the three views as three separate scenes.
+
+OUTPUT: only strict JSON, no markdown or notes:
+{"schemaVersion":1,"scenes":[{"shotId":"SHOT_ID","objects":[...]}]}
+Each object MUST have exactly:
+{"id":"unique_ascii_id","name":"Descriptive part name","primitive":"box",
+"position":[x,y,z],"rotation":[rx,ry,rz],"scale":[sx,sy,sz],
+"material":{"color":"#RRGGBB","metalness":0.1,"roughness":0.7}}
+Allowed primitives: box, sphere, cylinder, plane, torus. Unique ID per object.
+Numeric transforms only. Scale > 0; metalness/roughness between 0 and 1.
+Three.js geometry convention: unit-sized box, plane centered on XY facing +Z;
+cylinder vertical along Y. Rotation is in RADIANS, not degrees.
+World: Y up, ground plane Y=0; camera at +Z looking toward -Z.
+Place objects around local world X/Z origin. Floor and roofs must be horizontal,
+not upright: horizontal plane rotation [-1.571,0,0].
+For a box resting on the floor, position.y = scale.y/2.
+
+QUALITY REQUIREMENTS:
+1. First identify the dominant visible subject (building exterior, equipment hall,
+   machine, circuit board, or something else). Represent its meaningful visible
+   parts and recognizable silhouette rather than generic stacked cubes.
+2. For building scenes: include the observed footprint, wall masses, roof/parapet,
+   entrance(s), distinct glazing/window bays, architectural bands, and observed
+   ground/site features when seen. Windows should be thin, dark or reflective
+   boxes on wall faces, not free-floating slabs. Align repeated parts neatly.
+3. For technical/indoor scenes: include distinctive racks, frames, panels,
+   consoles, rails, repeated hardware, or visible layout as appropriate.
+4. Allocate shapes to details that improve recognition, not giant blank filler.
+   Use at most 36 editable objects; target roughly 18–32 when detail is visible.
+   Where evidence is ambiguous, use fewer honest shapes. Do NOT invent signs,
+   logos, hidden rooms, unsupported windows, or whole unseen buildings.
+5. Give objects informative names ('Roof parapet north', 'Window row east',
+   'Entrance canopy', 'Rack bank A') to make them individually editable.
+6. Match the observed palette and lighting mood, but keep key forms legible:
+   dark objects should have distinguishable face and detail colors.
+   Use believable scales and grounded placements: no floating planes,
+   intersecting windows, or random scattered cubes.
+7. Composition should be recognizable from an elevated three-quarter +Z view.
+   Object positions, colors and orientations must be mutually consistent.
+
+Each object's material must have color, metalness, roughness. Do not return
+textures, external URLs, scripts, custom shaders, cameras, lighting, or metadata.
+No arbitrary code. Return validated JSON ONLY.
 `;
+
 function validateOutput(value,shotId) {
   if(!value||typeof value!=='object'||value.schemaVersion!==1||
     !Array.isArray(value.scenes)||value.scenes.length!==1)throw Error('Invalid scene JSON');
   const scene=value.scenes[0];
-  if(!scene||scene.shotId!==shotId||!Array.isArray(scene.objects)||scene.objects.length>16)
+  if(!scene||scene.shotId!==shotId||!Array.isArray(scene.objects)||scene.objects.length>MAX_GENERATED_OBJECTS)
     throw Error('Incorrect shot or object budget');
   const ids=new Set();
   const objects=scene.objects.map(raw=>{
@@ -139,7 +179,7 @@ export default {
     catch(error){return fail(error?.message==='Request too large'?413:400,'Invalid image request');}
     const prompt=PROMPT.replace('SHOT_ID',validated.shotId);
     const requestBody={contents:[{role:'user',parts:[{text:prompt},...validated.content]}],
-      generationConfig:{responseMimeType:'application/json',temperature:0.2,maxOutputTokens:3500}};
+      generationConfig:{responseMimeType:'application/json',temperature:0.2,maxOutputTokens:7500}};
     let result;
     try {
       result=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODEL+':generateContent',{
