@@ -70,6 +70,7 @@ test('three sampled video frames become previewable and accepted without alterin
   const preservedOriginal=structuredClone(sequence);
   const env={GEMINI_API_KEY:'mock-only-provider-key',SCENE_ACCESS_TOKEN:'mock-only-scene-token-12345678901234567890'};
   let preview=null,generatedCalls=0,acceptedCalls=0,discardCalls=0;
+  let phpAuthenticated=false;
   globalThis.fetch=async (url,opts={})=>{
     if(String(url).includes('generativelanguage.googleapis.com/')){
       const body=JSON.parse(opts.body);
@@ -80,14 +81,20 @@ test('three sampled video frames become previewable and accepted without alterin
       }),{status:200});
     }
     assert.equal(url,'./scene-proxy.php');
-    if(!opts.method)return new Response(JSON.stringify({
-      ok:true,authenticated:false,csrf:'temporary-test-csrf'
-    }),{status:200});
+    if(!opts.method){
+      assert.equal(opts.credentials,'same-origin');
+      assert.equal(opts.cache,'no-store');
+      return new Response(JSON.stringify({
+        ok:true,authenticated:phpAuthenticated,
+        csrf:phpAuthenticated?'logged-in-test-csrf':'temporary-test-csrf'
+      }),{status:200});
+    }
     assert.equal(opts.credentials,'same-origin');
     assert.equal(opts.headers['X-Paige-Client'],'SceneStudio');
     const payload=JSON.parse(opts.body);
     if(payload.action==='login'){
       assert.equal(payload.passphrase,'mock passphrase 12345');
+      phpAuthenticated=true;
       return new Response(JSON.stringify({
         ok:true,authenticated:true,csrf:'logged-in-test-csrf'
       }),{status:200});
@@ -149,4 +156,95 @@ test('three sampled video frames become previewable and accepted without alterin
     else globalThis.document=oldDocument;
     globalThis.fetch=oldFetch;
   }
+});
+
+async function runSessionCase(mode) {
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch;
+  const ids=new Map();
+  let phpAuthenticated=false,videoCount=0,generated=0;
+  globalThis.document={
+    getElementById(id){
+      if(!ids.has(id))ids.set(id,new Element());
+      return ids.get(id);
+    },
+    createElement(tag){
+      if(tag==='video'){videoCount++;return new FakeVideo();}
+      if(tag==='canvas')return{
+        width:0,height:0,
+        getContext:()=>({drawImage:()=>{}}),
+        toDataURL:()=> 'data:image/jpeg;base64,'+
+          Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64')
+      };
+      return new Element();
+    }
+  };
+  globalThis.fetch=async (url,opts={})=>{
+    assert.equal(url,'./scene-proxy.php');
+    if(!opts.method){
+      assert.equal(opts.credentials,'same-origin');
+      assert.equal(opts.cache,'no-store');
+      return new Response(JSON.stringify({
+        ok:true,authenticated:phpAuthenticated,csrf:'mock-csrf-value'
+      }),{status:200});
+    }
+    const input=JSON.parse(opts.body);
+    if(input.action==='login'){
+      // PHP accepted the passphrase; only some cases retain a cookie/session.
+      phpAuthenticated=mode!=='cookie-not-retained';
+      return new Response(JSON.stringify({
+        ok:true,authenticated:true,csrf:'mock-csrf-value'
+      }),{status:200});
+    }
+    assert.equal(input.action,'generate');
+    generated++;
+    assert.equal(input.frames.length,3);
+    return new Response(JSON.stringify({
+      ok:false,error:'Sign in before generating a scene'
+    }),{status:401});
+  };
+  try{
+    setupAiSceneEditor({
+      getSequence:()=>({shots:[{id:'shot_a',start:0,end:6}]}),
+      getActiveShot:()=>({id:'shot_a',start:0,end:6}),
+      getReferenceVideo:()=>({src:'blob:synthetic-reference'}),
+      onPreview:()=>assert.fail('No proposal expected'),
+      onDiscard:()=>{},
+      onAccept:()=>assert.fail('No acceptance expected'),
+    });
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(ids.get('aiSceneControls').hidden,true);
+    ids.get('aiScenePassphrase').value='example passphrase not real';
+    await ids.get('aiSceneSignIn').fire('click');
+    assert.equal(ids.get('aiScenePassphrase').value,'');
+    if(mode==='cookie-not-retained'){
+      assert.equal(ids.get('aiSceneLogin').hidden,false);
+      assert.equal(ids.get('aiSceneControls').hidden,true);
+      assert.match(ids.get('aiSceneStatus').textContent,/did not retain your session/);
+    }else {
+      assert.equal(ids.get('aiSceneControls').hidden,false);
+      if(mode==='session-ended-before-preflight')phpAuthenticated=false;
+      await ids.get('aiSceneGenerate').fire('click');
+      assert.equal(ids.get('aiSceneLogin').hidden,false);
+      assert.equal(ids.get('aiSceneControls').hidden,true);
+      assert.equal(ids.get('aiSceneGenerate').disabled,true);
+      assert.match(ids.get('aiSceneStatus').textContent,/Sign in again/);
+    }
+    assert.equal(generated,mode==='session-ended-after-preflight'?1:0);
+    assert.equal(videoCount,mode==='session-ended-after-preflight'?1:0,
+      'Lost sessions should be detected before unnecessary video frame sampling');
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;
+    else globalThis.document=oldDocument;
+    globalThis.fetch=oldFetch;
+  }
+}
+
+test('a 200 login without a persisted PHP session never unlocks Generate',async()=>{
+  await runSessionCase('cookie-not-retained');
+});
+test('expired PHP session returns to sign-in without sampling video',async()=>{
+  await runSessionCase('session-ended-before-preflight');
+});
+test('401 after video sampling also returns to sign-in instead of leaving controls unlocked',async()=>{
+  await runSessionCase('session-ended-after-preflight');
 });

@@ -10,8 +10,21 @@ async function request(action,data={}) {
     body:JSON.stringify({action,...data})
   });
   const result=await response.json().catch(()=>({error:'The PHP endpoint returned an invalid response'}));
-  if(!response.ok||!result.ok)throw Error(result.error||'Scene request failed');
+  if(!response.ok||!result.ok){
+    const error=Error(result.error||'Scene request failed');
+    error.status=response.status;
+    throw error;
+  }
   return result;
+}
+async function readServerSession() {
+  const response=await fetch(api,{credentials:'same-origin',cache:'no-store'});
+  const session=await response.json().catch(()=>null);
+  if(!response.ok||!session?.ok||typeof session.authenticated!=='boolean'||
+     typeof session.csrf!=='string'){
+    throw Error(session?.error||'PHP proxy is not ready');
+  }
+  return session;
 }
 async function sampleVideo(reference,shot) {
   if(!reference?.src && !reference?.currentSrc)
@@ -56,35 +69,50 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
   const create=el('aiSceneGenerate'),accept=el('aiSceneAccept');
   const discard=el('aiSceneDiscard'),message=el('aiSceneStatus');
-  let csrf=null,authenticated=false,pending=null,pendingShot=null,busy=false;
+  let csrf=null,authenticated=false,pending=null,pendingShot=null,busy=true;
   const status=text=>{message.textContent=text;};
   const ui=()=>{
     loginArea.hidden=authenticated;
     controls.hidden=!authenticated;
-    create.disabled=busy;
+    loginButton.disabled=busy;
+    create.disabled=busy||!authenticated;
     accept.hidden=!pending; discard.hidden=!pending;
     accept.disabled=busy;discard.disabled=busy;
   };
+  const sessionEnded=()=>{
+    authenticated=false;csrf=null;
+    status('Your PHP session is no longer active. Sign in again to generate a scene.');
+  };
   async function checkLogin(){
     try {
-      const response=await fetch(api,{credentials:'same-origin',cache:'no-store'});
-      const data=await response.json();
-      if(!response.ok||!data.ok)throw Error(data.error||'PHP proxy is not ready');
-      csrf=data.csrf;authenticated=!!data.authenticated;
+      const session=await readServerSession();
+      authenticated=session.authenticated;
+      csrf=authenticated?session.csrf:null;
       status(authenticated?'Private AI gateway ready.':'Sign in with your editor passphrase to generate 3D scenes.');
     } catch(error){
+      authenticated=false;csrf=null;
       status('AI gateway unavailable: '+error.message+'. Check PHP support and private paiver.php.');
-    }
-    ui();
+    } finally {busy=false;ui();}
   }
   loginButton.addEventListener('click',async()=>{
     if(busy)return;
     busy=true;ui();status('Signing in…');
     try {
-      const res=await request('login',{passphrase:password.value});
-      password.value='';csrf=res.csrf;authenticated=true;
-      status('Connected. Select a draft chapter and generate its 3D blockout.');
-    }catch(error){status(error.message);}finally{busy=false;ui();}
+      const result=await request('login',{passphrase:password.value});
+      if(!result.authenticated)throw Error('PHP did not confirm sign-in');
+      password.value='';
+      // Verify that the PHP session cookie survived an entirely new request.
+      // A login POST can succeed even when a browser/host discards its session.
+      const verified=await readServerSession();
+      if(!verified.authenticated){
+        authenticated=false;csrf=null;
+        status('Sign-in was accepted, but PHP did not retain your session. Open the editor directly in Safari and try again. If it continues, check 50webs PHP session storage.');
+      } else {
+        csrf=verified.csrf;authenticated=true;
+        status('Connected. Select a draft chapter and generate its 3D blockout.');
+      }
+    }catch(error){authenticated=false;csrf=null;status(error.message);}
+    finally{busy=false;ui();}
   });
   create.addEventListener('click',async()=>{
     if(busy||!authenticated)return;
@@ -94,9 +122,13 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       status('Reattach your imported MP4 before requesting an AI scene.');
       return;
     }
-    if(pending){onDiscard();pending=null;pendingShot=null;}
     busy=true;ui();
     try {
+      // Check PHP's actual current session BEFORE decoding/compressing video.
+      const session=await readServerSession();
+      if(!session.authenticated){sessionEnded();return;}
+      csrf=session.csrf;
+      if(pending){onDiscard();pending=null;pendingShot=null;}
       status('Sampling three representative frames locally…');
       const frames=await sampleVideo(getReferenceVideo(),shot);
       status('Gemini is proposing editable geometry…');
@@ -108,8 +140,29 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       pending=doc.scenes[0];pendingShot=shot.id;
       onPreview(pending);
       status('Preview: '+pending.objects.length+' editable object(s). Accept to save, or discard. No changes saved yet.');
-    }catch(error){status('AI proposal failed: '+error.message);onDiscard();pending=null;pendingShot=null;}
-    finally{busy=false;ui();}
+    }catch(error){
+      if(error.status===401){
+        // PHP rejected generation because its session was lost between
+        // preflight and the POST. Never leave the Generate button unlocked.
+        sessionEnded();
+      }else if(error.status===403&&error.message==='Invalid editor session token'){
+        // The PHP session rotated while the frames were being sampled.
+        // Refresh its CSRF token, or return to the sign-in UI if it expired.
+        try{
+          const session=await readServerSession();
+          authenticated=session.authenticated;
+          csrf=authenticated?session.csrf:null;
+          if(authenticated)status('Your PHP session changed. Try generating again.');
+          else sessionEnded();
+        }catch{
+          authenticated=false;csrf=null;
+          status('The PHP session could not be verified. Sign in again.');
+        }
+      }else{
+        status('AI proposal failed: '+error.message);
+      }
+      onDiscard();pending=null;pendingShot=null;
+    }finally{busy=false;ui();}
   });
   accept.addEventListener('click',()=>{
     if(!pending||busy)return;
