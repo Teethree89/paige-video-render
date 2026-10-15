@@ -23,7 +23,7 @@ test('Adobe ExtendScript catch paths do not coerce native Error objects',()=>{
 test('Avoid unsupported ES3 Array.indexOf and retain camera failure isolation',()=>{
   assert.match(code,/function indexIn\(list,value\)/);
   assert.doesNotMatch(code,/fileIds\.indexOf\(/);
-  assert.match(code,/try\{addCameraKeys\(workspace,seq,shot,offsets\[sid\]\);\}/);
+  assert.match(code,/try\{addCameraKeys\(workspace,seq,shot,origin\);\}/);
   assert.match(code,/catch\(e\)\{reportWarning\("Camera import warning/);
   assert.match(code,/app\.project\.save\(file\)/);
 });
@@ -41,9 +41,9 @@ test('Model transforms and camera positions use the same world unit multiplier',
   assert.match(code,/var AE_PX_PER_WORLD_UNIT=18/);
   assert.match(code,/GLB_SCALE_PERCENT=AE_PX_PER_WORLD_UNIT\*100/);
   assert.match(code,/scale\.setValue\(\[GLB_SCALE_PERCENT,GLB_SCALE_PERCENT,GLB_SCALE_PERCENT\]\)/);
-  assert.match(code,/a\.p\[0\]-sceneOffset\)\*AE_PX_PER_WORLD_UNIT/);
+  assert.match(code,/a\.p\[0\]-sceneOffset\[0\]\)\*AE_PX_PER_WORLD_UNIT/);
   assert.match(code,/addInspectionCamera\(inspection,modelId\)/);
-  assert.match(code,/positionGLBLayer\(m,sceneNames/);
+  assert.match(code,/positionGLBLayer\(m,modelLabel\)/);
   assert.doesNotMatch(code,/\.setValue\(\[W\/2,H\/2,0\]\);\s*\}/);
 });
 
