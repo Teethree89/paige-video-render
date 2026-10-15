@@ -1,2 +1,2 @@
 Require all denied
-ErrorDocument 403 "Forbidden"
+ErrorDocument 403 /Indium/paiver/private-denied.html
