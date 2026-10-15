@@ -144,6 +144,27 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("'samesite' => 'Strict'", script)
         self.assertIn("($modernCookieApi && strcasecmp(", script)
 
+    def test_php_only_maps_fixed_worker_failure_messages(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        self.assertIn("function safe_worker_error(int $status, string $body): string", php)
+        self.assertIn("json_decode($body, true)", php)
+        self.assertIn("isset($allowed[$key])", php)
+        self.assertIn("safe_worker_error($status, $response)", php)
+        self.assertNotIn("reject(502, $response)", php)
+        expected = {
+            "401:Unauthorized": "Worker rejected the PHP access token",
+            "400:Invalid image request": "Worker rejected the sampled video frames",
+            "502:AI provider authentication or permission failed": "Gemini rejected the provider API credentials",
+            "502:Requested AI model is unavailable": "configured Gemini model is not available",
+            "502:AI provider rejected request format": "Gemini rejected the submitted frame",
+            "502:AI provider temporarily unavailable": "Gemini is temporarily unavailable",
+            "502:Provider scene did not match the editor schema": "failed scene validation"
+        }
+        for worker_key, category_text in expected.items():
+            with self.subTest(code=worker_key):
+                self.assertIn(worker_key, php)
+                self.assertIn(category_text, php)
+
     def test_only_exact_editor_redirect_is_considered_safe(self):
         self.assertTrue(probe.is_safe_denial(403, "", path_exposed=False))
         self.assertTrue(probe.is_safe_denial(302, probe.EDITOR, path_exposed=False))
