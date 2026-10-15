@@ -73,7 +73,7 @@ class GatewaySmokeTests(unittest.TestCase):
         output = io.StringIO()
         with patch.object(probe, "fetch", side_effect=fake_get), \
              patch.object(probe, "fetch_protected", side_effect=fake_protected), \
-             patch.object(probe, "check_session_continuity", return_value=(True, True)):
+             patch.object(probe, "check_session_continuity", return_value=(True, True, "ok", 200)):
             with patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": ""}):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(probe.run(), 0)
@@ -105,7 +105,7 @@ class GatewaySmokeTests(unittest.TestCase):
         opener = FakeOpener()
         with patch.object(probe, "CookieJar", return_value=jar), \
              patch.object(probe, "build_opener", return_value=opener):
-            self.assertEqual(probe.check_session_continuity(), (True, True))
+            self.assertEqual(probe.check_session_continuity(), (True, True, "ok", 200))
             self.assertEqual(opener.calls, 2)
 
         class RotatedOpener(FakeOpener):
@@ -114,7 +114,7 @@ class GatewaySmokeTests(unittest.TestCase):
                 return FakeResponse(csrf if self.calls == 1 else "y" * 64)
         with patch.object(probe, "CookieJar", return_value=jar), \
              patch.object(probe, "build_opener", return_value=RotatedOpener()):
-            self.assertEqual(probe.check_session_continuity(), (True, False))
+            self.assertEqual(probe.check_session_continuity(), (True, False, "server-session-rotated", 200))
 
     def test_only_exact_editor_redirect_is_considered_safe(self):
         self.assertTrue(probe.is_safe_denial(403, "", path_exposed=False))
@@ -157,7 +157,7 @@ class GatewaySmokeTests(unittest.TestCase):
         output = io.StringIO()
         with patch.object(probe, "fetch", side_effect=fake_get), \
              patch.object(probe, "fetch_protected", side_effect=fake_protected), \
-             patch.object(probe, "check_session_continuity", return_value=(True, True)):
+             patch.object(probe, "check_session_continuity", return_value=(True, True, "ok", 200)):
             with patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": ""}):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(probe.run(), 1)
