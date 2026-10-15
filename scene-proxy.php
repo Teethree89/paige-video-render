@@ -24,6 +24,40 @@ function answer(int $code, array $payload): void {
 function reject(int $code, string $message): void {
     answer($code, ['ok' => false, 'error' => $message]);
 }
+/**
+ * Decode ONLY exact, versioned Worker error strings. Never relay arbitrary
+ * upstream JSON, provider responses, debug headers or secret material.
+ * This runs only after successful PHP session and CSRF authentication.
+ */
+function safe_worker_error(int $status, string $body): string {
+    $payload = json_decode($body, true);
+    $error = (is_array($payload) && isset($payload['error']) &&
+              is_string($payload['error'])) ? $payload['error'] : '';
+    $allowed = [
+        '401:Unauthorized' => 'The Worker rejected the PHP access token. Verify the private PHP scene_access_token matches Cloudflare SCENE_ACCESS_TOKEN.',
+        '400:Invalid image request' => 'The Worker rejected the sampled video frames. Check JPEG validation and frame sizes.',
+        '413:Invalid image request' => 'The sampled frames exceed the Worker request size limit.',
+        '503:AI backend is not configured' => 'The AI Worker is missing its runtime configuration.',
+        '429:Provider rate limit reached' => 'Gemini rate limit reached. Try later.',
+        '502:AI provider connection failed' => 'The Worker could not connect to Gemini.',
+        '502:AI provider refused the request' => 'Gemini rejected the inference request. Check API access, quota and model availability.',
+        '502:AI provider authentication or permission failed' => 'Gemini rejected the provider API credentials or permissions.',
+        '502:Requested AI model is unavailable' => 'The configured Gemini model is not available to this API key.',
+        '502:AI provider rejected request format' => 'Gemini rejected the submitted frame or model request format.',
+        '502:AI provider temporarily unavailable' => 'Gemini is temporarily unavailable. Try again later.',
+        '502:Invalid provider response' => 'Gemini returned an unreadable response.',
+        '502:Provider produced no usable scene' => 'Gemini did not produce usable scene JSON.',
+        '502:Provider scene did not match the editor schema' => 'Gemini returned geometry that failed scene validation.',
+    ];
+    $key = (string) $status . ':' . $error;
+    if (isset($allowed[$key])) return $allowed[$key];
+    if ($status === 401 || $status === 403)
+        return 'The Worker request was denied upstream. Check the Cloudflare Worker authentication and access policy.';
+    if ($status === 429) return 'The AI Worker is rate limited. Try again later.';
+    return 'The AI Worker could not complete the request (upstream status ' .
+           (in_array($status, [400, 401, 403, 404, 413, 429, 500, 502, 503], true)
+               ? (string) $status : 'other') . ').';
+}
 function is_https(): bool {
     // Do not trust arbitrary X-Forwarded-Proto headers from an internet client.
     return isset($_SERVER['HTTPS'])
@@ -260,7 +294,7 @@ curl_close($ch);
 if ($tooLarge) reject(502, 'Worker response exceeded safety limit');
 if ($ok === false) reject(502, 'Could not reach the AI Worker');
 if ($status === 429) reject(429, 'AI request limit reached');
-if ($status < 200 || $status >= 300) reject(502, 'The AI Worker rejected this request');
+if ($status < 200 || $status >= 300) reject(502, safe_worker_error($status, $response));
 $result = json_decode($response, true);
 if (!is_array($result) || json_last_error() !== JSON_ERROR_NONE) {
     reject(502, 'Worker response was not valid JSON');
