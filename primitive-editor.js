@@ -39,8 +39,9 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     if(previousShot!==shot.id){previousShot=shot.id;selectedId=null;}
     const doc=getPrimitiveDocument(),entry=sceneFor(doc,shot.id);
     const objects=entry?.objects||[];
-    const filtered=objects.filter(o=>layerFilter.value==='all'||
-      (o.layer||'manual')===layerFilter.value);
+    const chosenLayer=layerFilter.value||'all';
+    const filtered=objects.filter(o=>chosenLayer==='all'||
+      (o.layer||'manual')===chosenLayer);
     const selected=filtered.find(o=>o.id===selectedId);
     el('primitiveShotLabel').textContent=shot.name+' · '+objects.length+' object(s)';
     objectSelect.replaceChildren();
