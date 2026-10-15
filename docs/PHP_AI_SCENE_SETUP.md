@@ -99,3 +99,30 @@ The temporary diagnostics (now removed) confirmed:
 50webs advertises the **JailHost** option for website isolation. If enabled on the `paige-lighthouse.50webs.org` domain, it may prevent PHP from seeing directories outside this domain, including `/www/certificates`. Verify the JailHost setting and directory ownership/permissions in 50webs before inferring the cause conclusively. Do **not** disable website isolation just to reach secrets, make protected files world-writable, or upload secrets into the public editor.
 
 If JailHost is confirmed as the blocker, prefer a separately protected private configuration directory *within the domain's accessible storage*, secured by the host's supported deny-access mechanism and verified with an HTTP 403 direct-access test, before adding an explicit, fixed include path. Host support can recommend a non-HTTP-served directory accessible to the jailed PHP process. Never put real tokens in the GitHub repo, project ZIP, or frontend JavaScript.
+
+
+## Simpler 50webs private config option: protected folder under editor (requires proof first)
+
+If the non-hosted `/www/certificates/` directory is unavailable to PHP under the domain's jail, a local protected directory can work **only if HTTP requests are blocked at the server**.
+
+This repository automatically uploads **only** these harmless, non-secret files to the public editor's `.private/` directory:
+
+- `.private/.htaccess`: `Require all denied` (Apache 2.4 authorization).
+- `.private/deny-check.txt`: harmless constant text to test that the rule is effective.
+
+**Before uploading or moving ANY secrets**, open:
+`https://paige-lighthouse.50webs.org/Indium/paiver/.private/deny-check.txt`
+
+- **HTTP 403 Forbidden**: the Apache access-denial rule appears to work. You can cautiously proceed with the configuration file, understanding this is still webroot storage and carries more risk than a genuine non-web-served secrets directory.
+- **HTTP 200 with test content**: STOP. The site ignored the deny rule or it is not in effect. Never put secrets in this folder.
+- **HTTP 404, 500 or another error**: Do not assume it is protected; investigate whether the denial file was uploaded or server rewrites are interfering. HTTP 404 can indicate either an inaccessible dot-folder or a missing file.
+
+After verifying the server blocks direct access, use the 50webs HTTPS File Manager (NOT the current project's unencrypted FTP connection) to manually create:
+
+`/www/paige-lighthouse.50webs.org/Indium/paiver/.private/paiver.php`
+
+Copy the same contents as the private `docs/paiver.config.example.php` template. The running PHP gateway now tries `__DIR__ . '/.private/paiver.php'` first, then the three earlier candidate locations. Do **not** add this actual secret file to the source repository, generated workspace ZIP, or GitHub Actions. The public website's automated FTP publisher explicitly stages only the guard and harmless check file, not your configuration.
+
+Once installed, verify (1) the test file is still denied by HTTP and (2) a GET on `scene-proxy.php` returns `ok:true` with `authenticated:false`. Directly visiting `.private/paiver.php` must **also** return a server-enforced HTTP 403; PHP's normal "no output" behavior alone is not proof of protection. Keep server backup files (`.bak`, `.old`, `.txt`, editor swap files) out of this directory too.
+
+If 50webs does not honor `.htaccess`, choose another server-supported deny rule or move authentication to Cloudflare Access; do not bypass this check just to make the AI button work.
