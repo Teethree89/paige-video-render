@@ -1,4 +1,5 @@
 import {validatePrimitiveDocument} from './primitive-schema.js';
+import {referenceFrameTimes,ENVIRONMENT_PASSES,appendEnvironmentPass} from './environment-generation.js';
 
 const el=id=>document.getElementById(id);
 const api='./scene-proxy.php';
@@ -26,7 +27,7 @@ async function readServerSession() {
   }
   return session;
 }
-async function sampleVideo(reference,shot) {
+async function sampleVideo(reference,shot,playhead) {
   if(!reference?.src && !reference?.currentSrc)
     throw Error('Attach your reference MP4 first.');
   const video=document.createElement('video');
@@ -50,8 +51,7 @@ async function sampleVideo(reference,shot) {
     canvas.height=Math.max(2,Math.round(640*video.videoHeight/video.videoWidth));
     const ctx=canvas.getContext('2d',{alpha:false});
     if(!ctx)throw Error('Cannot sample video frames');
-    for(let i=0;i<3;i++){
-      const at=from+(to-from)*(i+1)/4;
+    for(const at of referenceFrameTimes(shot,playhead,video.duration)){
       const waiting=once('seeked',10000);
       video.currentTime=at;
       await waiting;
@@ -64,10 +64,10 @@ async function sampleVideo(reference,shot) {
     video.removeAttribute('src');video.load();
   }
 }
-export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,onPreview,onDiscard,onAccept,onInspect}) {
+export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
-  const create=el('aiSceneGenerate'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
+  const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
   const discard=el('aiSceneDiscard'),message=el('aiSceneStatus');
   let csrf=null,authenticated=false,pending=null,pendingShot=null,busy=true;
   const status=text=>{message.textContent=text;};
@@ -76,6 +76,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     controls.hidden=!authenticated;
     loginButton.disabled=busy;
     create.disabled=busy||!authenticated;
+    scope.disabled=busy;
     inspect.hidden=!pending;inspect.disabled=busy||!pending;
     accept.hidden=!pending; discard.hidden=!pending;
     accept.disabled=busy;discard.disabled=busy;
@@ -129,18 +130,37 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const session=await readServerSession();
       if(!session.authenticated){sessionEnded();return;}
       csrf=session.csrf;
-      if(pending){onDiscard();pending=null;pendingShot=null;}
-      status('Sampling three representative frames locally…');
-      const frames=await sampleVideo(getReferenceVideo(),shot);
-      status('Gemini is proposing editable geometry…');
-      const result=await request('generate',{csrf,shotId:shot.id,frames});
-      const doc=validatePrimitiveDocument(result.proposal,getSequence().shots.map(s=>s.id));
+      const fullEnvironment=scope.value!=='subject';
+      status('Sampling the selected playhead frame and two chapter context frames…');
+      const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.());
+      let doc;
+      if(fullEnvironment){
+        let assembled=[];
+        for(let i=0;i<ENVIRONMENT_PASSES.length;i++){
+          const pass=ENVIRONMENT_PASSES[i];
+          status('Reconstructing environment '+(i+1)+' / '+ENVIRONMENT_PASSES.length+': '+pass.label+'…');
+          const result=await request('generate',{
+            csrf,shotId:shot.id,frames,layer:pass.id,existing:assembled
+          });
+          assembled=appendEnvironmentPass(shot.id,assembled,result.proposal,pass.id);
+        }
+        doc=validatePrimitiveDocument({schemaVersion:1,
+          scenes:[{shotId:shot.id,objects:assembled}]},getSequence().shots.map(s=>s.id));
+      }else {
+        status('Gemini is proposing the primary subject…');
+        const result=await request('generate',{csrf,shotId:shot.id,frames});
+        doc=validatePrimitiveDocument(result.proposal,getSequence().shots.map(s=>s.id));
+      }
       if(doc.scenes.length!==1||doc.scenes[0].shotId!==shot.id)
         throw Error('Model returned geometry for the wrong shot.');
       if(getActiveShot()?.id!==shot.id)throw Error('Selected chapter changed; generate again.');
+      if(pending){onDiscard();pending=null;pendingShot=null;}
       pending=doc.scenes[0];pendingShot=shot.id;
       onPreview(pending);
-      status('Preview: '+pending.objects.length+' editable object(s). Viewport focused on this scene; use View proposed shapes to revisit it. Accept to save, or discard. Nothing saved yet.');
+      const counts=fullEnvironment?ENVIRONMENT_PASSES.map(p=>
+        p.label+': '+pending.objects.filter(o=>o.layer===p.id).length).join(' · '):'';
+      status('Preview: '+pending.objects.length+' editable objects. '+counts+
+        '. Inspect, accept or discard. No changes saved yet.');
     }catch(error){
       if(error.status===401){
         // PHP rejected generation because its session was lost between
