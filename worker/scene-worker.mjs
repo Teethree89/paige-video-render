@@ -115,7 +115,12 @@ export {validateOutput,secretMatches};
 export default {
   async fetch(request,env){
     const path=new URL(request.url).pathname;
-    if(path==='/health'&&request.method==='GET')return reply({ok:true,service:'paige-scene',ready:true});
+    // A successful deployment does not prove runtime secret bindings exist.
+    // Provide a public, non-sensitive status only: never return names or values.
+    if(path==='/health'&&request.method==='GET'){
+      const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
+      return reply({ok:ready,service:'paige-scene',ready},ready?200:503);
+    }
     if(path!=='/api/scene')return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
     if(!env.GEMINI_API_KEY || !env.SCENE_ACCESS_TOKEN)

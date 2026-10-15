@@ -3,10 +3,12 @@ main = "worker/scene-worker.mjs"
 compatibility_date = "2026-10-14"
 workers_dev = true
 
-# Both encrypted secrets were configured in Cloudflare's Worker dashboard.
-# Keep their values out of Wrangler, source control, public ZIPs and FTP.
-[secrets]
-required = ["GEMINI_API_KEY", "SCENE_ACCESS_TOKEN"]
+# Keep non-secret dashboard variables if any are added later.
+# Cloudflare retains encrypted Worker secrets across deploys by default.
+# Do NOT declare [secrets].required here: production Workers Builds reported
+# the bindings as absent and refused to deploy. The Worker instead verifies
+# both runtime bindings and fails closed (HTTP 503) until they are set.
+keep_vars = true
 
 # Cloudflare's connected GitHub preview builds run `npx wrangler preview`.
 # An explicit block is required, even when no preview overrides are needed.
