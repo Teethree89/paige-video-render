@@ -6,10 +6,11 @@ The protected paiver.php URL is requested ONLY to inspect HTTP status;
 its response body is NEVER read (even if the host accidentally exposes it).
 """
 import json
+from http.cookiejar import CookieJar
 import os
 import sys
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler, HTTPCookieProcessor
 
 EDITOR = "https://paige-lighthouse.50webs.org/Indium/paiver/"
 WORKER = "https://paige-video-render.ivaniscreative.workers.dev/health"
@@ -77,6 +78,43 @@ def is_safe_denial(status, location, *, path_exposed=False):
     if status in (301, 302, 303, 307, 308):
         return location == EDITOR and not path_exposed
     return False
+
+
+
+def check_session_continuity():
+    """Confirm two anonymous GETs share a PHP session without logging its IDs.
+
+    A successful POST login alone does not prove PHP persisted the session.
+    Compare non-public CSRF values IN MEMORY across two requests with a
+    disposable cookie jar. Never return, print, log or persist either value.
+    """
+    jar = CookieJar()
+    opener = build_opener(HTTPCookieProcessor(jar))
+    csrf_values = []
+    for _ in range(2):
+        request = Request(EDITOR + "scene-proxy.php", headers={
+            "User-Agent": "PaigeSceneDeploymentCheck/1.0",
+            "Accept": "application/json",
+            "Cache-Control": "no-store",
+        })
+        try:
+            with opener.open(request, timeout=18) as response:
+                if response.status != 200:
+                    return False, False
+                payload = json.loads(response.read(MAX_PUBLIC_BODY))
+        except (ValueError, UnicodeDecodeError, HTTPError, URLError, TimeoutError, OSError):
+            return False, False
+        if (not isinstance(payload, dict) or payload.get("ok") is not True or
+                payload.get("authenticated") is not False or
+                not isinstance(payload.get("csrf"), str) or
+                len(payload["csrf"]) != 64):
+            return False, False
+        csrf_values.append(payload["csrf"])
+    cookie_present = any(
+        cookie.name == "__Host-paiver-scene" and cookie.secure and cookie.path == "/"
+        for cookie in jar
+    )
+    return cookie_present, cookie_present and csrf_values[0] == csrf_values[1]
 
 
 def bool_from_json(body, key):
@@ -165,6 +203,14 @@ def run():
     record("PHP proxy session GET", status,
            f"ok={ok} authenticated={authenticated} diagnostic={reason}; credentials_not_logged=true",
            failure=(status != 200 or ok is not True or authenticated is not False))
+
+    # Anonymous-only follow-up: check cookie persistence without any login or
+    # model invocation. Only booleans are reported; never log cookie/CSRF data.
+    cookie_present, csrf_stable = check_session_continuity()
+    record("PHP anonymous session continuity", 200 if csrf_stable else None,
+           f"secure_cookie_present={str(cookie_present).lower()} "
+           f"session_persisted={str(csrf_stable).lower()}; values_not_logged=true",
+           failure=not csrf_stable)
 
     output = "\n".join(entries + [
         "",
