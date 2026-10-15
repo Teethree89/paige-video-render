@@ -117,11 +117,21 @@ if ((string) ini_get('session.use_trans_sid') !== '0')
 if ((string) ini_get('session.use_strict_mode') !== '1')
     reject(503, 'Secure PHP session setting unavailable: strict-mode');
 session_name('__Host-paiver-scene');
-if (!session_set_cookie_params([
-    'lifetime' => 0, 'path' => '/', 'secure' => true,
-    'httponly' => true, 'samesite' => 'Strict'
-])) {
-    reject(503, 'Secure PHP cookie sessions are required');
+// Shared hosting can return a misleading status from the cookie-params
+// setter. Verify the actual PHP policy instead of treating that return as
+// evidence that the cookie itself will be rejected by the browser.
+session_set_cookie_params([
+    'lifetime' => 0, 'path' => '/', 'domain' => '',
+    'secure' => true, 'httponly' => true, 'samesite' => 'Strict'
+]);
+$cookiePolicy = session_get_cookie_params();
+if ((int) ($cookiePolicy['lifetime'] ?? -1) !== 0 ||
+    ($cookiePolicy['path'] ?? '') !== '/' ||
+    ($cookiePolicy['domain'] ?? null) !== '' ||
+    ($cookiePolicy['secure'] ?? false) !== true ||
+    ($cookiePolicy['httponly'] ?? false) !== true ||
+    strcasecmp((string) ($cookiePolicy['samesite'] ?? ''), 'Strict') !== 0) {
+    reject(503, 'Secure PHP cookie policy is unavailable');
 }
 if (!session_start()) reject(503, 'Could not start a private PHP session');
 
