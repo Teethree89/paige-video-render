@@ -88,18 +88,45 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET'
             'open_basedir_warning' => stripos($allErrors, 'open_basedir') !== false,
         ];
     }
+    // Investigate a virtual FTP-root mapping without publishing absolute paths.
+    // Never enumerate directories, evaluate PHP, or read the private config.
+    $additionalProbes = [];
+    for ($level = 2; $level <= 6; $level++) {
+        $parent = dirname(__DIR__, $level);
+        $candidate = $parent . '/certificates/paiver.php';
+        $additionalProbes['script_parent_' . $level] = [
+            'directory_visible' => @is_dir(dirname($candidate)),
+            'file_visible' => @is_file($candidate),
+            'file_readable' => @is_readable($candidate),
+        ];
+    }
+    $docRoot = (string) ($_SERVER['DOCUMENT_ROOT'] ?? '');
+    if ($docRoot !== '' && is_dir($docRoot)) {
+        for ($level = 0; $level <= 3; $level++) {
+            $parent = $level === 0 ? $docRoot : dirname($docRoot, $level);
+            $candidate = $parent . '/certificates/paiver.php';
+            $additionalProbes['document_root_parent_' . $level] = [
+                'directory_visible' => @is_dir(dirname($candidate)),
+                'file_visible' => @is_file($candidate),
+                'file_readable' => @is_readable($candidate),
+            ];
+        }
+    }
     $anyReadable = false;
-    foreach ($probes as $probe) {
+    foreach (array_merge($probes, $additionalProbes) as $probe) {
         if ($probe['file_visible'] && $probe['file_readable']) {
             $anyReadable = true;
         }
     }
     answer(200, [
         'ok' => true,
-        'diagnostic' => 'private_config_paths_v1',
+        'diagnostic' => 'private_config_paths_v2',
         'configuration_readable' => $anyReadable,
         'open_basedir_configured' => trim((string) ini_get('open_basedir')) !== '',
+        'script_directory_visible' => @is_dir(__DIR__),
+        'document_root_visible' => $docRoot !== '' && @is_dir($docRoot),
         'probes' => $probes,
+        'ancestor_probes' => $additionalProbes,
         'temporary' => true,
     ]);
 }
