@@ -72,13 +72,49 @@ class GatewaySmokeTests(unittest.TestCase):
 
         output = io.StringIO()
         with patch.object(probe, "fetch", side_effect=fake_get), \
-             patch.object(probe, "fetch_protected", side_effect=fake_protected):
+             patch.object(probe, "fetch_protected", side_effect=fake_protected), \
+             patch.object(probe, "check_session_continuity", return_value=(True, True)):
             with patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": ""}):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(probe.run(), 0)
         self.assertIn("RESULT: PASS", output.getvalue())
         self.assertNotIn(token, output.getvalue())
         self.assertNotIn(csrf, output.getvalue())
+
+    def test_session_continuity_uses_only_in_memory_csrf_comparison(self):
+        from types import SimpleNamespace
+
+        csrf = "NOT_FOR_LOGGING_" + "x" * 48
+        # Exactly 64 bytes, so the diagnostic validates the response shape.
+        csrf = csrf[:64]
+        jar = [SimpleNamespace(name="__Host-paiver-scene", secure=True, path="/")]
+        class FakeResponse:
+            status = 200
+            def __init__(self, value):
+                self.value = value
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self, amount):
+                return json.dumps({"ok": True, "authenticated": False,
+                                   "csrf": self.value}).encode()
+        class FakeOpener:
+            def __init__(self): self.calls = 0
+            def open(self, request, timeout=18):
+                self.calls += 1
+                return FakeResponse(csrf)
+        opener = FakeOpener()
+        with patch.object(probe, "CookieJar", return_value=jar), \
+             patch.object(probe, "build_opener", return_value=opener):
+            self.assertEqual(probe.check_session_continuity(), (True, True))
+            self.assertEqual(opener.calls, 2)
+
+        class RotatedOpener(FakeOpener):
+            def open(self, request, timeout=18):
+                self.calls += 1
+                return FakeResponse(csrf if self.calls == 1 else "y" * 64)
+        with patch.object(probe, "CookieJar", return_value=jar), \
+             patch.object(probe, "build_opener", return_value=RotatedOpener()):
+            self.assertEqual(probe.check_session_continuity(), (True, False))
 
     def test_only_exact_editor_redirect_is_considered_safe(self):
         self.assertTrue(probe.is_safe_denial(403, "", path_exposed=False))
@@ -120,7 +156,8 @@ class GatewaySmokeTests(unittest.TestCase):
 
         output = io.StringIO()
         with patch.object(probe, "fetch", side_effect=fake_get), \
-             patch.object(probe, "fetch_protected", side_effect=fake_protected):
+             patch.object(probe, "fetch_protected", side_effect=fake_protected), \
+             patch.object(probe, "check_session_continuity", return_value=(True, True)):
             with patch.dict("os.environ", {"GITHUB_STEP_SUMMARY": ""}):
                 with contextlib.redirect_stdout(output):
                     self.assertEqual(probe.run(), 1)
