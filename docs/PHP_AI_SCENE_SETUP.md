@@ -79,6 +79,45 @@ The browser calls the proxy relative to the existing page (no CORS required). Th
 - Only non-secret Worker code and the public proxy live in GitHub.
 - The PHP template contains placeholders and may be included in the downloadable project ZIP without leaking credentials.
 - Cloudflare Workers secret values remain configured privately in the dashboard.
+### Full-scene environment reconstruction (four coherent layers)
+
+The default **Full environment** mode generates one **chapter-local, persistent**
+editable 3D environment with four bounded sequential Gemini passes:
+
+1. `structures`: all visibly supported buildings, architecture, and structural/equipment masses
+2. `ground`: roads, parking, paths, sidewalks, terrain and surface features
+3. `vegetation`: observed trees, shrubs and landscaping (empty if none visible)
+4. `details`: other visible infrastructure, vehicles, lights, fences and props
+
+The exact **editor playhead frame** is always the first/primary frame sent in
+each request, followed by two other sampled frames within the same chapter.
+All four passes receive the same frames. After the first pass, subsequent
+passes also receive a bounded validated summary of the previously generated
+objects, so they can share one local coordinate system and avoid duplicates.
+Each pass may produce **up to 24 editable primitives**; the combined scene
+contains at most **96 primitives** and remains bounded by the normal
+document-level limits. Every generated object carries a validated `layer`
+field, is grouped under its corresponding Three.js layer, and can be found
+with the editor's object-layer filter. Legacy/manual objects without this
+field remain compatible with existing timeline JSONs.
+
+This does **not** reproduce unseen surfaces or guarantee survey-accurate
+geometry. It is an evidence-led, approximate environment reconstruction
+for the **selected chapter**, not automatic alignment of unrelated chapters
+into a single global map. Further camera views inside the same chapter
+retain the accepted environment instead of generating it again. Nothing
+is written to the user's timeline until all passes return valid shapes
+and the user explicitly accepts the combined proposal. Failure or discard
+keeps previously saved geometry intact; replacing an occupied chapter
+requires confirmation. For backups, export timeline JSON first.
+
+The PHP gateway retains its **10-request-per-session-per-hour** quota.
+Full-environment mode consumes **four** authenticated Gemini requests
+(versus one for **Primary subject only**). 50webs/cURL has a per-request
+timeout of 55 seconds, so individual passes can be slow, and paid-tier
+usage could incur charges. No secrets or raw model outputs are logged.
+A pending or failed sequence does not get automatically committed.
+
 ### Detailed but still editable AI scenes
 
 The first end-to-end Gemini result was a sparse architectural blockout. The Worker
