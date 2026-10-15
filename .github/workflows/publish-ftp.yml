@@ -28,6 +28,7 @@ jobs:
       - name: Validate workspace
         run: |
           python tests/test_workspace.py
+          python tests/test_gateway_probe.py
           python -m unittest discover -s tests -p 'test_zen*.py' -v
       - name: Check and test video importer
         run: |
@@ -78,3 +79,10 @@ jobs:
       - name: Publish to FTP login directory
         if: steps.config.outputs.configured == 'true'
         run: bash scripts/deploy_ftp.sh
+      - name: Verify live PHP proxy and private-folder HTTP denial
+        if: steps.config.outputs.configured == 'true'
+        continue-on-error: true
+        run: |
+          # Check only public status and sanitized booleans; never log config,
+          # PHP session values, CSRF tokens or any secret-bearing response body.
+          python scripts/check_live_gateway.py
