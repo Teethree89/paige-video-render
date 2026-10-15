@@ -134,6 +134,17 @@ export function buildWorld(scene){scene.background=new THREE.Color(C.bg);scene.f
    root.traverse(o=>{o.visible=true;});
    return root;
  }
+ // Unlike modelForExport (which deliberately captures the original procedural
+ // source), the AE bundle captures the currently linked or previewed GLB.
+ function modelForAEExport(id){
+   if(!groups[id])throw Error('Unknown model: '+id);
+   if(!replacements[id])return modelForExport(id);
+   const root=replacements[id].clone(true);
+   root.name='Model_'+id;
+   root.position.sub(defaultTransforms[id]); // Remove this scene's global origin.
+   root.traverse(o=>{o.visible=true;});
+   return root;
+ }
  function replaceModel(id,newModel,transform={}){
    if(!groups[id])throw Error('Unknown model slot: '+id);
    if(replacements[id]){scene.remove(replacements[id]);}
@@ -161,4 +172,4 @@ export function buildWorld(scene){scene.background=new THREE.Color(C.bg);scene.f
  actors.gem.rotation.y=.35+t*.085;actors.gem.rotation.x=.13+Math.sin(t*.3)*.1;for(let b of [actors.laserBeam,actors.fiberBeam,actors.opticBeam]){b.core.material.opacity=.75+.19*Math.sin(t*8);b.aura.material.opacity=.038+.013*Math.sin(t*4);}
  scene.fog.density=key==='exterior'?.0045:key==='hall'?.003:.0025;
  }
- return {groups,actors,update,modelForExport,replaceModel,restoreModel,replacements};}
+ return {groups,actors,update,modelForExport,modelForAEExport,replaceModel,restoreModel,replacements};}
