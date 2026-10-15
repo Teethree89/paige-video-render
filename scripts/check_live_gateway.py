@@ -47,6 +47,29 @@ def bool_from_json(body, key):
     return None
 
 
+def proxy_error_category(body):
+    """Return a fixed, safe diagnostic category, never the actual response text."""
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return "not-json"
+    if not isinstance(payload, dict):
+        return "invalid-shape"
+    error = payload.get("error")
+    known = {
+        "Private server configuration is not available": "private-file-not-readable",
+        "Private server configuration could not be loaded": "private-file-load-failed",
+        "Private server configuration is invalid": "private-file-invalid-return",
+        "Private server configuration needs valid values": "private-config-values-invalid",
+        "Worker endpoint must be an HTTPS workers.dev /api/scene URL": "worker-url-invalid",
+        "PHP cURL extension is required": "php-curl-unavailable",
+        "PHP sessions are required": "php-sessions-unavailable",
+        "Could not start a private PHP session": "php-session-start-failed",
+        "HTTPS is required": "php-https-unavailable",
+    }
+    return known.get(error, "other")
+
+
 def run():
     entries = []
     problems = []
@@ -81,8 +104,9 @@ def run():
     ok = bool_from_json(body, "ok")
     authenticated = bool_from_json(body, "authenticated")
     # Do not echo the PHP JSON: GET responses include a private CSRF value.
+    reason = proxy_error_category(body) if status != 200 else "none"
     record("PHP proxy session GET", status,
-           f"ok={ok} authenticated={authenticated}; credentials_not_logged=true",
+           f"ok={ok} authenticated={authenticated} diagnostic={reason}; credentials_not_logged=true",
            failure=(status != 200 or ok is not True or authenticated is not False))
 
     output = "\n".join(entries + [
