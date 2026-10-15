@@ -33,7 +33,7 @@ jobs:
       - name: Check and test video importer
         run: |
           for file in app.js render.js shot-analysis.js chapter-analysis.js video-import.js draft-world.js primitive-schema.js primitive-world.js primitive-editor.js ai-scene-editor.js primitive-preview.js environment-generation.js; do node --check --input-type=module < "$file"; done
-          node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs tests/test_primitive_editor_dom.mjs tests/test_scene_worker.mjs tests/test_ai_scene_editor_dom.mjs tests/test_primitive_preview.mjs tests/test_environment_generation.mjs
+          node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs tests/test_primitive_editor_dom.mjs tests/test_scene_worker.mjs tests/test_aftereffects_builder.mjs tests/test_ai_scene_editor_dom.mjs tests/test_primitive_preview.mjs tests/test_environment_generation.mjs
       - name: Check and test After Effects project builder (ExtendScript syntax)
         run: |
           node --check --input-type=commonjs < AfterEffects/BUILD_EDITABLE_PROJECT.jsx
