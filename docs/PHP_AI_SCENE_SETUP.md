@@ -179,3 +179,16 @@ The private directory **still** contains `Require all denied`. The rewrite affec
 If `mod_rewrite` is unavailable or 50webs processes access denial before the editor-root rule, remove the rewrite but **do not remove the independent `Require all denied` rule**. In that case the remaining information disclosure is controlled by the host's error template and may require host support.
 
 The separate PHP integration remains blocked until all three values in the manually installed `.private/paiver.php` pass validation. The runtime token/passphrase lengths are checked without printing any values.
+
+
+### mod_alias request-translation redirect (last host test)
+
+The earlier root `mod_rewrite` rule still failed to intercept the denied URL before 50webs displayed its server path. This change adds a `mod_alias` `RedirectMatch` at the public editor root:
+
+```apache
+RedirectMatch 302 ^/Indium/paiver/\\.private(/|$) /Indium/paiver/
+```
+
+This matches only the protected prefix. The prior rewrite and generic 403 ErrorDocument remain fallbacks. The real protection is unchanged: `.private/.htaccess` still contains `Require all denied`.
+
+The automated smoke test will only accept a 302/other approved redirect to the exact editor URL, or a path-free 403. It follows no redirect and reads **no content from paiver.php**. If the host still displays a detailed 403, stop trying more PHP/Apache user-space overrides; 50webs must change its server-level error handling or the site must move to hosting that permits custom error pages. Do not reduce secret-file protection to suppress this error.

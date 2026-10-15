@@ -71,6 +71,7 @@ jobs:
           grep -Fxq 'ErrorDocument 403 /Indium/paiver/403.html' public-private-guard/.htaccess
           test -s 403.html
           grep -Fxq 'ErrorDocument 403 /Indium/paiver/403.html' .htaccess
+          grep -Fxq 'RedirectMatch 302 ^/Indium/paiver/\\.private(/|$) /Indium/paiver/' .htaccess
           grep -Fxq 'RewriteEngine On' .htaccess
           grep -Fxq 'RewriteRule ^\\.private(?:/|$) /Indium/paiver/ [R=302,L,NC]' .htaccess
           # FTP account is rooted at /Indium/paiver; ship an editor-root
