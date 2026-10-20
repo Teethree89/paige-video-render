@@ -99,6 +99,9 @@ jobs:
       - name: Publish to FTP login directory
         if: steps.config.outputs.configured == 'true'
         run: bash scripts/deploy_ftp.sh
+      - name: Verify deployed After Effects JSX builder
+        if: steps.config.outputs.configured == 'true'
+        run: python scripts/check_live_ae_builder.py
       - name: Verify live PHP proxy and private-folder HTTP denial
         if: steps.config.outputs.configured == 'true'
         continue-on-error: true
