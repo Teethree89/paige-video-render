@@ -67,6 +67,7 @@ test('authorized request returns valid primitive JSON and keeps API key out of o
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');
     assert.equal(opts.method,'POST');
     assert.equal(JSON.parse(opts.body).generationConfig.responseMimeType,'application/json');
+    assert.equal('temperature' in JSON.parse(opts.body).generationConfig,false,'Gemini 3.x ignores deprecated temperature');
     providerInvoked=true;
     assert.ok(opts.headers['x-goog-api-key']===env.GEMINI_API_KEY);
     assert.ok(opts.body.includes('inlineData'));
@@ -93,6 +94,36 @@ test('authorized request returns valid primitive JSON and keeps API key out of o
     assert.ok(!body.includes(env.GEMINI_API_KEY));
     assert.ok(!body.includes(token));
   }finally{globalThis.fetch=previous;}
+});
+
+test('Gemini fetch timeout and network failures are safely distinguished',async()=>{
+  const priorFetch=globalThis.fetch;
+  const priorWarn=console.warn;
+  const logs=[];
+  console.warn=(...args)=>logs.push(args);
+  try{
+    for(const [name,status,message,kind] of [
+      ['TimeoutError',504,'AI provider request timed out','timeout'],
+      ['TypeError',502,'AI provider network connection failed','network-failure']
+    ]){
+      globalThis.fetch=async()=>{throw Object.assign(new Error('SENSITIVE '+env.GEMINI_API_KEY+' '+token),{name});};
+      const res=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+        method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+        body:JSON.stringify(sample)
+      }),env);
+      assert.equal(res.status,status);
+      const body=await res.text();
+      assert.deepEqual(JSON.parse(body),{ok:false,error:message});
+      assert.ok(!body.includes(env.GEMINI_API_KEY)&&!body.includes(token));
+      assert.equal(logs.at(-1)[0],'gemini-upstream-fetch');
+      assert.equal(logs.at(-1)[1],kind);
+    }
+    assert.ok(!JSON.stringify(logs).includes(env.GEMINI_API_KEY));
+    assert.ok(!JSON.stringify(logs).includes(token));
+  }finally{
+    globalThis.fetch=priorFetch;
+    console.warn=priorWarn;
+  }
 });
 
 test('Gemini failure statuses are classified without relaying raw provider errors',async()=>{
