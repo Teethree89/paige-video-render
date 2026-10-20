@@ -30,7 +30,8 @@ const instructions=`AFTER EFFECTS — EDITABLE PROJECT EXPORT
 2. In Adobe After Effects 24.1+ use File > Scripts > Run Script File and choose
    AfterEffects/BUILD_EDITABLE_PROJECT.jsx.
 3. The builder saves a new, non-overwriting .aep with editable shot workspaces,
-   3D model layers, camera guides, and text layers.
+   3D model layers, camera guides, and text layers. The master sequences those
+   shot workspaces at their timeline cuts beneath the editable titles.
 4. For the nine original flythrough shots, assets/models/ holds the seven live
    editable GLB models. For shots with accepted custom primitives, assets/shots/
    contains the shot-specific geometry and overrides the generic model.
