@@ -34,7 +34,11 @@ const instructions=`AFTER EFFECTS — EDITABLE PROJECT EXPORT
 4. For the nine original flythrough shots, assets/models/ holds the seven live
    editable GLB models. For shots with accepted custom primitives, assets/shots/
    contains the shot-specific geometry and overrides the generic model.
-5. Validate GLB model settings (Y-up / object scale) and camera orientation in AE.
+5. Keep GLB Model Settings at default meter units, Y Up, Flip Z enabled.
+   Do not use Make Comp Size: it changes model scale independently of cameras.
+   The builder compensates AE's 512 px/m import conversion with 3.515625% layer
+   Scale so models and cameras both use 18 pixels per source world unit.
+6. Inspect MODEL CHECK and shot cameras in AE before treating the export as final.
 
 This ZIP captures the current saved timeline and the editor's CURRENT model
 replacements, including imported GLB previews. Unaccepted AI geometry is not
