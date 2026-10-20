@@ -146,6 +146,14 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("'samesite' => 'Strict'", script)
         self.assertIn("($modernCookieApi && strcasecmp(", script)
 
+    def test_primary_mode_is_strictly_validated_and_forwarded_by_php(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        self.assertIn("if (array_key_exists('mode', $input))", php)
+        self.assertIn("$input['mode'] !== 'primary_subject'", php)
+        self.assertIn("array_key_exists('layer', $input)", php)
+        self.assertIn("$workerInput['mode'] = 'primary_subject';", php)
+        self.assertIn("$workerInput = ['shotId' => $shotId, 'frames' => $validated];", php)
+
     def test_php_only_maps_fixed_worker_failure_messages(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         self.assertIn("function safe_worker_error(int $status, string $body): string", php)
