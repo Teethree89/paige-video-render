@@ -21,11 +21,15 @@
   }
   app.beginUndoGroup("Build Atoms to AI editable project");
   var W=1920,H=1080,FPS=30;
-  // Both the GLB layers and the keyframed cameras use the SAME conversion.
-  // GLBs were exported with scene-local meters and must be transformed into
-  // AE's pixel-based 3D coordinate space.
+  // Cameras are authored in scene-local world units. AE's default GLTF
+  // importer has ALREADY converted each meter to 512 native pixels before
+  // layer Scale is applied (verified against the AE 2026 AEPX and source GLBs).
+  // Divide out that import conversion so models and cameras share 18 px/unit.
+  // Keep Model Settings at their default meter units, Y Up, Flip Z enabled;
+  // Make Comp Size changes the import scale and breaks this registration.
   var AE_PX_PER_WORLD_UNIT=18;
-  var GLB_SCALE_PERCENT=AE_PX_PER_WORLD_UNIT*100;
+  var AE_GLTF_PX_PER_METER=512;
+  var GLB_SCALE_PERCENT=AE_PX_PER_WORLD_UNIT/AE_GLTF_PX_PER_METER*100;
   var warnings=[];
   var currentStage="initialization";
   // IMPORTANT: After Effects ExtendScript throws again if a caught Error is
@@ -249,7 +253,8 @@
       try{addCameraKeys(workspace,seq,shot,origin);}
       catch(e){reportWarning("Camera import warning for "+shot.name,e);}
       // Source keyframes are an approximation; inspect MODEL CHECK comps first.
-      // For a visually incorrect model use Layer > Model Settings (Y Up, Make Comp Size).
+      // Model Settings must retain meter units, Y Up and Flip Z; do not use
+      // Make Comp Size, which independently rescales geometry without cameras.
     }
     currentStage="import background plate";
     var plate=findPlate(),isClean=false;

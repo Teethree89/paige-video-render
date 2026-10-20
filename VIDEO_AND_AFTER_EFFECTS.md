@@ -69,3 +69,27 @@ Keep `timeline.json`, `assets/`, `exports/`, and `AfterEffects/` together. We st
 - Three.js point lights, realtime materials, glow sprites, particles, laser beam shaders, render style, and exact screen-space camera interpolation are **not** reproduced in native After Effects by importing a GLB.
 - A `.jsx` file is an **After Effects project builder**, not a saved `.aep`. It produces the `.aep` when executed inside After Effects, which is not installed in this build environment.
 - MP4 preview is not a substitute for a final Three.js render. For deliverables, use the integrated browser-based recorder.
+
+
+### GLTF import units and camera registration
+
+AE's default GLTF meter import converts one source unit to 512 native pixels.
+This was measured against the supplied AE 2026 AEPX and its export GLBs: the
+hall's 53.010517 source-unit width becomes 27141.384766 native pixels. A model
+layer at 1800% therefore makes the geometry 512 times larger than the camera
+coordinate conversion expects. The builder now uses **3.515625%** model layer
+Scale (`18 / 512 * 100`) while cameras remain at **18 pixels per world unit**.
+This applies to both MODEL CHECK and shot workspaces, including custom GLBs.
+
+Keep Model Settings at default meter units, Y Up and Flip Z enabled. Do not
+use **Make Comp Size** or a separate model-only fit: those alter the registration.
+A different import Object Scale/Model Units setting requires matching calibration;
+the builder does not discover or reset those settings through an undocumented API.
+Rebuild from a freshly extracted export into a new project; previous AEP edits
+are not overwritten. Inspect the rebuilt result in AE; automated API-double tests
+do not visually validate Advanced 3D rendering.
+
+The supplied AEPX's closing campus workspace referenced `hall.glb`, but the exact
+supplied ZIP's timeline and builder map `finale` to `exterior.glb`. Executing the
+complete builder against an AE API double preserves the expected nine-shot model
+mapping. That discrepancy is not yet reproduced inside After Effects.
