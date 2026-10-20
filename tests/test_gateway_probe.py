@@ -156,6 +156,8 @@ class GatewaySmokeTests(unittest.TestCase):
         expected = {
             "401:Unauthorized": "Worker rejected the PHP access token",
             "400:Invalid image request": "Worker rejected the sampled video frames",
+            "504:AI provider request timed out": "Gemini took longer than 45 seconds",
+            "502:AI provider network connection failed": "Cloudflare Worker could not reach Gemini",
             "502:AI provider authentication or permission failed": "Gemini rejected the provider API credentials",
             "502:Requested AI model is unavailable": "configured Gemini model is not available",
             "502:AI provider rejected request format": "Gemini rejected the submitted frame",
