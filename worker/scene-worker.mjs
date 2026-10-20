@@ -231,17 +231,29 @@ export default {
       layerPrompt(layerSpec.layer,layerSpec.existing).replaceAll('SHOT_ID',validated.shotId) :
       PROMPT.replace('SHOT_ID',validated.shotId);
     const requestBody={contents:[{role:'user',parts:[{text:prompt},...validated.content]}],
-      generationConfig:{responseMimeType:'application/json',temperature:0.2,
+      generationConfig:{responseMimeType:'application/json',
         maxOutputTokens:layerSpec?6500:7500}};
+    // Keep the timeout inside PHP's 55-second cURL deadline.
+    // Never expose raw network exceptions: messages may contain runtime details.
+    const upstreamDeadline=AbortSignal.timeout(45000);
+    const upstreamStart=Date.now();
     let result;
     try {
       result=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODEL+':generateContent',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},
         body:JSON.stringify(requestBody),
-        signal:AbortSignal.timeout(45000)
+        signal:upstreamDeadline
       });
-    }catch(error){return fail(502,'AI provider connection failed');}
+    }catch(error){
+      const timedOut=upstreamDeadline.aborted||error?.name==='TimeoutError';
+      // Fixed diagnostic categories only; no exception messages, URLs,
+      // payloads, API keys, account data, or image content in logs.
+      console.warn('gemini-upstream-fetch',timedOut?'timeout':'network-failure',
+        Math.min(45,Math.floor((Date.now()-upstreamStart)/1000))+'s');
+      return fail(timedOut?504:502,
+        timedOut?'AI provider request timed out':'AI provider network connection failed');
+    }
     if(result.status===429)return fail(429,'Provider rate limit reached');
     // Classify only the HTTP status; never return or log Gemini's raw error
     // response, which can include provider-specific account information.
