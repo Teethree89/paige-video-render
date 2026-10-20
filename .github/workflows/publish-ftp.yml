@@ -84,6 +84,14 @@ jobs:
           mkdir -p ftp-public/.private
           cp public-private-guard/.htaccess public-private-guard/deny-check.txt ftp-public/.private/
           cp -a dist/assets ftp-public/assets
+          # AE export downloads its ExtendScript builder from this exact live URL:
+          # /Indium/paiver/AfterEffects/BUILD_EDITABLE_PROJECT.jsx
+          # It already exists in the workspace ZIP, but must also ship as a public
+          # asset so the browser can fetch it before building the export ZIP.
+          test -s dist/AfterEffects/BUILD_EDITABLE_PROJECT.jsx
+          cp -a dist/AfterEffects ftp-public/AfterEffects
+          test -s ftp-public/AfterEffects/BUILD_EDITABLE_PROJECT.jsx
+          cmp dist/AfterEffects/BUILD_EDITABLE_PROJECT.jsx ftp-public/AfterEffects/BUILD_EDITABLE_PROJECT.jsx
           cp dist/downloads/paige-video-render-workspace.zip ftp-public/downloads/
       - name: Install lftp
         if: steps.config.outputs.configured == 'true'
