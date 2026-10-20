@@ -28,6 +28,7 @@ jobs:
       - name: Validate workspace
         run: |
           python tests/test_workspace.py
+          python tests/test_live_ae_builder.py
           python tests/test_gateway_probe.py
           python -m unittest discover -s tests -p 'test_zen*.py' -v
       - name: Check and test video importer
@@ -84,6 +85,14 @@ jobs:
           mkdir -p ftp-public/.private
           cp public-private-guard/.htaccess public-private-guard/deny-check.txt ftp-public/.private/
           cp -a dist/assets ftp-public/assets
+          # AE export downloads its ExtendScript builder from this exact live URL:
+          # /Indium/paiver/AfterEffects/BUILD_EDITABLE_PROJECT.jsx
+          # It already exists in the workspace ZIP, but must also ship as a public
+          # asset so the browser can fetch it before building the export ZIP.
+          test -s dist/AfterEffects/BUILD_EDITABLE_PROJECT.jsx
+          cp -a dist/AfterEffects ftp-public/AfterEffects
+          test -s ftp-public/AfterEffects/BUILD_EDITABLE_PROJECT.jsx
+          cmp dist/AfterEffects/BUILD_EDITABLE_PROJECT.jsx ftp-public/AfterEffects/BUILD_EDITABLE_PROJECT.jsx
           cp dist/downloads/paige-video-render-workspace.zip ftp-public/downloads/
       - name: Install lftp
         if: steps.config.outputs.configured == 'true'
@@ -91,6 +100,9 @@ jobs:
       - name: Publish to FTP login directory
         if: steps.config.outputs.configured == 'true'
         run: bash scripts/deploy_ftp.sh
+      - name: Verify deployed After Effects JSX builder
+        if: steps.config.outputs.configured == 'true'
+        run: python scripts/check_live_ae_builder.py
       - name: Verify live PHP proxy and private-folder HTTP denial
         if: steps.config.outputs.configured == 'true'
         continue-on-error: true

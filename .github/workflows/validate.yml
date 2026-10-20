@@ -33,6 +33,7 @@ jobs:
       - name: Validate timeline and model assets
         run: |
           python tests/test_workspace.py
+          python tests/test_live_ae_builder.py
           python tests/test_gateway_probe.py
           python -m unittest discover -s tests -p 'test_zen*.py' -v
       - name: Validate reproducible export bundle

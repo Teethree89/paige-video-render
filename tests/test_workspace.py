@@ -46,6 +46,18 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(total, manifest["size"])
         self.assertEqual(digest.hexdigest(), manifest["sha256"])
 
+    def test_aftereffects_builder_is_staged_for_live_browser_export(self):
+        # The AE package exporter fetches the JSX *over HTTP* before creating
+        # the ZIP. Having it only in the downloadable workspace ZIP is not enough.
+        builder = ROOT / 'AfterEffects/BUILD_EDITABLE_PROJECT.jsx'
+        self.assertTrue(builder.is_file())
+        source = (ROOT / 'ae-package-export.js').read_text()
+        self.assertIn("fetch('./AfterEffects/BUILD_EDITABLE_PROJECT.jsx'", source)
+        publish = (ROOT / '.github/workflows/publish-ftp.yml').read_text()
+        self.assertIn('cp -a dist/AfterEffects ftp-public/AfterEffects', publish)
+        self.assertIn('test -s ftp-public/AfterEffects/BUILD_EDITABLE_PROJECT.jsx', publish)
+        self.assertIn('cmp dist/AfterEffects/BUILD_EDITABLE_PROJECT.jsx ftp-public/AfterEffects/BUILD_EDITABLE_PROJECT.jsx', publish)
+
     def test_source_files(self):
         for f in ('index.html','app.js','world.js','render.html','render.js',
                   'ae-package-export.js','ae-package-plan.js',
