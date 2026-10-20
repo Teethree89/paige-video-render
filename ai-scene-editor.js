@@ -63,6 +63,7 @@ async function sampleVideo(reference,shot,playhead,detailProfile='standard') {
       // The authenticated PHP gateway accepts at most 500k encoded chars per
       // image and 1.6MB overall. Compress locally instead of burning a quota
       // request on a detailed, high-entropy frame that exceeds those limits.
+      if(detailed&&canvas.width!==768)configureWidth(768);
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
       let quality=detailed?.78:.65;
       let imageDataUrl=canvas.toDataURL('image/jpeg',quality);
