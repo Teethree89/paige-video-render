@@ -212,7 +212,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1'},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-retry-v2'},ready?200:503);
     }
     if(path!=='/api/scene')return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
@@ -237,22 +237,35 @@ export default {
     // Never expose raw network exceptions: messages may contain runtime details.
     const upstreamDeadline=AbortSignal.timeout(45000);
     const upstreamStart=Date.now();
+    const upstreamBody=JSON.stringify(requestBody);
     let result;
-    try {
-      result=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODEL+':generateContent',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},
-        body:JSON.stringify(requestBody),
-        signal:upstreamDeadline
-      });
-    }catch(error){
-      const timedOut=upstreamDeadline.aborted||error?.name==='TimeoutError';
-      // Fixed diagnostic categories only; no exception messages, URLs,
-      // payloads, API keys, account data, or image content in logs.
-      console.warn('gemini-upstream-fetch',timedOut?'timeout':'network-failure',
+    // A second attempt may overcome a brief Gemini 5xx capacity spike, but
+    // shares the original 45s deadline (PHP's cURL deadline is 55s).
+    // Never retry authentication, schema or quota (429) errors.
+    for(let attempt=1;attempt<=2;attempt++){
+      try {
+        result=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODEL+':generateContent',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},
+          body:upstreamBody,
+          signal:upstreamDeadline
+        });
+      }catch(error){
+        const timedOut=upstreamDeadline.aborted||error?.name==='TimeoutError';
+        // No raw exception messages, response bodies or credentials in logs.
+        console.warn('gemini-upstream-fetch',timedOut?'timeout':'network-failure',
+          Math.min(45,Math.floor((Date.now()-upstreamStart)/1000))+'s');
+        return fail(timedOut?504:502,
+          timedOut?'AI provider request timed out':'AI provider network connection failed');
+      }
+      if(![500,502,503,504].includes(result.status))break;
+      // Log only status, attempt and bounded elapsed time; no provider body.
+      console.warn('gemini-provider-http',result.status,'attempt-'+attempt,
         Math.min(45,Math.floor((Date.now()-upstreamStart)/1000))+'s');
-      return fail(timedOut?504:502,
-        timedOut?'AI provider request timed out':'AI provider network connection failed');
+      if(attempt===2||upstreamDeadline.aborted||Date.now()-upstreamStart>=35000)break;
+      // Release the failed response before making a new inference attempt.
+      if(result.body)try{await result.body.cancel();}catch(_){}
+      await new Promise(resolve=>setTimeout(resolve,700));
     }
     if(result.status===429)return fail(429,'Provider rate limit reached');
     // Classify only the HTTP status; never return or log Gemini's raw error

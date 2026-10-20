@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1'});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-retry-v2'});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1'});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-retry-v2'});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -123,6 +123,37 @@ test('Gemini fetch timeout and network failures are safely distinguished',async(
   }finally{
     globalThis.fetch=priorFetch;
     console.warn=priorWarn;
+  }
+});
+
+test('Transient Gemini 503 gets exactly one retry and returns accepted scene',async()=>{
+  const previous=globalThis.fetch;
+  const previousWarn=console.warn;
+  const logs=[];
+  let attempts=0;
+  console.warn=(...args)=>logs.push(args);
+  globalThis.fetch=async ()=>{
+    attempts++;
+    if(attempts===1)return new Response(
+      JSON.stringify({error:'SENSITIVE_PROVIDER_DATA'}),{status:503});
+    return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(scene)}]}}]}),{
+      status:200,headers:{'content-type':'application/json'}
+    });
+  };
+  try{
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+      method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify(sample)
+    }),env);
+    assert.equal(attempts,2);
+    assert.equal(response.status,200);
+    assert.deepEqual(await response.json(),scene);
+    assert.equal(logs.length,1);
+    assert.deepEqual(logs[0].slice(0,3),['gemini-provider-http',503,'attempt-1']);
+    assert.ok(!JSON.stringify(logs).includes('SENSITIVE_PROVIDER_DATA'));
+  }finally{
+    globalThis.fetch=previous;
+    console.warn=previousWarn;
   }
 });
 
