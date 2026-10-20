@@ -39,7 +39,9 @@ function safe_worker_error(int $status, string $body): string {
         '413:Invalid image request' => 'The sampled frames exceed the Worker request size limit.',
         '503:AI backend is not configured' => 'The AI Worker is missing its runtime configuration.',
         '429:Provider rate limit reached' => 'Gemini rate limit reached. Try later.',
-        '502:AI provider connection failed' => 'The Worker could not connect to Gemini.',
+        '504:AI provider request timed out' => 'Gemini took longer than 45 seconds. Try Primary subject only, then retry. See Cloudflare Worker logs if it persists.',
+        '502:AI provider network connection failed' => 'The Cloudflare Worker could not reach Gemini. Check sanitized Worker logs for gemini-upstream-fetch and retry.',
+        '502:AI provider connection failed' => 'The Worker could not connect to Gemini (older Worker version).',
         '502:AI provider refused the request' => 'Gemini rejected the inference request. Check API access, quota and model availability.',
         '502:AI provider authentication or permission failed' => 'Gemini rejected the provider API credentials or permissions.',
         '502:Requested AI model is unavailable' => 'The configured Gemini model is not available to this API key.',
@@ -55,7 +57,7 @@ function safe_worker_error(int $status, string $body): string {
         return 'The Worker request was denied upstream. Check the Cloudflare Worker authentication and access policy.';
     if ($status === 429) return 'The AI Worker is rate limited. Try again later.';
     return 'The AI Worker could not complete the request (upstream status ' .
-           (in_array($status, [400, 401, 403, 404, 413, 429, 500, 502, 503], true)
+           (in_array($status, [400, 401, 403, 404, 413, 429, 500, 502, 503, 504], true)
                ? (string) $status : 'other') . ').';
 }
 function is_https(): bool {
