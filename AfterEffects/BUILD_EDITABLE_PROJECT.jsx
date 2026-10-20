@@ -196,7 +196,8 @@
     var otherFolder=makeFolder("03 — Media and references",projectRoot),inspectionFolder=makeFolder("04 — Model inspection (camera checks)",projectRoot);
     var comp=app.project.items.addComp("ATOMS TO AI — MASTER EDITABLE",W,H,1,duration,FPS);comp.parentFolder=compsFolder;
     comp.bgColor=[.015,.030,.050];
-    // Create workspaces separately so they remain editable but don't double-render over the background preview.
+    // Nest independent shot workspaces in the master; each keeps its own camera.
+    var sceneLayers=[];
     var fileIds=["exterior","hall","pcb","atoms","laser","fiber","optics"];
     var sceneNames=["Campus exterior","Server and power hall","GaN circuit board","Atomic lattice","InP laser","Optical fiber","Garnet isolator"];
     var glbs={},modelsImported=0;
@@ -252,28 +253,40 @@
       var origin=(shot.aeOrigin && shot.aeOrigin.length===3)?shot.aeOrigin:fallbackOrigin;
       try{addCameraKeys(workspace,seq,shot,origin);}
       catch(e){reportWarning("Camera import warning for "+shot.name,e);}
+      // Keep this a flat precomp so AE renders the workspace's own camera.
+      // Collapse transformations would expose its 3D layers to the master camera.
+      var sceneLayer=comp.layers.add(workspace);
+      sceneLayer.name="SCENE "+(i+1)+" — "+shot.name;
+      sceneLayer.startTime=shot.start;
+      sceneLayer.inPoint=shot.start;sceneLayer.outPoint=shot.end;
+      sceneLayer.collapseTransformation=false;
+      sceneLayer.moveToEnd();sceneLayers.push(sceneLayer);
       // Source keyframes are an approximation; inspect MODEL CHECK comps first.
       // Model Settings must retain meter units, Y Up and Flip Z; do not use
       // Make Comp Size, which independently rescales geometry without cameras.
     }
     currentStage="import background plate";
-    var plate=findPlate(),isClean=false;
+    var plate=findPlate(),isClean=false,usingPlate=false;
     if(plate){
-      var plateItem=safeImport(plate.file,otherFolder);if(plateItem){isClean=plate.clean;var bg=comp.layers.add(plateItem);bg.name=isClean?"RENDERED CLEAN VIDEO — replaceable background":"DRAFT PREVIEW — titles already burned in";
+      var plateItem=safeImport(plate.file,otherFolder);if(plateItem){usingPlate=true;isClean=plate.clean;var bg=comp.layers.add(plateItem);bg.name=isClean?"RENDERED CLEAN VIDEO — replaceable background":"DRAFT PREVIEW — titles already burned in";
         bg.startTime=0;bg.inPoint=0;bg.outPoint=duration;bg.property("ADBE Transform Group").property("ADBE Scale").setValue([W/plateItem.width*100,H/plateItem.height*100]);bg.moveToEnd();bg.locked=true;}
     }
-    // Editable overlays. When using the preview MP4, disable these by default to avoid duplicated titles.
+    // Preserve the optional rendered-plate workflow, but never render both
+    // the baked background and the editable 3D assembly at the same time.
+    if(usingPlate)for(var sl=0;sl<sceneLayers.length;sl++)sceneLayers[sl].enabled=false;
+    // Editable overlays are visible over 3D scenes or clean plates. Only a
+    // successfully imported preview with baked text suppresses the titles.
     currentStage="create editable text overlays";
     for(var i=0;i<seq.text.length;i++){
       var t=seq.text[i],size={small:36,medium:54,large:76,hero:96}[t.size]||54;
       var title=makeText(comp,"TITLE "+t.id+" — "+t.value.replace(/\n/g," / "),t.value,t.x,t.y,size,t.tone,t.start,t.end);
-      if(!isClean)title.enabled=false;
-      if(t.subtitle){var sub=makeText(comp,"SUBTITLE "+t.id,t.subtitle,t.x,t.y+6,Math.round(size*.46),t.tone,t.start,t.end);if(!isClean)sub.enabled=false;}
+      if(usingPlate&&!isClean)title.enabled=false;
+      if(t.subtitle){var sub=makeText(comp,"SUBTITLE "+t.id,t.subtitle,t.x,t.y+6,Math.round(size*.46),t.tone,t.start,t.end);if(usingPlate&&!isClean)sub.enabled=false;}
     }
     currentStage="import reference video";
     var ref=safeImport(path("assets/reference.mp4"),otherFolder);
     if(ref)ref.comment="Reference only — not used for rendering";
-    var readme=comp.layers.addText("EDITABLE TEXT: all TITLE/SUBTITLE layers above.\n3D GLB source scenes: open 02 — 3D scene workspaces.\nThe MP4 background is a preview and is NOT full-fidelity Three.js lighting.\nTo replace with a clean Three.js render: use Render video ↗ in index.html; export without titles; place MP4 in exports/; rerun builder.");
+    var readme=comp.layers.addText("EDITABLE TEXT: all TITLE/SUBTITLE layers above.\n3D GLB source scenes: open 02 — 3D scene workspaces.\nSCENE layers sequence the editable 3D workspaces at their timeline cuts.\nAn optional MP4 plate replaces scene rendering; enable SCENE layers and disable the plate to return to 3D. Three.js runtime FX are not translated to AE.");
     readme.name="INSTRUCTIONS — guide layer (not rendered)";readme.guideLayer=true;readme.enabled=false;
     currentStage="save AEP";
     // Never overwrite an existing project or the prior (potentially edited) .aep.
@@ -286,7 +299,7 @@
     var suffix=2;
     while(file.exists){file=path("AfterEffects/"+outputName+"_"+suffix+".aep");suffix++;}
     app.project.save(file);
-    var notice="After Effects project created and saved:\n"+file.fsName+"\n\n"+modelsImported+"/7 GLBs imported.\n"+seq.camera.length+" source camera keyframes; approximate camera paths sampled for scene workspaces.\n"+seq.text.length+" editable title entries.\n"+(isClean?"Clean plate found: text layers are visible.":"Preview has baked titles: editable layers are disabled until you render a clean plate.");
+    var notice="After Effects project created and saved:\n"+file.fsName+"\n\n"+modelsImported+"/7 GLBs imported.\n"+seq.camera.length+" source camera keyframes; approximate camera paths sampled for scene workspaces.\n"+seq.text.length+" editable title entries.\n"+(!usingPlate?"Editable 3D scenes and titles are assembled in the master.":isClean?"Clean plate selected: text layers are visible; 3D scene layers are disabled.":"Preview selected: baked titles are retained; editable title and 3D scene layers are disabled.");
     if(warnings.length){
       notice+="\n\nCompleted with "+warnings.length+" warning(s):";
       for(var wi=0;wi<Math.min(4,warnings.length);wi++)notice+="\n- "+warnings[wi];

@@ -86,7 +86,7 @@ test('Camera sampling cannot use the next shot cut as the previous shot endpoint
 
 // Run the complete ExtendScript builder with an AE API double. This checks
 // linked asset identities and numeric transforms, beyond source-text matches.
-function buildProject() {
+function buildProject({plate=null}={}) {
   const sequence=JSON.parse(readFileSync(new URL('../timeline.json',import.meta.url),'utf8'));
   const comps=[],notices=[];
   function property() {
@@ -101,19 +101,22 @@ function buildProject() {
   function comp(name,width,height,pixelAspect,duration,fps) {
     const result={name,width,height,duration,fps,renderers:['Advanced 3D'],
       markerProperty:{setValueAtTime(){}},layers:{items:[],
-        add(source){const l=layer(source);this.items.push(l);return l;},
+        add(source){const l=layer(source);this.items.unshift(l);
+          l.moveToEnd=()=>{this.items.splice(this.items.indexOf(l),1);this.items.push(l);};return l;},
         addCamera(name){const l=this.add(null);l.name=name;return l;},
         addText(){return this.add(null);}}};
     comps.push(result);return result;
   }
   function File(path) {
     this.fsName=path;this.parent={parent:{fsName:'/package'}};
-    this.exists=/\/(?:timeline\.json|assets\/models\/[^/]+\.glb)$/.test(path);
+    this.exists=/\/(?:timeline\.json|assets\/models\/[^/]+\.glb)$/.test(path)||
+      (plate==='clean'&&path.endsWith('/exports/flythrough-clean.mp4'))||
+      (plate==='preview'&&path.endsWith('/exports/flythrough-preview.mp4'));
     this.open=()=>true;this.read=()=>JSON.stringify(sequence);this.close=()=>{};
   }
-  function Folder(path){this.fsName=path;this.exists=false;}
+  function Folder(path){this.fsName=path;this.exists=!!plate&&path.endsWith("/exports");this.getFiles=()=>[];}
   const project={numItems:0,items:{addComp:comp,addFolder:name=>({name})},
-    importFile:opts=>({path:opts.file.fsName}),save(){}};
+    importFile:opts=>({path:opts.file.fsName,width:1920,height:1080}),save(){}};
   vm.runInNewContext(jsx,{
     app:{project,beginUndoGroup(){},endUndoGroup(){}},
     File,Folder,ImportOptions:function(file){this.file=file;},
@@ -149,4 +152,37 @@ test('Executed model import compensates native GLTF units before camera registra
       'one source unit of model geometry must equal the camera conversion of 18 pixels');
     assert.deepEqual(Array.from(model.property('ADBE Transform Group').property('ADBE Position').value),[960,540,0]);
   }
+});
+
+
+test('Master assembles every editable workspace at its shot time beneath visible titles',()=>{
+  const comps=buildProject();
+  const master=comps.find(c=>c.name==='ATOMS TO AI — MASTER EDITABLE');
+  const scenes=master.layers.items.filter(l=>l.source?.name?.includes('[3D WORKSPACE]'));
+  const sequence=JSON.parse(readFileSync(new URL('../timeline.json',import.meta.url),'utf8'));
+  assert.equal(scenes.length,sequence.shots.length,'master must contain the 3D shot comps');
+  for(let i=0;i<scenes.length;i++){
+    assert.equal(scenes[i].startTime,sequence.shots[i].start);
+    assert.equal(scenes[i].inPoint,sequence.shots[i].start);
+    assert.equal(scenes[i].outPoint,sequence.shots[i].end);
+    assert.notEqual(scenes[i].enabled,false);
+    assert.equal(scenes[i].collapseTransformation,false,'render through each workspace camera');
+  }
+  const titles=master.layers.items.filter(l=>/^TITLE|^SUBTITLE/.test(l.name));
+  assert.ok(titles.length>0);
+  assert.ok(Math.max(...titles.map(l=>master.layers.items.indexOf(l)))<
+    Math.min(...scenes.map(l=>master.layers.items.indexOf(l))), 'titles render above every scene');
+  assert.ok(titles.every(l=>l.enabled!==false),'no plate means editable titles must be visible');
+});
+
+for(const plate of ['clean','preview'])test('A '+plate+' plate replaces scene rendering without double images',()=>{
+  const master=buildProject({plate}).find(c=>c.name==='ATOMS TO AI — MASTER EDITABLE');
+  const scenes=master.layers.items.filter(l=>l.source?.name?.includes('[3D WORKSPACE]'));
+  assert.equal(scenes.length,9,'scene workspaces stay available for editing');
+  assert.ok(scenes.every(l=>l.enabled===false),'only one background representation renders');
+  const bg=master.layers.items.find(l=>l.source?.path?.endsWith('.mp4'));
+  assert.ok(bg&&bg.enabled!==false);
+  const titles=master.layers.items.filter(l=>/^TITLE|^SUBTITLE/.test(l.name));
+  assert.ok(titles.every(l=>plate==='clean'?l.enabled!==false:l.enabled===false),
+    'disable captions only when the selected preview already has baked text');
 });
