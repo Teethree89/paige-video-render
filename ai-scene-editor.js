@@ -27,7 +27,7 @@ async function readServerSession() {
   }
   return session;
 }
-async function sampleVideo(reference,shot,playhead) {
+async function sampleVideo(reference,shot,playhead,detailProfile='standard') {
   if(!reference?.src && !reference?.currentSrc)
     throw Error('Attach your reference MP4 first.');
   const video=document.createElement('video');
@@ -47,16 +47,36 @@ async function sampleVideo(reference,shot,playhead) {
     const from=Math.max(0,shot.start),to=Math.min(Number(video.duration),shot.end);
     if(!Number.isFinite(to)||to-from<.15)throw Error('Invalid video shot timestamps');
     const frames=[],canvas=document.createElement('canvas');
-    canvas.width=640;
-    canvas.height=Math.max(2,Math.round(640*video.videoHeight/video.videoWidth));
+    const detailed=detailProfile==='primary';
+    const aspect=video.videoHeight/video.videoWidth;
+    const configureWidth=width=>{
+      canvas.width=width;
+      canvas.height=Math.max(2,Math.round(width*aspect));
+    };
+    configureWidth(detailed?768:640);
     const ctx=canvas.getContext('2d',{alpha:false});
     if(!ctx)throw Error('Cannot sample video frames');
     for(const at of referenceFrameTimes(shot,playhead,video.duration)){
       const waiting=once('seeked',10000);
       video.currentTime=at;
       await waiting;
+      // The authenticated PHP gateway accepts at most 500k encoded chars per
+      // image and 1.6MB overall. Compress locally instead of burning a quota
+      // request on a detailed, high-entropy frame that exceeds those limits.
+      if(detailed&&canvas.width!==768)configureWidth(768);
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
-      const imageDataUrl=canvas.toDataURL('image/jpeg',.65);
+      let quality=detailed?.78:.65;
+      let imageDataUrl=canvas.toDataURL('image/jpeg',quality);
+      while(imageDataUrl.length>460000&&quality>.5){
+        quality=Math.max(.5,Math.round((quality-.08)*100)/100);
+        imageDataUrl=canvas.toDataURL('image/jpeg',quality);
+      }
+      if(imageDataUrl.length>460000&&detailed){
+        configureWidth(640);
+        ctx.drawImage(video,0,0,canvas.width,canvas.height);
+        imageDataUrl=canvas.toDataURL('image/jpeg',.65);
+      }
+      if(imageDataUrl.length>460000)throw Error('Reference frame is too large to submit safely.');
       frames.push({at:+at.toFixed(3),imageDataUrl});
     }
     return frames;
@@ -132,7 +152,8 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       csrf=session.csrf;
       const fullEnvironment=scope.value!=='subject';
       status('Sampling the selected playhead frame and two chapter context frames…');
-      const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.());
+      const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.(),
+        fullEnvironment?'standard':'primary');
       let doc;
       if(fullEnvironment){
         let assembled=[];
@@ -148,7 +169,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           scenes:[{shotId:shot.id,objects:assembled}]},getSequence().shots.map(s=>s.id));
       }else {
         status('Gemini is proposing the primary subject…');
-        const result=await request('generate',{csrf,shotId:shot.id,frames});
+        const result=await request('generate',{csrf,shotId:shot.id,frames,mode:'primary_subject'});
         doc=validatePrimitiveDocument(result.proposal,getSequence().shots.map(s=>s.id));
       }
       if(doc.scenes.length!==1||doc.scenes[0].shotId!==shot.id)

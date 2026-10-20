@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-retry-v2'});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'primary-detail-v2'});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-retry-v2'});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'primary-detail-v2'});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -30,6 +30,10 @@ test('worker rejects incorrect secrets and unrelated paths',async()=>{
 });
 test('worker accepts only limited JPEG data and the correct shot ID',()=>{
   assert.equal(validateInput(sample).shotId,'draft_001');
+  assert.equal(validateInput(sample).mode,'environment');
+  assert.equal(validateInput({...sample,mode:'primary_subject'}).mode,'primary_subject');
+  assert.throws(()=>validateInput({...sample,mode:'untrusted-model'}),/mode/);
+  assert.throws(()=>validateInput({...sample,mode:'primary_subject',layer:'structures'}),/mode/);
   assert.throws(()=>validateInput({...sample,shotId:'../x'}),/Invalid shot/);
   assert.throws(()=>validateInput({...sample,frames:Array(4).fill(sample.frames[0])}),/Invalid frame count/);
   assert.throws(()=>validateInput({...sample,frames:[{at:1,imageDataUrl:'https://evil.test/a.jpg'}]}),/JPEG/);
@@ -93,6 +97,54 @@ test('authorized request returns valid primitive JSON and keeps API key out of o
     assert.deepEqual(JSON.parse(body),scene);
     assert.ok(!body.includes(env.GEMINI_API_KEY));
     assert.ok(!body.includes(token));
+  }finally{globalThis.fetch=previous;}
+});
+
+test('primary-subject mode uses the detailed prompt, 9500-token budget and validates 48 shapes',async()=>{
+  const previous=globalThis.fetch;
+  const dense=structuredClone(scene);
+  dense.scenes[0].objects=Array.from({length:48},(_,i)=>({
+    ...structuredClone(scene.scenes[0].objects[0]),
+    id:'observed_part_'+i,
+    name:'Observed architectural part '+i,
+    position:[i%8,1,Math.floor(i/8)]
+  }));
+  let called=0;
+  globalThis.fetch=async (_url,opts)=>{
+    const request=JSON.parse(opts.body);
+    assert.match(request.contents[0].parts[0].text,/PRIMARY SUBJECT — HIGH-DETAIL PRIMITIVE RECONSTRUCTION/);
+    assert.match(request.contents[0].parts[0].text,/SINGLE dominant visible subject/);
+    assert.equal(request.generationConfig.maxOutputTokens,9500);
+    called++;
+    return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(dense)}]}}]}),{status:200});
+  };
+  try{
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({...sample,mode:'primary_subject'})
+    }),env);
+    assert.equal(response.status,200);
+    assert.deepEqual(await response.json(),dense);
+    assert.equal(called,1);
+  }finally{globalThis.fetch=previous;}
+});
+
+test('legacy subject mode still rejects more than 36 objects',async()=>{
+  const previous=globalThis.fetch;
+  const dense=structuredClone(scene);
+  dense.scenes[0].objects=Array.from({length:37},(_,i)=>({
+    ...structuredClone(scene.scenes[0].objects[0]),id:'part_'+i
+  }));
+  globalThis.fetch=async()=>new Response(JSON.stringify({
+    candidates:[{content:{parts:[{text:JSON.stringify(dense)}]}}]
+  }),{status:200});
+  try{
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify(sample)
+    }),env);
+    assert.equal(response.status,502);
+    assert.deepEqual(await response.json(),{ok:false,error:'Provider scene did not match the editor schema'});
   }finally{globalThis.fetch=previous;}
 });
 

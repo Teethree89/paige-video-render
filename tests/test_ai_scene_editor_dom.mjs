@@ -269,3 +269,90 @@ test('expired PHP session returns to sign-in without sampling video',async()=>{
 test('401 after video sampling also returns to sign-in instead of leaving controls unlocked',async()=>{
   await runSessionCase('session-ended-after-preflight');
 });
+
+
+test('Primary-only mode samples detailed frames and forwards bounded mode to Gemini',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch;
+  const ids=new Map(),encodes=[];
+  let preview=null,sent=0,accepted=0;
+  const jpeg='data:image/jpeg;base64,'+
+    Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  globalThis.document={
+    getElementById(id){
+      if(!ids.has(id))ids.set(id,new Element());
+      return ids.get(id);
+    },
+    createElement(tag){
+      if(tag==='video')return new FakeVideo();
+      if(tag==='canvas'){
+        const canvas={
+          width:0,height:0,
+          getContext:()=>({drawImage:()=>{}}),
+          toDataURL:(_mime,q)=>{
+            encodes.push({width:canvas.width,quality:q});
+            // Force a large JPEG for the first frame to exercise fallback.
+            if(canvas.width===768&&encodes.filter(x=>x.width===768).length===1)
+              return 'data:image/jpeg;base64,'+'A'.repeat(460001);
+            return jpeg;
+          }
+        };
+        return canvas;
+      }
+      return new Element();
+    }
+  };
+  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
+    id:'entry_frame',name:'Detailed entrance frame',primitive:'box',
+    position:[0,1,0],rotation:[0,0,0],scale:[2,2,2],
+    material:{color:'#123456',metalness:0,roughness:.6}
+  }]}]};
+  const env={GEMINI_API_KEY:'mock',SCENE_ACCESS_TOKEN:'private-test-token-12345678901234567890'};
+  globalThis.fetch=async (url,options={})=>{
+    if(String(url).includes('generativelanguage.googleapis.com')){
+      const body=JSON.parse(options.body);
+      assert.match(body.contents[0].parts[0].text,/PRIMARY SUBJECT — HIGH-DETAIL/);
+      assert.equal(body.generationConfig.maxOutputTokens,9500);
+      return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(scene)}]}}]}),{status:200});
+    }
+    assert.equal(url,'./scene-proxy.php');
+    if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'fixed-csrf'}),{status:200});
+    const input=JSON.parse(options.body);
+    assert.equal(input.action,'generate');
+    assert.equal(input.mode,'primary_subject');
+    assert.equal(input.layer,undefined);
+    assert.equal(input.frames.length,3);
+    sent++;
+    const response=await sceneWorker.fetch(new Request('https://example.workers.dev/api/scene',{
+      method:'POST',
+      headers:{Authorization:'Bearer '+env.SCENE_ACCESS_TOKEN,'Content-Type':'application/json'},
+      body:JSON.stringify({shotId:input.shotId,frames:input.frames,mode:input.mode})
+    }),env);
+    assert.equal(response.status,200);
+    return new Response(JSON.stringify({ok:true,proposal:await response.json()}),{status:200});
+  };
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({
+      getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getPlayheadTime:()=>2.8,
+      getReferenceVideo:()=>({src:'blob:mock-reference'}),
+      onPreview:s=>{preview=s;},onDiscard:()=>{preview=null;},
+      onAccept:()=>{accepted++;}
+    });
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='subject';
+    await ids.get('aiSceneGenerate').fire('click');
+    assert.equal(sent,1,'primary mode uses only one authenticated request');
+    assert.equal(preview?.objects[0]?.name,'Detailed entrance frame');
+    assert.equal(accepted,0,'preview must not change the timeline');
+    assert.ok(encodes.some(x=>x.width===768&&x.quality===.78));
+    assert.ok(encodes.some(x=>x.width===768&&x.quality<.78),'oversized JPEG must reduce quality');
+    assert.ok(encodes.filter(x=>x.width===768&&x.quality===.78).length>=3,
+      'each sampled reference frame starts in detailed mode');
+    assert.match(ids.get('aiSceneStatus').textContent,/Preview: 1 editable objects/);
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;
+    else globalThis.document=oldDocument;
+    globalThis.fetch=oldFetch;
+  }
+});

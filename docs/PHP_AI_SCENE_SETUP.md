@@ -113,6 +113,18 @@ and the user explicitly accepts the combined proposal. Failure or discard
 keeps previously saved geometry intact; replacing an occupied chapter
 requires confirmation. For backups, export timeline JSON first.
 
+**Primary subject only (detail v2):** the editor sends three JPEG reference
+frames at 768px width / 0.78 quality where the PHP limits permit, with local
+quality/resolution fallback for complex imagery. A single explicit
+`primary_subject` mode flag passes through the PHP gateway to the Worker,
+where the primary prompt prioritizes the observed main subject (architectural,
+technical or macro) and 24–40 meaningful editable subparts when supported by
+visible evidence, with a hard cap of **48 primitives** and 9,500 output tokens.
+No texture generation, hidden geometry, additional inference calls or model
+switching occurs. Legacy one-pass requests retain the previous 36-object cap,
+and four-pass Full environment remains unchanged. The 48-object allowance is
+not a guarantee of output quality or a requirement to invent unseen detail.
+
 The PHP gateway retains its **10-request-per-session-per-hour** quota.
 Full-environment mode consumes **four** authenticated Gemini requests
 (versus one for **Primary subject only**). 50webs/cURL has a per-request

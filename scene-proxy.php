@@ -259,6 +259,14 @@ foreach ($frames as $frame) {
     $validated[] = ['at' => (float) $at, 'imageDataUrl' => $image];
 }
 $workerInput = ['shotId' => $shotId, 'frames' => $validated];
+// Whitelist the single-pass detail profile explicitly. Never trust a model
+// selector or arbitrary prompt sent by the browser.
+if (array_key_exists('mode', $input)) {
+    if ($input['mode'] !== 'primary_subject' || array_key_exists('layer', $input)) {
+        reject(400, 'Invalid generation mode');
+    }
+    $workerInput['mode'] = 'primary_subject';
+}
 // Authenticated four-pass environment generation. Validate pass name and count
 // before forwarding. The Worker validates every previous object's geometry;
 // PHP must never deserialize executable model code or send config secrets.
