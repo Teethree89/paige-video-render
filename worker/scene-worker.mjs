@@ -62,6 +62,10 @@ export function validateInput(payload) {
   const shotId=payload.shotId;
   if(typeof shotId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(shotId))
     throw Error('Invalid shot');
+  const mode=payload.mode===undefined?'environment':payload.mode;
+  if(!['environment','primary_subject'].includes(mode)||
+     (mode==='primary_subject'&&payload.layer!==undefined))
+    throw Error('Invalid generation mode');
   const frames=payload.frames;
   if(!Array.isArray(frames)||frames.length<1||frames.length>FRAME_LIMIT)throw Error('Invalid frame count');
   const content=[];
@@ -79,11 +83,12 @@ export function validateInput(payload) {
     content.push({text:'Reference frame at '+frame.at.toFixed(3)+' seconds'});
     content.push({inlineData:{mimeType:'image/jpeg',data:match[1]}});
   }
-  return {shotId,content};
+  return {shotId,content,mode};
 }
 // Keep generated models bounded for mobile WebGL while allowing enough parts
 // to express actual architecture and equipment, not just rough silhouette.
-const MAX_GENERATED_OBJECTS = 36;
+const MAX_GENERATED_OBJECTS = 36; // legacy single-pass compatibility
+const MAX_PRIMARY_OBJECTS = 48; // detailed single-pass primary-subject profile
 const PROMPT=`You are an architectural and environment blockout artist. Reconstruct the VISIBLY OBSERVED scene
 from these three chronological video frames as a recognizable, editable Three.js model.
 Analyze all frames together: infer consistent relative proportions, visible materials,
@@ -130,6 +135,41 @@ QUALITY REQUIREMENTS:
 Each object's material must have color, metalness, roughness. Do not return
 textures, external URLs, scripts, custom shaders, cameras, lighting, or metadata.
 No arbitrary code. Return validated JSON ONLY.
+`;
+
+// Primary mode concentrates a larger budget on observed subject geometry.
+// Reuse the exact same output contract, coordinate convention and whitelist.
+const PRIMARY_PROMPT=PROMPT
+  .replace('Use at most 36 editable objects; target roughly 18–32 when detail is visible.',
+    'Use at most 48 editable objects; target 24–40 when visible detail supports it.')
+  + `
+PRIMARY SUBJECT — HIGH-DETAIL PRIMITIVE RECONSTRUCTION:
+The FIRST frame is the selected playhead and PRIMARY framing reference; use
+the other two frames only to confirm geometry, proportions and visible sides.
+Spend most of the 48-object budget on the SINGLE dominant visible subject,
+not on empty terrain or broad backdrop slabs. Preserve recognizable silhouette
+and relative proportions before adding smaller parts.
+
+Architectural subjects: subdivide observed facade bays, entrances and door
+frames, recessed zones, windows/glazing strips, mullions, canopy, parapets,
+roofline changes, supports and visible mechanical structures into individual
+aligned primitives. Include only nearby pads, steps or paths essential to the
+subject. Do not model generic windows/buildings that are not visible.
+Technical subjects: break down the actual observed board, equipment, racks,
+panels, chips, cables, mounts, frames, repeated modules or light-guide parts.
+For organic/atomic subjects: use spheres, cylinders and toruses to represent
+observed groupings, connections and relative positions without made-up details.
+
+Avoid one giant box for an elaborate subject. Prefer meaningful subassemblies:
+large mass first, then distinctive mid-scale features, then visible detail.
+Do not inflate the object count with invisible or redundant filler geometry.
+Target 24–40 independently editable primitives when details are discernible,
+up to 48 total; very simple subjects may legitimately need fewer.
+Maintain a single stable origin/scale and align features to their parent
+surfaces. Floors/roofs must be horizontal, visible components must not float,
+and repeated forms should be evenly spaced where the reference supports it.
+Match observed colors with basic materials only. No textures, logos, invented
+labels, scripts, lights, cameras or effects. JSON ONLY.
 `;
 
 function validateOutput(value,shotId,limit=MAX_GENERATED_OBJECTS) {
@@ -212,7 +252,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-retry-v2'},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'primary-detail-v2'},ready?200:503);
     }
     if(path!=='/api/scene')return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
@@ -229,10 +269,10 @@ export default {
     }catch(error){return fail(error?.message==='Request too large'?413:400,'Invalid image request');}
     const prompt=layerSpec ?
       layerPrompt(layerSpec.layer,layerSpec.existing).replaceAll('SHOT_ID',validated.shotId) :
-      PROMPT.replace('SHOT_ID',validated.shotId);
+      (validated.mode==='primary_subject'?PRIMARY_PROMPT:PROMPT).replaceAll('SHOT_ID',validated.shotId);
     const requestBody={contents:[{role:'user',parts:[{text:prompt},...validated.content]}],
       generationConfig:{responseMimeType:'application/json',
-        maxOutputTokens:layerSpec?6500:7500}};
+        maxOutputTokens:layerSpec?6500:validated.mode==='primary_subject'?9500:7500}};
     // Keep the timeout inside PHP's 55-second cURL deadline.
     // Never expose raw network exceptions: messages may contain runtime details.
     const upstreamDeadline=AbortSignal.timeout(45000);
@@ -287,7 +327,8 @@ export default {
     if(!text||text.length>75000)return fail(502,'Provider produced no usable scene');
     try {
       const primitiveScenes=validateOutput(JSON.parse(text),validated.shotId,
-        layerSpec?PASS_OBJECT_LIMIT:MAX_GENERATED_OBJECTS);
+        layerSpec?PASS_OBJECT_LIMIT:
+          validated.mode==='primary_subject'?MAX_PRIMARY_OBJECTS:MAX_GENERATED_OBJECTS);
       if(layerSpec){
         const objects=primitiveScenes.scenes[0].objects;
         // Stable pass-local IDs prevent collisions if Gemini reuses common IDs.
