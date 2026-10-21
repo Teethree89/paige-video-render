@@ -152,9 +152,15 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(!session.authenticated){sessionEnded();return;}
       csrf=session.csrf;
       const fullEnvironment=scope.value!=='subject';
-      const model=modelSelect?.value||'gemini-3.5-flash-lite';
-      if(!['gemini-3.5-flash-lite','gemini-3.8-flash'].includes(model))
-        throw Error('Unsupported AI model selected');
+      // Support older cached dropdown markup while sending the new profile
+      // format. Neither reasoning level nor deadlines come from the browser.
+      const selected=modelSelect?.value||'lite_default';
+      const profile=selected==='gemini-3.5-flash-lite'?'lite_default'
+        :selected==='gemini-3.8-flash'?'g38_low':selected;
+      if(!['lite_default','g38_low','g38_medium'].includes(profile))
+        throw Error('Unsupported AI profile selected');
+      if(fullEnvironment&&profile==='g38_medium')
+        throw Error('Gemini 3.8 Medium is available only for Primary subject only.');
       status('Sampling the selected playhead frame and two chapter context frames…');
       const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.(),
         fullEnvironment?'standard':'primary');
@@ -165,7 +171,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           const pass=ENVIRONMENT_PASSES[i];
           status('Reconstructing environment '+(i+1)+' / '+ENVIRONMENT_PASSES.length+': '+pass.label+'…');
           const result=await request('generate',{
-            csrf,shotId:shot.id,frames,model,layer:pass.id,existing:assembled
+            csrf,shotId:shot.id,frames,profile,layer:pass.id,existing:assembled
           });
           assembled=appendEnvironmentPass(shot.id,assembled,result.proposal,pass.id);
         }
@@ -173,7 +179,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           scenes:[{shotId:shot.id,objects:assembled}]},getSequence().shots.map(s=>s.id));
       }else {
         status('Gemini is proposing the primary subject…');
-        const result=await request('generate',{csrf,shotId:shot.id,frames,model,mode:'primary_subject'});
+        const result=await request('generate',{csrf,shotId:shot.id,frames,profile,mode:'primary_subject'});
         doc=validatePrimitiveDocument(result.proposal,getSequence().shots.map(s=>s.id));
       }
       if(doc.scenes.length!==1||doc.scenes[0].shotId!==shot.id)

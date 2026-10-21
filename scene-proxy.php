@@ -40,6 +40,7 @@ function safe_worker_error(int $status, string $body): string {
         '503:AI backend is not configured' => 'The AI Worker is missing its runtime configuration.',
         '429:Provider rate limit reached' => 'Gemini rate limit reached. Try later.',
         '504:AI provider request timed out' => 'Gemini took longer than 45 seconds. Try Primary subject only, then retry. See Cloudflare Worker logs if it persists.',
+        '504:AI provider extended request timed out' => 'Gemini 3.8 Medium took longer than 70 seconds. Retry later or select 3.8 Low. Longer generation may require asynchronous processing.',
         '502:AI provider network connection failed' => 'The Cloudflare Worker could not reach Gemini. Check sanitized Worker logs for gemini-upstream-fetch and retry.',
         '502:AI provider connection failed' => 'The Worker could not connect to Gemini (older Worker version).',
         '502:AI provider refused the request' => 'Gemini rejected the inference request. Check API access, quota and model availability.',
@@ -259,8 +260,17 @@ foreach ($frames as $frame) {
     $validated[] = ['at' => (float) $at, 'imageDataUrl' => $image];
 }
 $workerInput = ['shotId' => $shotId, 'frames' => $validated];
-// Optional model selector; the PHP gateway and Worker both require an exact
-// server-maintained allowlist. No client-supplied API key, URL or prompt.
+// Legacy model-only clients remain compatible. New clients select one
+// server-defined profile. Reject ambiguous requests rather than guessing.
+if (array_key_exists('profile', $input)) {
+    if (array_key_exists('model', $input) ||
+        !is_string($input['profile']) ||
+        !in_array($input['profile'], ['lite_default', 'g38_low', 'g38_medium'], true)) {
+        reject(400, 'Unsupported AI profile');
+    }
+    $workerInput['profile'] = $input['profile'];
+}
+// Optional legacy model selector; both gateways use strict exact allowlists.
 if (array_key_exists('model', $input)) {
     if (!is_string($input['model']) ||
         !in_array($input['model'], ['gemini-3.5-flash-lite', 'gemini-3.8-flash'], true)) {
@@ -290,6 +300,12 @@ if (array_key_exists('layer', $input)) {
     $workerInput['layer'] = $pass;
     $workerInput['existing'] = $prior;
 }
+// Medium may take longer; it is deliberately disallowed in the 4-pass mode.
+if (($workerInput['profile'] ?? '') === 'g38_medium' &&
+    (($workerInput['mode'] ?? '') !== 'primary_subject' ||
+     array_key_exists('layer', $workerInput))) {
+    reject(400, 'Medium thinking requires Primary subject only');
+}
 $body = json_encode($workerInput, JSON_UNESCAPED_SLASHES);
 if (!is_string($body)) reject(400, 'Could not encode scene request');
 
@@ -299,6 +315,9 @@ $ch = curl_init($workerEndpoint);
 if (!$ch) reject(503, 'Could not open the Worker connection');
 $response = '';
 $tooLarge = false;
+// PHP/cURL can wait longer ONLY for the explicit medium profile. The 50webs
+// host may impose a stricter timeout; this is not a guarantee of 85s runtime.
+$curlTimeout = (($workerInput['profile'] ?? '') === 'g38_medium') ? 85 : 55;
 curl_setopt_array($ch, [
     CURLOPT_POST => true,
     CURLOPT_POSTFIELDS => $body,
@@ -306,7 +325,7 @@ curl_setopt_array($ch, [
                             'Authorization: Bearer ' . $secret],
     CURLOPT_FOLLOWLOCATION => false,
     CURLOPT_CONNECTTIMEOUT => 8,
-    CURLOPT_TIMEOUT => 55,
+    CURLOPT_TIMEOUT => $curlTimeout,
     CURLOPT_SSL_VERIFYPEER => true,
     CURLOPT_SSL_VERIFYHOST => 2,
     CURLOPT_RETURNTRANSFER => false,
