@@ -6,9 +6,10 @@
  */
 // Google now restricts Gemini 2.5 Flash-Lite for projects without prior use.
 // 3.5 Flash-Lite is a stable, low-cost multimodal replacement with free-tier
-// availability. Keep one explicit model; never silently fall back to paid-only
-// or alternate endpoints.
+// availability. Default to the known-working model; never silently switch
+// providers, models, credentials or billing tier on API failures.
 const MODEL = 'gemini-3.5-flash-lite';
+const SUPPORTED_MODELS = Object.freeze([MODEL,'gemini-3.8-flash']);
 const MAX_BYTES = 1_600_000;
 const FRAME_LIMIT = 3;
 const ENVIRONMENT_PASSES = Object.freeze(['structures','ground','vegetation','details']);
@@ -66,6 +67,9 @@ export function validateInput(payload) {
   if(!['environment','primary_subject'].includes(mode)||
      (mode==='primary_subject'&&payload.layer!==undefined))
     throw Error('Invalid generation mode');
+  const model=payload.model===undefined?MODEL:payload.model;
+  if(typeof model!=='string'||!SUPPORTED_MODELS.includes(model))
+    throw Error('Invalid AI model');
   const frames=payload.frames;
   if(!Array.isArray(frames)||frames.length<1||frames.length>FRAME_LIMIT)throw Error('Invalid frame count');
   const content=[];
@@ -83,7 +87,7 @@ export function validateInput(payload) {
     content.push({text:'Reference frame at '+frame.at.toFixed(3)+' seconds'});
     content.push({inlineData:{mimeType:'image/jpeg',data:match[1]}});
   }
-  return {shotId,content,mode};
+  return {shotId,content,mode,model};
 }
 // Keep generated models bounded for mobile WebGL while allowing enough parts
 // to express actual architecture and equipment, not just rough silhouette.
@@ -252,7 +256,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'primary-detail-v2'},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-model-select-v1',supportedModels:SUPPORTED_MODELS},ready?200:503);
     }
     if(path!=='/api/scene')return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
@@ -284,7 +288,7 @@ export default {
     // Never retry authentication, schema or quota (429) errors.
     for(let attempt=1;attempt<=2;attempt++){
       try {
-        result=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+MODEL+':generateContent',{
+        result=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+validated.model+':generateContent',{
           method:'POST',
           headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},
           body:upstreamBody,
