@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-38-low-thinking-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-38-medium-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-38-low-thinking-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-38-medium-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -32,6 +32,16 @@ test('worker accepts only limited JPEG data and the correct shot ID',()=>{
   assert.equal(validateInput(sample).shotId,'draft_001');
   assert.equal(validateInput(sample).mode,'environment');
   assert.equal(validateInput(sample).model,'gemini-3.5-flash-lite');
+  assert.equal(validateInput(sample).profile,'lite_default');
+  assert.equal(validateInput({...sample,profile:'lite_default'}).model,'gemini-3.5-flash-lite');
+  assert.equal(validateInput({...sample,profile:'g38_low'}).model,'gemini-3.8-flash');
+  assert.equal(validateInput({...sample,profile:'g38_medium',mode:'primary_subject'}).model,'gemini-3.8-flash');
+  assert.equal(validateInput({...sample,model:'gemini-3.8-flash'}).profile,'g38_low');
+  assert.throws(()=>validateInput({...sample,profile:'g38_medium'}),/primary-subject/);
+  assert.throws(()=>validateInput({...sample,profile:'g38_medium',mode:'primary_subject',layer:'structures'}),/mode|primary-subject/);
+  assert.throws(()=>validateInput({...sample,profile:'g38_medium',mode:'primary_subject',model:'gemini-3.8-flash'}),/profile/);
+  assert.throws(()=>validateInput({...sample,profile:'gemini-4-argon'}),/profile/);
+  assert.throws(()=>validateInput({...sample,profile:123}),/profile/);
   assert.equal(validateInput({...sample,model:'gemini-3.8-flash'}).model,'gemini-3.8-flash');
   assert.throws(()=>validateInput({...sample,model:'gemini-4-argon'}),/model/);
   assert.throws(()=>validateInput({...sample,model:'https://example.com/'}),/model/);
@@ -141,6 +151,58 @@ test('3.8 Flash uses existing key and schema without model fallback in both gene
     assert.match(seen[1].body.contents[0].parts[0].text,/LAYERED FULL-ENVIRONMENT/);
     assert.ok(!JSON.stringify(seen).includes(env.GEMINI_API_KEY));
   }finally{globalThis.fetch=previous;}
+});
+
+test('Medium 3.8 profile keeps detailed primary prompt but uses 70s deadline',async()=>{
+  const previousFetch=globalThis.fetch;
+  const originalTimeout=AbortSignal.timeout;
+  const deadlines=[];
+  AbortSignal.timeout=(milliseconds)=>{
+    deadlines.push(milliseconds);
+    return originalTimeout(milliseconds);
+  };
+  let called=0;
+  globalThis.fetch=async(url,options)=>{
+    called++;
+    assert.ok(url.endsWith('/gemini-3.8-flash:generateContent'));
+    const request=JSON.parse(options.body);
+    assert.equal(request.generationConfig.maxOutputTokens,9500);
+    assert.deepEqual(request.generationConfig.thinkingConfig,{thinkingLevel:'medium'});
+    assert.match(request.contents[0].parts[0].text,/PRIMARY SUBJECT — HIGH-DETAIL/);
+    return new Response(JSON.stringify({
+      candidates:[{content:{parts:[{text:JSON.stringify(scene)}]}}]
+    }),{status:200});
+  };
+  try{
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({...sample,mode:'primary_subject',profile:'g38_medium'})
+    }),env);
+    assert.equal(response.status,200);
+    assert.equal((await response.json()).scenes[0].objects.length,1);
+    assert.deepEqual(deadlines,[70000]);
+    assert.equal(called,1);
+  }finally{
+    globalThis.fetch=previousFetch;
+    AbortSignal.timeout=originalTimeout;
+  }
+});
+
+test('Medium 3.8 profile uses explicit 70-second timeout error without leaking secrets',async()=>{
+  const previousFetch=globalThis.fetch;
+  const previousWarn=console.warn;
+  const messages=[];
+  console.warn=(...args)=>messages.push(args);
+  globalThis.fetch=async()=>{throw Object.assign(new Error('PRIVATE '+env.GEMINI_API_KEY),{name:'TimeoutError'});};
+  try{
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({...sample,mode:'primary_subject',profile:'g38_medium'})
+    }),env);
+    assert.equal(response.status,504);
+    assert.deepEqual(await response.json(),{ok:false,error:'AI provider extended request timed out'});
+    assert.ok(!JSON.stringify(messages).includes(env.GEMINI_API_KEY));
+  }finally{globalThis.fetch=previousFetch;console.warn=previousWarn;}
 });
 
 test('primary-subject mode uses the detailed prompt, 9500-token budget and validates 48 shapes',async()=>{
