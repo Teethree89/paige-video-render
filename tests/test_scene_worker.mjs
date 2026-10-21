@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-38-medium-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-medium-backoff-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-38-medium-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-medium-backoff-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -314,6 +314,61 @@ test('Transient Gemini 503 gets exactly one retry and returns accepted scene',as
   }
 });
 
+test('Medium 3.8 retries upstream 503 twice with bounded exponential backoff',async()=>{
+  const previousFetch=globalThis.fetch;
+  const previousWarn=console.warn;
+  const logs=[];
+  let attempts=0;
+  console.warn=(...args)=>logs.push(args);
+  globalThis.fetch=async(url,options)=>{
+    attempts++;
+    assert.ok(url.endsWith('/gemini-3.8-flash:generateContent'));
+    assert.deepEqual(JSON.parse(options.body).generationConfig.thinkingConfig,{thinkingLevel:'medium'});
+    if(attempts<=2)return new Response(
+      JSON.stringify({error:'PRIVATE_PROVIDER_MESSAGE_DO_NOT_RELAY'}),{status:503});
+    return new Response(JSON.stringify({
+      candidates:[{content:{parts:[{text:JSON.stringify(scene)}]}}]
+    }),{status:200});
+  };
+  try{
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({...sample,mode:'primary_subject',profile:'g38_medium'})
+    }),env);
+    assert.equal(response.status,200);
+    assert.equal(attempts,3);
+    assert.deepEqual(await response.json(),scene);
+    assert.deepEqual(logs.map(x=>x.slice(0,3)),[
+      ['gemini-provider-http',503,'attempt-1'],
+      ['gemini-provider-http',503,'attempt-2']
+    ]);
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE_PROVIDER_MESSAGE_DO_NOT_RELAY'));
+    assert.ok(!JSON.stringify(logs).includes(env.GEMINI_API_KEY));
+  }finally{globalThis.fetch=previousFetch;console.warn=previousWarn;}
+});
+
+test('Medium persistent provider 503 returns safe overload category after 3 attempts',async()=>{
+  const previousFetch=globalThis.fetch;
+  const previousWarn=console.warn;
+  const events=[];
+  let attempts=0;
+  console.warn=(...args)=>events.push(args);
+  globalThis.fetch=async()=>{attempts++;return new Response(
+    JSON.stringify({error:'PRIVATE_PROVIDER_MESSAGE_DO_NOT_RELAY'}),{status:503});
+  };
+  try{
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({...sample,mode:'primary_subject',profile:'g38_medium'})
+    }),env);
+    assert.equal(response.status,502);
+    assert.equal(attempts,3);
+    assert.deepEqual(await response.json(),{ok:false,error:'AI provider capacity unavailable'});
+    assert.equal(events.length,3);
+    assert.ok(!JSON.stringify(events).includes('PRIVATE_PROVIDER_MESSAGE_DO_NOT_RELAY'));
+  }finally{globalThis.fetch=previousFetch;console.warn=previousWarn;}
+});
+
 test('Gemini failure statuses are classified without relaying raw provider errors',async()=>{
   const cases=[
     [400,502,'AI provider rejected request format'],
@@ -323,7 +378,7 @@ test('Gemini failure statuses are classified without relaying raw provider error
     [422,502,'AI provider rejected request format'],
     [429,429,'Provider rate limit reached'],
     [500,502,'AI provider temporarily unavailable'],
-    [503,502,'AI provider temporarily unavailable'],
+    [503,502,'AI provider capacity unavailable'],
     [418,502,'AI provider refused the request']
   ];
   const previous=globalThis.fetch;
