@@ -10,6 +10,13 @@
 // providers, models, credentials or billing tier on API failures.
 const MODEL = 'gemini-3.5-flash-lite';
 const SUPPORTED_MODELS = Object.freeze([MODEL,'gemini-3.8-flash']);
+// Explicit server-owned profiles: no user-selected timeout or thinking value.
+const PROFILE_SETTINGS = Object.freeze({
+  lite_default: Object.freeze({model:MODEL,timeoutMs:45000}),
+  g38_low: Object.freeze({model:'gemini-3.8-flash',thinkingLevel:'low',timeoutMs:45000}),
+  g38_medium: Object.freeze({model:'gemini-3.8-flash',thinkingLevel:'medium',timeoutMs:70000})
+});
+const SUPPORTED_PROFILES = Object.freeze(Object.keys(PROFILE_SETTINGS));
 const MAX_BYTES = 1_600_000;
 const FRAME_LIMIT = 3;
 const ENVIRONMENT_PASSES = Object.freeze(['structures','ground','vegetation','details']);
@@ -67,9 +74,21 @@ export function validateInput(payload) {
   if(!['environment','primary_subject'].includes(mode)||
      (mode==='primary_subject'&&payload.layer!==undefined))
     throw Error('Invalid generation mode');
+  // Accept previous-version model-only callers without changing their behavior.
+  // New clients choose one server-defined profile, never arbitrary API options.
   const model=payload.model===undefined?MODEL:payload.model;
   if(typeof model!=='string'||!SUPPORTED_MODELS.includes(model))
     throw Error('Invalid AI model');
+  if(payload.profile!==undefined&&payload.model!==undefined)
+    throw Error('Choose an AI profile or a legacy model, not both');
+  const profile=payload.profile===undefined
+    ?(model===MODEL?'lite_default':'g38_low'):payload.profile;
+  if(typeof profile!=='string'||
+     !Object.prototype.hasOwnProperty.call(PROFILE_SETTINGS,profile))
+    throw Error('Invalid AI profile');
+  if(profile==='g38_medium'&&(mode!=='primary_subject'||payload.layer!==undefined))
+    throw Error('Medium thinking requires primary-subject generation');
+  const selectedModel=PROFILE_SETTINGS[profile].model;
   const frames=payload.frames;
   if(!Array.isArray(frames)||frames.length<1||frames.length>FRAME_LIMIT)throw Error('Invalid frame count');
   const content=[];
@@ -87,7 +106,7 @@ export function validateInput(payload) {
     content.push({text:'Reference frame at '+frame.at.toFixed(3)+' seconds'});
     content.push({inlineData:{mimeType:'image/jpeg',data:match[1]}});
   }
-  return {shotId,content,mode,model};
+  return {shotId,content,mode,model:selectedModel,profile};
 }
 // Keep generated models bounded for mobile WebGL while allowing enough parts
 // to express actual architecture and equipment, not just rough silhouette.
@@ -256,7 +275,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-38-low-thinking-v1',supportedModels:SUPPORTED_MODELS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-38-medium-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
     if(path!=='/api/scene')return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
@@ -274,22 +293,21 @@ export default {
     const prompt=layerSpec ?
       layerPrompt(layerSpec.layer,layerSpec.existing).replaceAll('SHOT_ID',validated.shotId) :
       (validated.mode==='primary_subject'?PRIMARY_PROMPT:PROMPT).replaceAll('SHOT_ID',validated.shotId);
+    const settings=PROFILE_SETTINGS[validated.profile];
     const requestBody={contents:[{role:'user',parts:[{text:prompt},...validated.content]}],
       generationConfig:{responseMimeType:'application/json',
         maxOutputTokens:layerSpec?6500:validated.mode==='primary_subject'?9500:7500,
-        // 3.8 Flash defaults to medium thinking, which can exceed our 45s
-        // synchronous PHP/Worker budget for multi-frame geometry requests.
-        // Low is supported on 3.8; minimal is not. Leave Lite untouched.
-        ...(validated.model==='gemini-3.8-flash'
-          ?{thinkingConfig:{thinkingLevel:'low'}}:{})}};
-    // Keep the timeout inside PHP's 55-second cURL deadline.
-    // Never expose raw network exceptions: messages may contain runtime details.
-    const upstreamDeadline=AbortSignal.timeout(45000);
+        ...(settings.thinkingLevel
+          ?{thinkingConfig:{thinkingLevel:settings.thinkingLevel}}:{})}};
+    // The PHP gateway uses 55s for Lite/Low and 85s for Medium.
+    // A shared deadline bounds inference, including any transient 5xx retry.
+    const timeoutMs=settings.timeoutMs;
+    const upstreamDeadline=AbortSignal.timeout(timeoutMs);
     const upstreamStart=Date.now();
     const upstreamBody=JSON.stringify(requestBody);
     let result;
     // A second attempt may overcome a brief Gemini 5xx capacity spike, but
-    // shares the original 45s deadline (PHP's cURL deadline is 55s).
+    // shares this profile's deadline (45s/55s or 70s/85s Worker/PHP).
     // Never retry authentication, schema or quota (429) errors.
     for(let attempt=1;attempt<=2;attempt++){
       try {
@@ -303,15 +321,18 @@ export default {
         const timedOut=upstreamDeadline.aborted||error?.name==='TimeoutError';
         // No raw exception messages, response bodies or credentials in logs.
         console.warn('gemini-upstream-fetch',timedOut?'timeout':'network-failure',
-          Math.min(45,Math.floor((Date.now()-upstreamStart)/1000))+'s');
+          Math.min(timeoutMs/1000,Math.floor((Date.now()-upstreamStart)/1000))+'s');
         return fail(timedOut?504:502,
-          timedOut?'AI provider request timed out':'AI provider network connection failed');
+          timedOut
+            ?(validated.profile==='g38_medium'
+              ?'AI provider extended request timed out':'AI provider request timed out')
+            :'AI provider network connection failed');
       }
       if(![500,502,503,504].includes(result.status))break;
       // Log only status, attempt and bounded elapsed time; no provider body.
       console.warn('gemini-provider-http',result.status,'attempt-'+attempt,
-        Math.min(45,Math.floor((Date.now()-upstreamStart)/1000))+'s');
-      if(attempt===2||upstreamDeadline.aborted||Date.now()-upstreamStart>=35000)break;
+        Math.min(timeoutMs/1000,Math.floor((Date.now()-upstreamStart)/1000))+'s');
+      if(attempt===2||upstreamDeadline.aborted||Date.now()-upstreamStart>=timeoutMs-10000)break;
       // Release the failed response before making a new inference attempt.
       if(result.body)try{await result.body.cancel();}catch(_){}
       await new Promise(resolve=>setTimeout(resolve,700));
