@@ -105,6 +105,7 @@ test('three sampled video frames become previewable and accepted without alterin
     assert.equal(payload.csrf,'logged-in-test-csrf');
     assert.equal(payload.shotId,'shot_a');
     assert.equal(payload.frames.length,3);
+    assert.equal(payload.model,'gemini-3.5-flash-lite','defaults to known-working Lite');
     const expectedLayers=['structures','ground','vegetation','details'];
     const index=generatedCalls%4;
     assert.equal(payload.layer,expectedLayers[index]);
@@ -116,7 +117,7 @@ test('three sampled video frames become previewable and accepted without alterin
       method:'POST',
       headers:{Authorization:'Bearer '+env.SCENE_ACCESS_TOKEN,'Content-Type':'application/json'},
       body:JSON.stringify({shotId:payload.shotId,frames:payload.frames,
-        layer:payload.layer,existing:payload.existing})
+        model:payload.model,layer:payload.layer,existing:payload.existing})
     }),env);
     assert.equal(result.status,200);
     return new Response(JSON.stringify({ok:true,proposal:await result.json()}),{status:200});
@@ -309,6 +310,7 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
   const env={GEMINI_API_KEY:'mock',SCENE_ACCESS_TOKEN:'private-test-token-12345678901234567890'};
   globalThis.fetch=async (url,options={})=>{
     if(String(url).includes('generativelanguage.googleapis.com')){
+      assert.ok(String(url).endsWith('/gemini-3.8-flash:generateContent'));
       const body=JSON.parse(options.body);
       assert.match(body.contents[0].parts[0].text,/PRIMARY SUBJECT — HIGH-DETAIL/);
       assert.equal(body.generationConfig.maxOutputTokens,9500);
@@ -319,13 +321,14 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     const input=JSON.parse(options.body);
     assert.equal(input.action,'generate');
     assert.equal(input.mode,'primary_subject');
+    assert.equal(input.model,'gemini-3.8-flash');
     assert.equal(input.layer,undefined);
     assert.equal(input.frames.length,3);
     sent++;
     const response=await sceneWorker.fetch(new Request('https://example.workers.dev/api/scene',{
       method:'POST',
       headers:{Authorization:'Bearer '+env.SCENE_ACCESS_TOKEN,'Content-Type':'application/json'},
-      body:JSON.stringify({shotId:input.shotId,frames:input.frames,mode:input.mode})
+      body:JSON.stringify({shotId:input.shotId,frames:input.frames,mode:input.mode,model:input.model})
     }),env);
     assert.equal(response.status,200);
     return new Response(JSON.stringify({ok:true,proposal:await response.json()}),{status:200});
@@ -341,6 +344,7 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     });
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='subject';
+    ids.get('aiSceneModel').value='gemini-3.8-flash';
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(sent,1,'primary mode uses only one authenticated request');
     assert.equal(preview?.objects[0]?.name,'Detailed entrance frame');
