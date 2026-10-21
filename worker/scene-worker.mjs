@@ -275,7 +275,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-38-medium-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-medium-backoff-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
     if(path!=='/api/scene')return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
@@ -306,10 +306,12 @@ export default {
     const upstreamStart=Date.now();
     const upstreamBody=JSON.stringify(requestBody);
     let result;
-    // A second attempt may overcome a brief Gemini 5xx capacity spike, but
-    // shares this profile's deadline (45s/55s or 70s/85s Worker/PHP).
-    // Never retry authentication, schema or quota (429) errors.
-    for(let attempt=1;attempt<=2;attempt++){
+    // Gemini 503 is provider capacity, not a PHP transport error. Give Medium
+    // at most two retries using exponential backoff + bounded jitter. Lite and
+    // Low retain the existing single retry; non-503 5xx still retry only once.
+    // All attempts share one deadline and never change the selected AI model.
+    const medium=validated.profile==='g38_medium';
+    for(let attempt=1;attempt<=(medium?3:2);attempt++){
       try {
         result=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+validated.model+':generateContent',{
           method:'POST',
@@ -332,10 +334,18 @@ export default {
       // Log only status, attempt and bounded elapsed time; no provider body.
       console.warn('gemini-provider-http',result.status,'attempt-'+attempt,
         Math.min(timeoutMs/1000,Math.floor((Date.now()-upstreamStart)/1000))+'s');
-      if(attempt===2||upstreamDeadline.aborted||Date.now()-upstreamStart>=timeoutMs-10000)break;
-      // Release the failed response before making a new inference attempt.
+      // The third attempt is reserved for a temporary capacity (503) failure
+      // in explicit Medium mode. Other 5xx responses are limited to 2 attempts.
+      const canRetry=attempt===1||(medium&&attempt===2&&result.status===503);
+      const elapsedMs=Date.now()-upstreamStart;
+      const waitMs=medium
+        ?(attempt===1?1000:2000)+Math.floor(Math.random()*250)
+        :700;
+      // Keep a 10s reserve so retry cannot start at the deadline.
+      if(!canRetry||upstreamDeadline.aborted||elapsedMs+waitMs>=timeoutMs-10000)break;
+      // Release the failed response before making a fresh request.
       if(result.body)try{await result.body.cancel();}catch(_){}
-      await new Promise(resolve=>setTimeout(resolve,700));
+      await new Promise(resolve=>setTimeout(resolve,waitMs));
     }
     if(result.status===429)return fail(429,'Provider rate limit reached');
     // Classify only the HTTP status; never return or log Gemini's raw error
@@ -346,6 +356,7 @@ export default {
       if(result.status===404)return fail(502,'Requested AI model is unavailable');
       if(result.status===400||result.status===422)
         return fail(502,'AI provider rejected request format');
+      if(result.status===503)return fail(502,'AI provider capacity unavailable');
       if(result.status>=500)return fail(502,'AI provider temporarily unavailable');
       return fail(502,'AI provider refused the request');
     }
