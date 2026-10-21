@@ -154,6 +154,14 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("$workerInput['mode'] = 'primary_subject';", php)
         self.assertIn("$workerInput = ['shotId' => $shotId, 'frames' => $validated];", php)
 
+    def test_gemini_model_selection_is_explicit_and_server_allowlisted(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        self.assertIn("if (array_key_exists('model', $input))", php)
+        self.assertIn("'gemini-3.5-flash-lite', 'gemini-3.8-flash'", php)
+        self.assertIn("reject(400, 'Unsupported AI model')", php)
+        self.assertIn("$workerInput['model'] = $input['model'];", php)
+        self.assertNotIn("$workerInput['model'] = $_GET", php)
+
     def test_php_only_maps_fixed_worker_failure_messages(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         self.assertIn("function safe_worker_error(int $status, string $body): string", php)
