@@ -191,7 +191,8 @@ class GatewaySmokeTests(unittest.TestCase):
             "502:AI provider authentication or permission failed": "Gemini rejected the provider API credentials",
             "502:Requested AI model is unavailable": "configured Gemini model is not available",
             "502:AI provider rejected request format": "Gemini rejected the submitted frame",
-            "502:AI provider temporarily unavailable": "Gemini is temporarily unavailable",
+            "502:AI provider capacity unavailable": "Gemini is overloaded (upstream 503)",
+            "502:AI provider temporarily unavailable": "temporary server error (upstream 5xx)",
             "502:Provider scene did not match the editor schema": "failed scene validation"
         }
         for worker_key, category_text in expected.items():
