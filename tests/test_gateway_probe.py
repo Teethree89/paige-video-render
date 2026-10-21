@@ -162,6 +162,19 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("$workerInput['model'] = $input['model'];", php)
         self.assertNotIn("$workerInput['model'] = $_GET", php)
 
+    def test_gemini_thinking_profiles_are_whitelisted_and_medium_has_bounded_timeout(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        self.assertIn("if (array_key_exists('profile', $input))", php)
+        self.assertIn("['lite_default', 'g38_low', 'g38_medium']", php)
+        self.assertIn("reject(400, 'Unsupported AI profile')", php)
+        self.assertIn("array_key_exists('model', $input)", php)
+        self.assertIn("$workerInput['profile'] = $input['profile'];", php)
+        self.assertIn("($workerInput['mode'] ?? '') !== 'primary_subject'", php)
+        self.assertIn("array_key_exists('layer', $workerInput)", php)
+        self.assertIn("$curlTimeout = (($workerInput['profile'] ?? '') === 'g38_medium') ? 85 : 55;", php)
+        self.assertIn("CURLOPT_TIMEOUT => $curlTimeout", php)
+        self.assertIn("'504:AI provider extended request timed out'", php)
+
     def test_php_only_maps_fixed_worker_failure_messages(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         self.assertIn("function safe_worker_error(int $status, string $body): string", php)
@@ -173,6 +186,7 @@ class GatewaySmokeTests(unittest.TestCase):
             "401:Unauthorized": "Worker rejected the PHP access token",
             "400:Invalid image request": "Worker rejected the sampled video frames",
             "504:AI provider request timed out": "Gemini took longer than 45 seconds",
+            "504:AI provider extended request timed out": "Gemini 3.8 Medium took longer than 70 seconds",
             "502:AI provider network connection failed": "Cloudflare Worker could not reach Gemini",
             "502:AI provider authentication or permission failed": "Gemini rejected the provider API credentials",
             "502:Requested AI model is unavailable": "configured Gemini model is not available",
