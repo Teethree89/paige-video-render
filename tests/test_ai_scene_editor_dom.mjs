@@ -105,7 +105,7 @@ test('three sampled video frames become previewable and accepted without alterin
     assert.equal(payload.csrf,'logged-in-test-csrf');
     assert.equal(payload.shotId,'shot_a');
     assert.equal(payload.frames.length,3);
-    assert.equal(payload.model,'gemini-3.5-flash-lite','defaults to known-working Lite');
+    assert.equal(payload.profile,'lite_default','defaults to known-working Lite');
     const expectedLayers=['structures','ground','vegetation','details'];
     const index=generatedCalls%4;
     assert.equal(payload.layer,expectedLayers[index]);
@@ -117,7 +117,7 @@ test('three sampled video frames become previewable and accepted without alterin
       method:'POST',
       headers:{Authorization:'Bearer '+env.SCENE_ACCESS_TOKEN,'Content-Type':'application/json'},
       body:JSON.stringify({shotId:payload.shotId,frames:payload.frames,
-        model:payload.model,layer:payload.layer,existing:payload.existing})
+        profile:payload.profile,layer:payload.layer,existing:payload.existing})
     }),env);
     assert.equal(result.status,200);
     return new Response(JSON.stringify({ok:true,proposal:await result.json()}),{status:200});
@@ -314,6 +314,7 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
       const body=JSON.parse(options.body);
       assert.match(body.contents[0].parts[0].text,/PRIMARY SUBJECT — HIGH-DETAIL/);
       assert.equal(body.generationConfig.maxOutputTokens,9500);
+      assert.deepEqual(body.generationConfig.thinkingConfig,{thinkingLevel:'medium'});
       return new Response(JSON.stringify({candidates:[{content:{parts:[{text:JSON.stringify(scene)}]}}]}),{status:200});
     }
     assert.equal(url,'./scene-proxy.php');
@@ -321,14 +322,14 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     const input=JSON.parse(options.body);
     assert.equal(input.action,'generate');
     assert.equal(input.mode,'primary_subject');
-    assert.equal(input.model,'gemini-3.8-flash');
+    assert.equal(input.profile,'g38_medium');
     assert.equal(input.layer,undefined);
     assert.equal(input.frames.length,3);
     sent++;
     const response=await sceneWorker.fetch(new Request('https://example.workers.dev/api/scene',{
       method:'POST',
       headers:{Authorization:'Bearer '+env.SCENE_ACCESS_TOKEN,'Content-Type':'application/json'},
-      body:JSON.stringify({shotId:input.shotId,frames:input.frames,mode:input.mode,model:input.model})
+      body:JSON.stringify({shotId:input.shotId,frames:input.frames,mode:input.mode,profile:input.profile})
     }),env);
     assert.equal(response.status,200);
     return new Response(JSON.stringify({ok:true,proposal:await response.json()}),{status:200});
@@ -344,7 +345,7 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     });
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='subject';
-    ids.get('aiSceneModel').value='gemini-3.8-flash';
+    ids.get('aiSceneModel').value='g38_medium';
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(sent,1,'primary mode uses only one authenticated request');
     assert.equal(preview?.objects[0]?.name,'Detailed entrance frame');
@@ -358,5 +359,46 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     if(oldDocument===undefined)delete globalThis.document;
     else globalThis.document=oldDocument;
     globalThis.fetch=oldFetch;
+  }
+});
+
+test('Medium thinking cannot start a full-environment request or sample video',async()=>{
+  const priorDocument=globalThis.document,priorFetch=globalThis.fetch;
+  const ids=new Map();
+  let upstreamRequests=0,videoObjects=0;
+  globalThis.document={
+    getElementById(id){
+      if(!ids.has(id))ids.set(id,new Element());
+      return ids.get(id);
+    },
+    createElement(tag){
+      if(tag==='video')videoObjects++;
+      return new Element();
+    }
+  };
+  globalThis.fetch=async(_url,options={})=>{
+    if(options.method){upstreamRequests++;throw Error('Medium environment must not submit');}
+    return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'csrf-test'}),{status:200});
+  };
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({
+      getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:mock-reference'}),
+      getPlayheadTime:()=>2.5,
+      onPreview:()=>assert.fail('Invalid request must not preview'),
+      onDiscard:()=>{},onAccept:()=>assert.fail('Invalid request must not save')
+    });
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='environment';
+    ids.get('aiSceneModel').value='g38_medium';
+    await ids.get('aiSceneGenerate').fire('click');
+    assert.equal(upstreamRequests,0);
+    assert.equal(videoObjects,0);
+    assert.match(ids.get('aiSceneStatus').textContent,/only for Primary subject only/);
+  }finally{
+    if(priorDocument===undefined)delete globalThis.document;
+    else globalThis.document=priorDocument;
+    globalThis.fetch=priorFetch;
   }
 });
