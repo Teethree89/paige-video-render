@@ -133,11 +133,12 @@
               </label>
               <label class="field">AI model
                 <select id="aiSceneModel">
-                  <option value="gemini-3.5-flash-lite" selected>Gemini 3.5 Flash-Lite · fast / current</option>
-                  <option value="gemini-3.8-flash">Gemini 3.8 Flash · quality (low thinking for speed)</option>
+                  <option value="lite_default" selected>Gemini 3.5 Flash-Lite · fast</option>
+                  <option value="g38_low">Gemini 3.8 Flash · low thinking</option>
+                  <option value="g38_medium">Gemini 3.8 Flash · medium thinking (primary only)</option>
                 </select>
               </label>
-              <p class="field-help">Both options use your existing server-side Gemini API key. Model access, free-tier quota and paid billing depend on your Google project. 3.8 Flash uses low thinking to reduce latency, but may still exceed the 45-second Worker limit.</p>
+              <p class="field-help">All options use your existing server-side Gemini API key. 3.8 Low has a 45-second Worker limit; 3.8 Medium allows up to 70 seconds (85-second PHP cURL limit), only in Primary subject mode. Your hosting provider may impose shorter limits. API availability and billing depend on your Google project.</p>
               <p class="field-help">Uses the current reference frame first, plus two views from this chapter. Full environment makes four sequential Gemini requests and uses four of your 10 per-session hourly requests. Only visible evidence is modeled; absent layers can be empty. Nothing is saved until you accept.</p>
               <button id="aiSceneGenerate" type="button" class="wide primary">Generate 3D scene for this chapter</button>
               <button id="aiSceneInspect" type="button" class="wide secondary" hidden>View proposed shapes in 3D ↗</button>
