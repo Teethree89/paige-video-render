@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-model-select-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-38-low-thinking-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-model-select-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-38-low-thinking-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -81,6 +81,7 @@ test('authorized request returns valid primitive JSON and keeps API key out of o
     assert.ok(opts.headers['x-goog-api-key']===env.GEMINI_API_KEY);
     assert.ok(opts.body.includes('inlineData'));
     assert.equal(JSON.parse(opts.body).generationConfig.maxOutputTokens,7500);
+    assert.equal(JSON.parse(opts.body).generationConfig.thinkingConfig,undefined,'Lite retains its original reasoning defaults');
     const prompt=JSON.parse(opts.body).contents[0].parts[0].text;
     assert.match(prompt,/architectural and environment blockout artist/);
     assert.match(prompt,/observed footprint/);
@@ -132,6 +133,10 @@ test('3.8 Flash uses existing key and schema without model fallback in both gene
     assert.ok(seen.every(x=>x.url.endsWith('/gemini-3.8-flash:generateContent')));
     assert.equal(seen[0].body.generationConfig.maxOutputTokens,9500);
     assert.equal(seen[1].body.generationConfig.maxOutputTokens,6500);
+    assert.deepEqual(seen[0].body.generationConfig.thinkingConfig,{thinkingLevel:'low'});
+    assert.deepEqual(seen[1].body.generationConfig.thinkingConfig,{thinkingLevel:'low'});
+    assert.ok(seen.every(x=>x.body.generationConfig.responseMimeType==='application/json'));
+    assert.ok(seen.every(x=>!('temperature' in x.body.generationConfig)));
     assert.match(seen[0].body.contents[0].parts[0].text,/PRIMARY SUBJECT — HIGH-DETAIL/);
     assert.match(seen[1].body.contents[0].parts[0].text,/LAYERED FULL-ENVIRONMENT/);
     assert.ok(!JSON.stringify(seen).includes(env.GEMINI_API_KEY));
