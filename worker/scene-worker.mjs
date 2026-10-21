@@ -256,7 +256,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-model-select-v1',supportedModels:SUPPORTED_MODELS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-38-low-thinking-v1',supportedModels:SUPPORTED_MODELS},ready?200:503);
     }
     if(path!=='/api/scene')return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
@@ -276,7 +276,12 @@ export default {
       (validated.mode==='primary_subject'?PRIMARY_PROMPT:PROMPT).replaceAll('SHOT_ID',validated.shotId);
     const requestBody={contents:[{role:'user',parts:[{text:prompt},...validated.content]}],
       generationConfig:{responseMimeType:'application/json',
-        maxOutputTokens:layerSpec?6500:validated.mode==='primary_subject'?9500:7500}};
+        maxOutputTokens:layerSpec?6500:validated.mode==='primary_subject'?9500:7500,
+        // 3.8 Flash defaults to medium thinking, which can exceed our 45s
+        // synchronous PHP/Worker budget for multi-frame geometry requests.
+        // Low is supported on 3.8; minimal is not. Leave Lite untouched.
+        ...(validated.model==='gemini-3.8-flash'
+          ?{thinkingConfig:{thinkingLevel:'low'}}:{})}};
     // Keep the timeout inside PHP's 55-second cURL deadline.
     // Never expose raw network exceptions: messages may contain runtime details.
     const upstreamDeadline=AbortSignal.timeout(45000);
