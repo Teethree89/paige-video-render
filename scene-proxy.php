@@ -259,6 +259,15 @@ foreach ($frames as $frame) {
     $validated[] = ['at' => (float) $at, 'imageDataUrl' => $image];
 }
 $workerInput = ['shotId' => $shotId, 'frames' => $validated];
+// Optional model selector; the PHP gateway and Worker both require an exact
+// server-maintained allowlist. No client-supplied API key, URL or prompt.
+if (array_key_exists('model', $input)) {
+    if (!is_string($input['model']) ||
+        !in_array($input['model'], ['gemini-3.5-flash-lite', 'gemini-3.8-flash'], true)) {
+        reject(400, 'Unsupported AI model');
+    }
+    $workerInput['model'] = $input['model'];
+}
 // Whitelist the single-pass detail profile explicitly. Never trust a model
 // selector or arbitrary prompt sent by the browser.
 if (array_key_exists('mode', $input)) {
