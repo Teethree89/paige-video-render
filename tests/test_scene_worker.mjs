@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'primary-detail-v2'});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-model-select-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'primary-detail-v2'});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-model-select-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -31,6 +31,11 @@ test('worker rejects incorrect secrets and unrelated paths',async()=>{
 test('worker accepts only limited JPEG data and the correct shot ID',()=>{
   assert.equal(validateInput(sample).shotId,'draft_001');
   assert.equal(validateInput(sample).mode,'environment');
+  assert.equal(validateInput(sample).model,'gemini-3.5-flash-lite');
+  assert.equal(validateInput({...sample,model:'gemini-3.8-flash'}).model,'gemini-3.8-flash');
+  assert.throws(()=>validateInput({...sample,model:'gemini-4-argon'}),/model/);
+  assert.throws(()=>validateInput({...sample,model:'https://example.com/'}),/model/);
+  assert.throws(()=>validateInput({...sample,model:14}),/model/);
   assert.equal(validateInput({...sample,mode:'primary_subject'}).mode,'primary_subject');
   assert.throws(()=>validateInput({...sample,mode:'untrusted-model'}),/mode/);
   assert.throws(()=>validateInput({...sample,mode:'primary_subject',layer:'structures'}),/mode/);
@@ -97,6 +102,39 @@ test('authorized request returns valid primitive JSON and keeps API key out of o
     assert.deepEqual(JSON.parse(body),scene);
     assert.ok(!body.includes(env.GEMINI_API_KEY));
     assert.ok(!body.includes(token));
+  }finally{globalThis.fetch=previous;}
+});
+
+test('3.8 Flash uses existing key and schema without model fallback in both generation modes',async()=>{
+  const previous=globalThis.fetch;
+  const seen=[];
+  globalThis.fetch=async(url,options)=>{
+    seen.push({url,body:JSON.parse(options.body)});
+    assert.equal(options.headers['x-goog-api-key'],env.GEMINI_API_KEY);
+    return new Response(JSON.stringify({
+      candidates:[{content:{parts:[{text:JSON.stringify(scene)}]}}]
+    }),{status:200,headers:{'content-type':'application/json'}});
+  };
+  try{
+    for(const input of [
+      {...sample,mode:'primary_subject',model:'gemini-3.8-flash'},
+      {...sample,layer:'structures',existing:[],model:'gemini-3.8-flash'}
+    ]){
+      const response=await worker.fetch(new Request('https://example.workers.dev/api/scene',{
+        method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+        body:JSON.stringify(input)
+      }),env);
+      assert.equal(response.status,200);
+      const data=await response.json();
+      assert.equal(data.scenes[0].shotId,'draft_001');
+    }
+    assert.equal(seen.length,2);
+    assert.ok(seen.every(x=>x.url.endsWith('/gemini-3.8-flash:generateContent')));
+    assert.equal(seen[0].body.generationConfig.maxOutputTokens,9500);
+    assert.equal(seen[1].body.generationConfig.maxOutputTokens,6500);
+    assert.match(seen[0].body.contents[0].parts[0].text,/PRIMARY SUBJECT — HIGH-DETAIL/);
+    assert.match(seen[1].body.contents[0].parts[0].text,/LAYERED FULL-ENVIRONMENT/);
+    assert.ok(!JSON.stringify(seen).includes(env.GEMINI_API_KEY));
   }finally{globalThis.fetch=previous;}
 });
 
