@@ -165,7 +165,7 @@ class GatewaySmokeTests(unittest.TestCase):
     def test_gemini_thinking_profiles_are_whitelisted_and_medium_has_bounded_timeout(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         self.assertIn("if (array_key_exists('profile', $input))", php)
-        self.assertIn("['lite_default', 'g38_low', 'g38_medium']", php)
+        self.assertIn("['lite_default', 'g38_low', 'g38_medium', 'argon_previs']", php)
         self.assertIn("reject(400, 'Unsupported AI profile')", php)
         self.assertIn("array_key_exists('model', $input)", php)
         self.assertIn("$workerInput['profile'] = $input['profile'];", php)
@@ -174,6 +174,21 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("$curlTimeout = (($workerInput['profile'] ?? '') === 'g38_medium') ? 85 : 55;", php)
         self.assertIn("CURLOPT_TIMEOUT => $curlTimeout", php)
         self.assertIn("'504:AI provider extended request timed out'", php)
+
+    def test_paid_argon_jobs_are_bound_to_authenticated_php_session(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        self.assertIn("if ($action === 'argon_status')", php)
+        self.assertIn("$_SESSION['argon_job']", php)
+        self.assertIn("['jobId' => $job['id'], 'shotId' => $job['shotId']]", php)
+        self.assertIn("if ($action === 'argon_start')", php)
+        self.assertIn("($workerInput['profile'] ?? '') !== 'argon_previs'", php)
+        self.assertIn("$_SESSION['ai_calls']", php)
+        self.assertIn("'created' => time()", php)
+        self.assertIn("'argonJob' => $active === null ? null", php)
+        self.assertIn("if ($action !== 'generate' && $action !== 'argon_start')", php)
+        self.assertNotIn("$input['jobId']", php)
+        self.assertIn("CURLOPT_TIMEOUT => $action === 'start' ? 45 : 30", php)
+        self.assertIn("CURLOPT_SSL_VERIFYPEER => true", php)
 
     def test_php_only_maps_fixed_worker_failure_messages(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()

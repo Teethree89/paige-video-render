@@ -90,8 +90,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
+  const resumeArgon=el('aiSceneResumeArgon');
   const activity=el('aiSceneLog'),waitInfo=el('aiSceneWait');
-  let csrf=null,authenticated=false,pending=null,pendingShot=null,busy=true;
+  let csrf=null,authenticated=false,pending=null,pendingShot=null,busy=true,argonJob=null;
   let activityLines=[];
   const status=text=>{message.textContent=text;};
   const log=(description)=>{
@@ -120,6 +121,49 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(waitInfo)waitInfo.textContent='';
     }
   }
+  async function pollArgon(shotId){
+    log('Argon background job accepted by Google. Polling for completion…');
+    const started=Date.now();
+    let prior='';
+    while(Date.now()-started<10*60*1000){
+      const result=await request('argon_status',{csrf});
+      if(result.shotId!==shotId)throw Error('Argon job belongs to a different chapter');
+      if(result.status!==prior){
+        prior=result.status;
+        log('Argon background status: '+result.status+'.');
+      }
+      if(result.status==='completed'){
+        if(!result.proposal)throw Error('Argon completed without valid geometry');
+        log('Argon model output received and validated by the Worker.');
+        return result.proposal;
+      }
+      if(result.status==='failed')throw Error('Argon job failed on the provider. No geometry was returned.');
+      if(!['queued','in_progress'].includes(result.status))throw Error('Unrecognized Argon status');
+      if(waitInfo)waitInfo.textContent='Argon processing on Google: '+
+        Math.floor((Date.now()-started)/1000)+'s elapsed';
+      status('Argon Previs '+result.status.replace('_',' ')+' — waiting for editable geometry…');
+      await new Promise(resolve=>setTimeout(resolve,5000));
+    }
+    throw Error('Argon is still processing. Use Resume previous Argon job later; do not resubmit a paid request.');
+  }
+  function showProposal(doc,shot,fullEnvironment=false){
+    doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
+    if(doc.scenes.length!==1||doc.scenes[0].shotId!==shot.id)
+      throw Error('Model returned geometry for the wrong shot.');
+    if(getActiveShot()?.id!==shot.id)
+      throw Error('Selected chapter changed; return to its chapter to preview.');
+    log('Checking planar overlaps and exact duplicate shapes…');
+    const result=cleanupPrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
+    log(cleanupSummary(result.report));
+    if(pending){onDiscard();pending=null;pendingShot=null;}
+    pending=result.document.scenes[0];pendingShot=shot.id;
+    onPreview(pending);
+    log('Preview ready: '+pending.objects.length+' editable objects. No scene saved.');
+    const counts=fullEnvironment?ENVIRONMENT_PASSES.map(p=>
+      p.label+': '+pending.objects.filter(o=>o.layer===p.id).length).join(' · '):'';
+    status('Preview: '+pending.objects.length+' editable objects. '+counts+
+      '. Inspect, accept or discard. No changes saved yet.');
+  }
   const ui=()=>{
     loginArea.hidden=authenticated;
     controls.hidden=!authenticated;
@@ -127,6 +171,8 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     create.disabled=busy||!authenticated;
     scope.disabled=busy;
     if(modelSelect)modelSelect.disabled=busy;
+    if(resumeArgon){resumeArgon.hidden=!authenticated||!argonJob||!!pending;
+      resumeArgon.disabled=busy||!authenticated;}
     inspect.hidden=!pending;inspect.disabled=busy||!pending;
     accept.hidden=!pending; discard.hidden=!pending;
     if(cleanupButton){cleanupButton.hidden=!pending;cleanupButton.disabled=busy||!pending;}
@@ -141,7 +187,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const session=await readServerSession();
       authenticated=session.authenticated;
       csrf=authenticated?session.csrf:null;
-      status(authenticated?'Private AI gateway ready.':'Sign in with your editor passphrase to generate 3D scenes.');
+      argonJob=authenticated?session.argonJob:null;
+      status(authenticated?(argonJob?'Argon job available; use Resume previous Argon job.':
+        'Private AI gateway ready.'):'Sign in with your editor passphrase to generate 3D scenes.');
     } catch(error){
       authenticated=false;csrf=null;
       status('AI gateway unavailable: '+error.message+'. Check PHP support and private paiver.php.');
@@ -161,7 +209,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         authenticated=false;csrf=null;
         status('Sign-in was accepted, but PHP did not retain your session. Open the editor directly in Safari and try again. If it continues, check 50webs PHP session storage.');
       } else {
-        csrf=verified.csrf;authenticated=true;
+        csrf=verified.csrf;authenticated=true;argonJob=verified.argonJob||null;
         status('Connected. Select a draft chapter and generate its 3D blockout.');
       }
     }catch(error){authenticated=false;csrf=null;status(error.message);}
@@ -189,17 +237,24 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const selected=modelSelect?.value||'lite_default';
       const profile=selected==='gemini-3.5-flash-lite'?'lite_default'
         :selected==='gemini-3.8-flash'?'g38_low':selected;
-      if(!['lite_default','g38_low','g38_medium'].includes(profile))
+      if(!['lite_default','g38_low','g38_medium','argon_previs'].includes(profile))
         throw Error('Unsupported AI profile selected');
-      if(fullEnvironment&&profile==='g38_medium')
-        throw Error('Gemini 3.8 Medium is available only for Primary subject only.');
+      if(fullEnvironment&&['g38_medium','argon_previs'].includes(profile))
+        throw Error('Medium and Argon require Primary subject only.');
+      if(profile==='argon_previs'){
+        if(argonJob&&['queued','in_progress'].includes(argonJob.status))
+          throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
+        if(typeof confirm==='function'&&!confirm('Start paid Gemini 4 Argon Previs? This uses Google API credit and may run for several minutes.'))
+          return;
+      }
       log('Preparing reference frames from the selected chapter…');
       status('Sampling the selected playhead frame and two chapter context frames…');
       const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.(),
         fullEnvironment?'standard':'primary');
       log(frames.length+' reference JPEG frames sampled.');
       log('Generation profile: '+({lite_default:'Gemini 3.5 Flash-Lite',
-        g38_low:'Gemini 3.8 Low',g38_medium:'Gemini 3.8 Medium'}[profile])+'.');
+        g38_low:'Gemini 3.8 Low',g38_medium:'Gemini 3.8 Medium',
+        argon_previs:'Gemini 4 Argon Previs (paid background)'}[profile])+'.');
       let doc;
       if(fullEnvironment){
         let assembled=[];
@@ -219,26 +274,23 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           scenes:[{shotId:shot.id,objects:assembled}]},getSequence().shots.map(s=>s.id));
       }else {
         status('Gemini is analyzing reference views and generating editable geometry…');
-        const result=await sendGeneration({csrf,shotId:shot.id,frames,profile,mode:'primary_subject'},
-          'primary subject');
+        if(profile==='argon_previs'){
+          log('Submitting paid Argon Previs request to Google background execution…');
+          const start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,mode:'primary_subject'});
+          argonJob={shotId:shot.id,status:start.status};
+          if(waitInfo)waitInfo.textContent='Argon background job submitted';
+          log('Paid Argon job started. You may resume it after a page refresh.');
+          doc=await pollArgon(shot.id);
+          argonJob={shotId:shot.id,status:'completed'};
+        }else{
+          const result=await sendGeneration({csrf,shotId:shot.id,frames,profile,mode:'primary_subject'},
+            'primary subject');
+          doc=result.proposal;
+        }
         log('Validating AI scene JSON and transforms…');
-        doc=validatePrimitiveDocument(result.proposal,getSequence().shots.map(s=>s.id));
+        doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
       }
-      if(doc.scenes.length!==1||doc.scenes[0].shotId!==shot.id)
-        throw Error('Model returned geometry for the wrong shot.');
-      if(getActiveShot()?.id!==shot.id)throw Error('Selected chapter changed; generate again.');
-      log('Checking planar overlaps and exact duplicate shapes…');
-      const result=cleanupPrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
-      doc=result.document;
-      log(cleanupSummary(result.report));
-      if(pending){onDiscard();pending=null;pendingShot=null;}
-      pending=doc.scenes[0];pendingShot=shot.id;
-      onPreview(pending);
-      log('Preview ready: '+pending.objects.length+' editable objects. No scene saved.');
-      const counts=fullEnvironment?ENVIRONMENT_PASSES.map(p=>
-        p.label+': '+pending.objects.filter(o=>o.layer===p.id).length).join(' · '):'';
-      status('Preview: '+pending.objects.length+' editable objects. '+counts+
-        '. Inspect, accept or discard. No changes saved yet.');
+      showProposal(doc,shot,fullEnvironment);
     }catch(error){
       log('Generation failed: '+error.message);
       if(error.status===401){
@@ -263,6 +315,27 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       }
       onDiscard();pending=null;pendingShot=null;
     }finally{busy=false;ui();}
+  });
+  resumeArgon?.addEventListener('click',async()=>{
+    if(busy||!authenticated||!argonJob)return;
+    const shot=getActiveShot();
+    if(!shot||shot.id!==argonJob.shotId){
+      status('Select chapter '+argonJob.shotId+' to resume its Argon result.');return;
+    }
+    busy=true;ui();clearActivity();
+    try{
+      const session=await readServerSession();
+      if(!session.authenticated){sessionEnded();return;}
+      csrf=session.csrf;argonJob=session.argonJob;
+      if(!argonJob||argonJob.shotId!==shot.id)throw Error('No Argon job for this chapter');
+      log('Resuming existing paid Argon background job without starting another request.');
+      const proposal=await pollArgon(shot.id);
+      argonJob={shotId:shot.id,status:'completed'};
+      showProposal(proposal,shot);
+    }catch(error){
+      log('Argon resume: '+error.message);
+      status('Argon resume: '+error.message);
+    }finally{busy=false;if(waitInfo)waitInfo.textContent='';ui();}
   });
   inspect.addEventListener('click',()=>{
     if(pending&&!busy&&getActiveShot()?.id===pendingShot)onInspect?.(pendingShot);

@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-medium-backoff-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-previs-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'gemini-medium-backoff-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-previs-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -53,6 +53,96 @@ test('worker accepts only limited JPEG data and the correct shot ID',()=>{
   assert.throws(()=>validateInput({...sample,frames:Array(4).fill(sample.frames[0])}),/Invalid frame count/);
   assert.throws(()=>validateInput({...sample,frames:[{at:1,imageDataUrl:'https://evil.test/a.jpg'}]}),/JPEG/);
 });
+test('Argon Previs background accepts bounded primary frames and polls validated JSON',async()=>{
+  const prior=globalThis.fetch;let calls=0;
+  const id='v1_C1234567890opaque';
+  const provider={
+    id,status:'completed',steps:[{type:'user_input',content:[{type:'text',text:'SECRET_INPUT'}]},
+      {type:'model_output',content:[{type:'text',text:JSON.stringify(scene)}]}]
+  };
+  globalThis.fetch=async (url,opts)=>{
+    calls++;
+    if(calls===1){
+      assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
+      assert.equal(opts.method,'POST');
+      assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
+      assert.equal(opts.headers['Api-Revision'],'2026-05-20');
+      const data=JSON.parse(opts.body);
+      assert.equal(data.model,'gemini-4-argon');
+      assert.equal(data.background,true);
+      assert.equal(data.store,true);
+      assert.equal(data.generation_config.max_output_tokens,32768);
+      assert.equal(data.generation_config.thinking_level,'medium');
+      assert.deepEqual(data.response_format,{type:'text',mime_type:'application/json'});
+      assert.ok(data.input.some(p=>p.type==='image'&&p.mime_type==='image/jpeg'));
+      assert.match(data.input[0].text,/PREVIS \/ RUNWAY PREP/);
+      assert.match(data.input[0].text,/PRIMARY SUBJECT/);
+      assert.ok(!data.input[0].text.includes('SECRET_INPUT'));
+      return new Response(JSON.stringify({id,status:'queued'}),{status:200});
+    }
+    assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions/'+id);
+    assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
+    return new Response(JSON.stringify(provider),{status:200});
+  };
+  try{
+    const post=(path,body)=>worker.fetch(new Request('https://example.workers.dev'+path,{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    }),env);
+    const start=await post('/api/scene/argon/start',{
+      ...sample,profile:'argon_previs',mode:'primary_subject'
+    });
+    assert.equal(start.status,200);
+    assert.deepEqual(await start.json(),{ok:true,jobId:id,status:'queued'});
+    const poll=await post('/api/scene/argon/status',{jobId:id,shotId:'draft_001'});
+    assert.equal(poll.status,200);
+    assert.deepEqual(await poll.json(),{ok:true,status:'completed',proposal:scene});
+    assert.equal(calls,2);
+  }finally{globalThis.fetch=prior;}
+});
+test('Argon stays strictly primary-only, with safe failures and no arbitrary job URL',async()=>{
+  const before=globalThis.fetch;let calls=0;
+  globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({
+    id:'v1_12345678',status:'in_progress'}),{status:200});};
+  try{
+    const post=async(path,body,authorized=true)=>worker.fetch(new Request(
+      'https://example.workers.dev'+path,{method:'POST',
+      headers:{'Authorization':'Bearer '+(authorized?token:'invalid'),
+        'Content-Type':'application/json'},body:JSON.stringify(body)}),env);
+    for(const body of [
+      {...sample,mode:'environment',profile:'argon_previs'},
+      {...sample,mode:'primary_subject',profile:'argon_previs',layer:'structures'},
+      {...sample,mode:'primary_subject',profile:'g38_medium'},
+      {...sample,mode:'primary_subject',profile:'argon_previs',model:'gemini-4-argon'}
+    ]){
+      const result=await post('/api/scene/argon/start',body);
+      assert.equal(result.status,400);
+    }
+    assert.equal((await post('/api/scene/argon/start',
+      {...sample,mode:'primary_subject',profile:'argon_previs'},false)).status,401);
+    const forged=await post('/api/scene/argon/status',{jobId:'https://evil.com/a',shotId:'draft_001'});
+    assert.equal(forged.status,400);
+    assert.equal(calls,0);
+  }finally{globalThis.fetch=before;}
+});
+test('Argon polling does not leak provider thoughts or malformed output',async()=>{
+  const prior=globalThis.fetch;const id='v1_123456789';
+  globalThis.fetch=async()=>new Response(JSON.stringify({
+    id,status:'completed',steps:[{type:'model_output',content:[{type:'text',text:'<bad>'}]},
+      {type:'thinking',content:[{type:'text',text:'SENSITIVE_PRIVATE_THOUGHT'}]}]
+  }),{status:200});
+  try{
+    const result=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/status',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify({jobId:id,shotId:'draft_001'})
+    }),env);
+    assert.equal(result.status,502);
+    const raw=await result.text();
+    assert.ok(!raw.includes('SENSITIVE_PRIVATE_THOUGHT'));
+    assert.deepEqual(JSON.parse(raw),{ok:false,error:'Provider scene did not match the editor schema'});
+  }finally{globalThis.fetch=prior;}
+});
+
 test('worker rejects script primitives and unsupported transforms',()=>{
   assert.equal(validateOutput(scene,'draft_001').scenes[0].objects.length,1);
   assert.throws(()=>validateOutput(scene,'draft_002'),/shot/);

@@ -137,11 +137,13 @@
                   <option value="lite_default" selected>Gemini 3.5 Flash-Lite · fast</option>
                   <option value="g38_low">Gemini 3.8 Flash · low thinking</option>
                   <option value="g38_medium">Gemini 3.8 Flash · medium thinking (primary only)</option>
+                  <option value="argon_previs">Gemini 4 Argon · Previs (PAID, background, primary only)</option>
                 </select>
               </label>
-              <p class="field-help">All options use your existing server-side Gemini API key. 3.8 Low has a 45-second Worker limit; 3.8 Medium allows up to 70 seconds (85-second PHP cURL limit), only in Primary subject mode. Your hosting provider may impose shorter limits. API availability and billing depend on your Google project.</p>
+              <p class="field-help">All options use your existing server-side Gemini API key. Argon Previs is a paid, opt-in primary-only background job for clean, editable previs aimed at AE/GLB export and eventual Runway video-to-video. It may take several minutes; Google bills input and thinking/output tokens. Flash profiles retain their existing limits. No geometry saves until you accept.</p>
               <p class="field-help">Uses the current reference frame first, plus two views from this chapter. Full environment makes four sequential Gemini requests and uses four of your 10 per-session hourly requests. Only visible evidence is modeled; absent layers can be empty. Nothing is saved until you accept.</p>
               <button id="aiSceneGenerate" type="button" class="wide primary">Generate 3D scene for this chapter</button>
+              <button id="aiSceneResumeArgon" type="button" class="wide secondary" hidden>Resume previous Argon job</button>
               <button id="aiSceneInspect" type="button" class="wide secondary" hidden>View proposed shapes in 3D ↗</button>
               <button id="aiSceneCleanup" type="button" class="wide secondary" hidden>Re-run z-fighting cleanup on preview</button>
               <div class="primitive-buttons">
