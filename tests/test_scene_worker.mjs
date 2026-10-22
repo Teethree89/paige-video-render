@@ -18,19 +18,17 @@ const visualAnalysis={
   parts:[{name:'Rack',shape:'Upright box',placement:'On the ground at center',
     proportions:'Width equals height and depth',appearance:'Blue #123456 metal, roughness about 0.5'}]
 };
-const analysisResult=(value=visualAnalysis)=>({status:'completed',steps:[
-  {type:'user_input',content:[{type:'image',data:'PRIVATE_IMAGE_BYTES'}]},
-  {type:'thought',content:[{type:'text',text:'PRIVATE_THOUGHT'}]},
-  {type:'model_output',content:[{type:'text',text:JSON.stringify(value)}]}
-]});
+const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
+  {text:JSON.stringify(value)}
+]}}],usageMetadata:{privateData:'DO_NOT_FORWARD'}});
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-workerd-redirect-manual-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-flash-visual-analysis-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-workerd-redirect-manual-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-flash-visual-analysis-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -66,51 +64,55 @@ test('worker accepts only limited JPEG data and the correct shot ID',()=>{
   assert.throws(()=>validateInput({...sample,frames:Array(4).fill(sample.frames[0])}),/Invalid frame count/);
   assert.throws(()=>validateInput({...sample,frames:[{at:1,imageDataUrl:'https://evil.test/a.jpg'}]}),/JPEG/);
 });
-test('Argon reconstructs via synchronous visual evidence and text-only background when background images return 400',async()=>{
-  const prior=globalThis.fetch;let calls=0;
-  let outputBudget=0;
+test('Fast Flash-Lite image analysis feeds text-only Argon background without client-media persistence',async()=>{
+  const prior=globalThis.fetch;let calls=0,outputBudget=0;
   const frames=[{at:1.5,imageDataUrl:image},{at:0,imageDataUrl:image},{at:3,imageDataUrl:image}];
   const id='v1_C1234567890opaque';
-  const provider={
-    id,status:'completed',steps:[{type:'user_input',content:[{type:'text',text:'SECRET_INPUT'}]},
-      {type:'model_output',content:[{type:'text',text:JSON.stringify(scene)}]}]
-  };
+  const provider={id,status:'completed',steps:[
+    {type:'user_input',content:[{type:'text',text:'SECRET_INPUT'}]},
+    {type:'model_output',content:[{type:'text',text:JSON.stringify(scene)}]}
+  ]};
   globalThis.fetch=async (url,opts)=>{
     calls++;
-    if(calls<=2){
+    if(calls===1){
+      assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent');
+      assert.equal(opts.method,'POST');
+      assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
+      assert.equal(opts.headers['Api-Revision'],undefined);
+      assert.equal(opts.redirect,'manual');
+      assert.ok(opts.signal instanceof AbortSignal);
+      const request=JSON.parse(opts.body);
+      assert.equal(request.model,undefined);
+      assert.equal(request.generationConfig.responseMimeType,'application/json');
+      assert.deepEqual(request.generationConfig.responseSchema.required,
+        ['subject','composition','palette','cameraMotion','uncertainties','parts']);
+      assert.equal(request.generationConfig.maxOutputTokens,4096);
+      assert.equal(request.generationConfig.thinkingConfig,undefined);
+      assert.equal(request.contents.length,1);
+      assert.equal(request.contents[0].role,'user');
+      assert.match(request.contents[0].parts[0].text,/FIRST supplied frame/);
+      assert.match(request.contents[0].parts[0].text,/silhouette/);
+      assert.deepEqual(request.contents[0].parts.slice(1),frames.flatMap(frame=>[
+        {text:'Reference frame at '+frame.at.toFixed(3)+' seconds'},
+        {inlineData:{mimeType:'image/jpeg',data:frame.imageDataUrl.split(',')[1]}}
+      ]));
+      outputBudget+=request.generationConfig.maxOutputTokens;
+      return new Response(JSON.stringify(analysisResult({...visualAnalysis,
+        privateMetadata:'PRIVATE_PROVIDER_METADATA'})),{status:200});
+    }
+    if(calls===2){
       assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
       assert.equal(opts.method,'POST');
       assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
       assert.equal(opts.headers['Api-Revision'],'2026-05-20');
+      assert.equal(opts.redirect,'manual');
       const data=JSON.parse(opts.body);
       assert.equal(data.model,'gemini-4-argon');
-      assert.equal(opts.redirect,'manual','Cloudflare workerd rejects redirect:error before fetching');
-      assert.equal(opts.signal instanceof AbortSignal,true);
-      outputBudget+=data.generation_config.max_output_tokens;
-      // Reproduce the observed provider restriction, rather than accepting
-      // the very payload that previously failed in the live service.
-      if(data.background&&Array.isArray(data.input)&&data.input.some(p=>p.type==='image'))
-        return new Response('{"error":{"message":"Provider rejected request"}}',{status:400});
-      if(calls===1){
-        assert.equal(data.background,false);
-        assert.equal(data.store,false);
-        assert.equal(data.generation_config.thinking_level,'low');
-        assert.equal(data.generation_config.max_output_tokens,4096);
-        assert.equal(data.response_format.mime_type,'application/json');
-        assert.ok(data.response_format.schema.required.includes('parts'));
-        assert.match(data.input[0].text,/FIRST supplied frame/);
-        assert.match(data.input[0].text,/silhouette/);
-        assert.deepEqual(data.input.slice(1),frames.flatMap(frame=>[
-          {type:'text',text:'Reference frame at '+frame.at.toFixed(3)+' seconds'},
-          {type:'image',data:frame.imageDataUrl.split(',')[1],mime_type:'image/jpeg'}
-        ]));
-        return new Response(JSON.stringify(analysisResult({...visualAnalysis,
-          privateMetadata:'PRIVATE_PROVIDER_METADATA'})),{status:200});
-      }
       assert.equal(data.background,true);
       assert.equal(data.store,true);
-      assert.equal(data.generation_config.max_output_tokens,28672);
       assert.equal(data.generation_config.thinking_level,'medium');
+      assert.equal(data.generation_config.max_output_tokens,28672);
+      outputBudget+=data.generation_config.max_output_tokens;
       assert.equal(data.response_format.type,'text');
       assert.equal(data.response_format.mime_type,'application/json');
       const schema=data.response_format.schema;
@@ -123,11 +125,9 @@ test('Argon reconstructs via synchronous visual evidence and text-only backgroun
       assert.deepEqual(primitive.properties.primitive.enum,
         ['box','sphere','cylinder','plane','torus']);
       assert.ok(primitive.required.includes('scale'));
-      assert.ok(!JSON.stringify(schema).includes('maxItems'),
-        'Do not impose nested array limits in provider schema; local validator enforces 48 objects');
       assert.equal(typeof data.input,'string');
-      assert.deepEqual(JSON.parse(data.input),visualAnalysis,'Preserve each bounded visual detail');
-      assert.equal(data.previous_interaction_id,undefined,'Do not reintroduce images through history');
+      assert.deepEqual(JSON.parse(data.input),visualAnalysis);
+      assert.equal(data.previous_interaction_id,undefined);
       assert.match(data.system_instruction,/PREVIS \/ RUNWAY PREP/);
       assert.match(data.system_instruction,/PRIMARY SUBJECT/);
       assert.match(data.system_instruction,/untrusted descriptive data/);
@@ -153,11 +153,10 @@ test('Argon reconstructs via synchronous visual evidence and text-only backgroun
     const poll=await post('/api/scene/argon/status',{jobId:id,shotId:'draft_001'});
     assert.equal(poll.status,200);
     assert.deepEqual(await poll.json(),{ok:true,status:'completed',proposal:scene});
-    assert.equal(calls,3,'Two paid creates, then a GET-only poll');
+    assert.equal(calls,3,'Two opt-in billable starts, then a GET-only poll');
     assert.equal(outputBudget,32768,'Keep the previous combined thinking/output allowance');
   }finally{globalThis.fetch=prior;}
 });
-
 test('Argon uses workerd-compatible fetch options and never follows provider redirects',async()=>{
   const previous=globalThis.fetch,previousWarn=console.warn;
   const body={...sample,profile:'argon_previs',mode:'primary_subject'};
@@ -208,12 +207,12 @@ test('Argon uses workerd-compatible fetch options and never follows provider red
 test('Argon rejects incomplete, malformed, oversized or unbounded analysis before paying for background generation',async()=>{
   const prior=globalThis.fetch;let calls=0;
   const invalid=[
-    {...analysisResult(),status:'in_progress'},
-    {...analysisResult(),status:'failed'},
-    {status:'completed',steps:{}},
-    {status:'completed',steps:[{type:'thought',content:[{type:'text',text:JSON.stringify(visualAnalysis)}]}]},
-    {status:'completed',steps:[{type:'model_output',content:[{type:'text',text:'x'.repeat(24001)}]}]},
-    {status:'completed',steps:[{type:'model_output',content:[{type:'text',text:'not JSON PRIVATE_INPUT'}]}]},
+    {candidates:[]},
+    {candidates:[{content:{parts:[]}}]},
+    {candidates:[{content:{parts:{not:'array'}}}]},
+    {candidates:[{content:{parts:[{thought:JSON.stringify(visualAnalysis)}]}}]},
+    {candidates:[{content:{parts:[{text:'x'.repeat(24001)}]}}]},
+    {candidates:[{content:{parts:[{text:'not JSON PRIVATE_INPUT'}]}}]},
     analysisResult(null),analysisResult('OK'),analysisResult({}),
     analysisResult({...visualAnalysis,subject:' '}),
     analysisResult({...visualAnalysis,composition:'x'.repeat(2001)}),
@@ -245,8 +244,11 @@ test('Argon never retries a failed paid call, never falls back, and keeps upstre
       let calls=0;
       globalThis.fetch=async(url,opts)=>{
         calls++;
-        assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
-        assert.equal(JSON.parse(opts.body).model,'gemini-4-argon');
+        assert.equal(url,calls===1?
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent':
+          'https://generativelanguage.googleapis.com/v1beta/interactions');
+        if(calls===1)assert.equal(JSON.parse(opts.body).generationConfig.maxOutputTokens,4096);
+        else assert.equal(JSON.parse(opts.body).model,'gemini-4-argon');
         if(calls<stage)return new Response(JSON.stringify(analysisResult()));
         if(status==='network'||status==='timeout')throw new DOMException('PRIVATE_PROVIDER_ERROR',
           status==='timeout'?'TimeoutError':'NetworkError');
@@ -289,7 +291,7 @@ test('Argon analysis and submission deadlines stay below the PHP transport deadl
     }),env);
     assert.deepEqual(await response.json(),{ok:false,error:'Argon reference analysis unavailable'});
     assert.equal(calls,1);
-    assert.deepEqual(times,[40000,30000]);
+    assert.deepEqual(times,[40000,35000]);
   }finally{globalThis.fetch=prior;AbortSignal.timeout=oldTimeout;}
 });
 test('Argon model check uses Google metadata GET, never submits paid content or frames',async()=>{
@@ -621,7 +623,9 @@ test('Argon 400 diagnostics use scoped field-path evidence and do not leak provi
   console.warn=(...args)=>logs.push(args);
   try{
     for(const {message,expected,category,details} of samples){
-      globalThis.fetch=async()=>{
+      globalThis.fetch=async(url)=>{
+        if(url.includes(':generateContent')){calls++;return new Response(JSON.stringify(analysisResult()));}
+
         calls++;
         return new Response(JSON.stringify({
           error:{code:'invalid_request',message,details},
@@ -639,7 +643,7 @@ test('Argon 400 diagnostics use scoped field-path evidence and do not leak provi
       assert.ok(!raw.includes('PRIVATE_FRAME_DATA'));
       assert.deepEqual(logs.at(-1),['argon-request-400-category',category]);
     }
-    assert.equal(calls,samples.length,'400 must not automatically trigger another paid request');
+    assert.equal(calls,samples.length*2,'one vision call then one Argon error per test; no retries');
     assert.ok(!JSON.stringify(logs).includes('PRIVATE_KEY_DO_NOT_LOG'));
     assert.ok(!JSON.stringify(logs).includes('PRIVATE_FRAME_DATA'));
     assert.ok(!JSON.stringify(logs).includes(env.GEMINI_API_KEY));

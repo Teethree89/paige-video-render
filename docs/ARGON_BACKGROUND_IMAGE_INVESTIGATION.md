@@ -58,8 +58,9 @@ These are documentation findings, not a new live inference test.
 1. Authenticate and validate exactly as before. PHP reserves two of the existing
    ten hourly request slots before any paid call; failed attempts retain their
    reservations. The browser explicitly discloses both calls.
-2. Analyze the same 1–3 ordered JPEG frames in one synchronous Argon interaction
-   (`background:false`, `store:false`, low thinking, 4,096 tokens). Preserve the
+2. Analyze the same 1–3 ordered JPEG frames in one synchronous
+   **Gemini 3.5 Flash-Lite** `models.generateContent` call, with structured
+   JSON output and 4,096 output tokens (35-second ceiling). Preserve the
    primary frame, timestamps, silhouette, relative dimensions, visible counts,
    orientation, colors/materials, scene layering, camera evidence and uncertainty
    in bounded JSON. No Files upload or stored image history is created.
@@ -75,8 +76,8 @@ These are documentation findings, not a new live inference test.
    transforms, materials, IDs and shot binding). Preview/Accept/Discard and
    editable Three.js/AE/GLB output stay on the existing path.
 
-Neither step retries or changes models. The two calls share a 40-second deadline
-under the unchanged PHP 45-second transport budget, with a 30-second analysis
+Neither step retries or silently falls back to another model. Stage A now intentionally uses Gemini 3.5 Flash-Lite; Stage B remains Argon. The two calls share a 40-second deadline
+under the unchanged PHP 45-second transport budget, with a 35-second Flash-Lite analysis
 ceiling. Failure, timeout or malformed analysis stops the second paid call.
 The three Flash profiles and their retry policies are unchanged.
 
@@ -112,6 +113,33 @@ the observed fast 502, but the specific exception was not present in the
 Cloudflare log, so live confirmation and reconstruction quality remain
 pending. No paid provider calls were performed during this fix.
 
+## Live 4:38 PM timeout and fast vision model correction
+
+The user-supplied Cloudflare record for the 2026-10-22 4:38 PM production
+attempt shows `argon-provider-fetch visual-analysis timeout-or-abort`,
+HTTP 502, `wallTimeMs:30005`, `cpuTimeMs:7`, and an otherwise successful
+Worker invocation. This confirms the 30-second deadline was reached while
+the Argon synchronous image analysis had not responded. A separate
+text-only Argon background job was **never** submitted.
+
+The editor now uses the existing supported Gemini 3.5 Flash-Lite
+`models.generateContent` path **only** for fast visual analysis. It
+passes the original ordered JPEG frames with the same descriptive
+prompt and JSON response schema. The structured output is bounded and
+validated using the same allowlisted scene-evidence contract as before.
+Only the validated textual evidence reaches Gemini 4 Argon's existing
+text-only background Interactions call. The two billable submissions
+remain separate and require the existing single explicit consent;
+neither stage automatically retries or falls back. The 35-second
+Flash-Lite deadline stays within the existing combined 40-second
+Worker and 45-second PHP budgets. Logs remain sanitized.
+
+This is an architecture change based on a **verified timeout**, not
+proof that every Flash-Lite request will finish in 35 seconds.
+If production analysis continues to time out, split the two paid
+stages into separately resumable authenticated jobs instead of
+lengthening PHP's synchronous request.
+
 ## Verification and limits
 
 Offline regression tests reproduce a provider that rejects background image
@@ -131,5 +159,4 @@ The old diagnostic stages 6–7 intentionally retain the direct provider probe;
 they are not prerequisites for this workaround and should not be replayed.
 
 Deployment requires both the PHP/frontend and Worker changes. Check the safe
-Worker revision `argon-workerd-redirect-manual-v1`. No deployment, key,
-billing, retention-setting, or private-media changes are part of this PR.
+Worker revision `argon-flash-visual-analysis-v1`. No deployment, key, billing, retention-setting, or private-media changes are part of this PR.
