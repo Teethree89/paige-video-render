@@ -95,14 +95,15 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const smokeButton=el('aiArgonSmokeRun'),smokeReset=el('aiArgonSmokeReset'),
     smokeSummary=el('aiArgonSmokeSummary');
   const smokeNames=['Minimal text, model defaults','Explicit native thinking_level=low',
-    'Synthetic JPEG understanding','Structured JSON schema','Background JSON + JPEG'];
+    'Synthetic JPEG understanding','Structured JSON schema','Background text only',
+    'Background with synthetic JPEG','Background with JPEG + JSON'];
   let smoke={step:0,state:'idle'};
   const updateSmoke=()=>{
     if(!smokeSummary)return;
-    if(smoke.state==='done')smokeSummary.textContent='All five Argon API stages passed. No client video was submitted.';
+    if(smoke.state==='done')smokeSummary.textContent='All seven Argon API stages passed. No client video was submitted.';
     else if(smoke.state==='failed')smokeSummary.textContent='Stopped on stage '+(smoke.step+1)+
       ': '+smokeNames[smoke.step]+'. You can explicitly retry this stage without replaying earlier paid tests.';
-    else smokeSummary.textContent='Stage '+(smoke.step+1)+'/5: '+smokeNames[smoke.step]+
+    else smokeSummary.textContent='Stage '+(smoke.step+1)+'/'+smokeNames.length+': '+smokeNames[smoke.step]+
       (smoke.state==='running'?' (background job running)':'');
     if(smokeButton){
       smokeButton.hidden=smoke.state==='done';
@@ -350,7 +351,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(!isPoll){
       if(typeof confirm!=='function'||!confirm(
         (smoke.state==='failed'?'Retry':'Run')+' paid Argon diagnostic '+
-        (step+1)+'/5: '+smokeNames[step]+
+        (step+1)+'/'+smokeNames.length+': '+smokeNames[step]+
         '? This submits exactly one additional potentially billable API request. No client footage is sent.'))return;
     }
     busy=true;ui();
@@ -368,7 +369,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         isPoll?{csrf}:{csrf,step,...(retry?{retry:true}:{})});
       smoke={step:result.step,state:result.state};
       if(result.state==='done'||result.state==='passed'){
-        log('Argon diagnostic '+(step+1)+'/5 passed.');
+        log('Argon diagnostic '+(step+1)+'/'+smokeNames.length+' passed.');
         status('Argon diagnostic stage '+(step+1)+' passed. '+(smoke.state==='done'?
           'All tests complete.':'Confirm the next stage when ready.'));
       }else if(result.state==='running'){
