@@ -438,18 +438,32 @@ function argonCodeToken(raw){
   }
   return ARGON_CODE_TOKEN.test(token)?token:null;
 }
+// Ordinary words that tell input complaints apart ("only one image", "expected
+// string", "too many parts", "exceeds size limit"). Reported as a sorted set
+// of vocabulary members only: no word order, no other text, no values.
+const ARGON_DIAG_TERMS=Object.freeze([
+  'image','images','media','multimodal','inline','base64','jpeg','bytes','encoding','decode',
+  'corrupt','file','content','contents','part','parts','step','steps','turn','role','type',
+  'item','items','array','list','string','object','oneof','value','field','format','text',
+  'modality','size','limit','maximum','minimum','exceed','exceeds','exceeded','too','large',
+  'long','many','count','number','empty','missing','required','duplicate','only','one',
+  'single','multiple','invalid','unsupported','supported','not','allowed','cannot','unknown',
+  'expected','must','parse','malformed','unrecognized','permitted','stored','stateless',
+  'streaming','interaction','interactions','mode','agent','token','tokens','first','order',
+  'mixed','combination']);
+const argonVocabulary=(words,text)=>words.filter(word=>
+  new RegExp('(?:^|[^a-z0-9_])'+word+'(?![a-z0-9_])').test(text));
 function argonMentionedFields(text){
   const normalized=text.replace(/([a-z])([A-Z])/g,'$1_$2').toLowerCase();
   // Underscore counts as part of a name, so model_interaction is not "model".
-  return ARGON_DIAG_FIELDS.filter(name=>
-    new RegExp('(?:^|[^a-z0-9_])'+name+'(?![a-z0-9_])').test(normalized));
+  return argonVocabulary(ARGON_DIAG_FIELDS,normalized);
 }
 // phase: create (POST rejected, no job), poll (GET rejected, job may exist) or
 // job (Google accepted the job, then reported it failed in interaction.errors).
 export function argonProviderDiagnostic(errors,phase,http=null,status=null,empty='no_error_body'){
   const list=(Array.isArray(errors)?errors:[errors])
     .filter(e=>e&&typeof e==='object'&&!Array.isArray(e)).slice(0,4);
-  const codes=new Set();let reason=null,prose=false,text='';
+  const codes=new Set();let reason=null,prose=false,text='',words='';
   for(const error of list){
     const details=Array.isArray(error.details)?error.details.slice(0,8):[];
     for(const raw of [error.code,error.status,...details.map(d=>d?.reason)]){
@@ -462,9 +476,11 @@ export function argonProviderDiagnostic(errors,phase,http=null,status=null,empty
       reason??=ARGON_REJECTION_REASONS.find(([,pattern])=>pattern.test(message))?.[0]??null;
     }
     text+=' '+message+' '+argonViolationFields(error).join(' ');
+    words+=' '+message.toLowerCase();
   }
   return {phase,http,status,codes:[...codes],
-    reason:reason||(prose?'unrecognized_message':empty),fields:argonMentionedFields(text)};
+    reason:reason||(prose?'unrecognized_message':empty),fields:argonMentionedFields(text),
+    terms:argonVocabulary(ARGON_DIAG_TERMS,words)};
 }
 function argonJobDiagnostic(interaction){
   const diagnostic=argonProviderDiagnostic(interaction?.errors,'job',null,
@@ -808,7 +824,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-direct-image-diagnostics-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-diagnostic-terms-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');

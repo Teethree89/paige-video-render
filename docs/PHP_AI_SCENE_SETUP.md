@@ -257,7 +257,7 @@ paid-tier access. Structured field violations take precedence over message text.
 **Provider diagnostic.** The documented Interactions error body is only
 `{error:{code, message}}`; Google sends no field violations. The user-facing
 category above therefore usually stays `unknown`. Alongside it, the Worker
-returns `diagnostic: {phase, http, status, codes, reason, fields}`:
+returns `diagnostic: {phase, http, status, codes, reason, fields, terms}`:
 
 - `phase` is `create` (POST rejected, so no job exists), `poll` (GET
   rejected, so the job may exist) or `job` (`interaction.errors[]`).
@@ -267,6 +267,10 @@ returns `diagnostic: {phase, http, status, codes, reason, fields}`:
   `media_input_rejected`, `mime_type`, `output_schema`,
   `generic_invalid_argument` or `unrecognized_message`.
 - `fields` lists documented request field names mentioned in the message.
+- `terms` lists members of a fixed list of about 80 ordinary words found in
+  the message (for example `image`, `only`, `expected`, `string`, `too`,
+  `many`). They come without word order; PHP keeps an identical list, and a
+  test checks that the two match.
 
 Provider prose never leaves the Worker and is not logged. PHP
 `safe_worker_diagnostic()` re-validates every token before forwarding it.

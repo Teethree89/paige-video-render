@@ -94,8 +94,23 @@ function safe_worker_diagnostic($value) {
         'generation_config', 'thinking_level', 'max_output_tokens', 'response_format',
         'mime_type', 'schema', 'data', 'uri', 'resolution', 'previous_interaction_id',
         'service_tier', 'user_input'];
+    // Must match ARGON_DIAG_TERMS in the Worker (tested).
+    $knownTerms = [
+        'image', 'images', 'media', 'multimodal', 'inline', 'base64', 'jpeg', 'bytes',
+        'encoding', 'decode', 'corrupt', 'file', 'content', 'contents', 'part', 'parts',
+        'step', 'steps', 'turn', 'role', 'type', 'item', 'items', 'array', 'list',
+        'string', 'object', 'oneof', 'value', 'field', 'format', 'text', 'modality',
+        'size', 'limit', 'maximum', 'minimum', 'exceed', 'exceeds', 'exceeded', 'too',
+        'large', 'long', 'many', 'count', 'number', 'empty', 'missing', 'required',
+        'duplicate', 'only', 'one', 'single', 'multiple', 'invalid', 'unsupported',
+        'supported', 'not', 'allowed', 'cannot', 'unknown', 'expected', 'must', 'parse',
+        'malformed', 'unrecognized', 'permitted', 'stored', 'stateless', 'streaming',
+        'interaction', 'interactions', 'mode', 'agent', 'token', 'tokens', 'first',
+        'order', 'mixed', 'combination'];
     $codes = $value['codes'] ?? null;
     $fields = $value['fields'] ?? null;
+    // Workers older than argon-diagnostic-terms-v1 send no terms.
+    $terms = $value['terms'] ?? [];
     $reason = $value['reason'] ?? null;
     if (!in_array($value['phase'] ?? null, ['create', 'poll', 'job'], true) ||
         !in_array($value['http'] ?? null, [null, 400, 422], true) ||
@@ -103,16 +118,20 @@ function safe_worker_diagnostic($value) {
             'requires_action', 'budget_exceeded'], true) ||
         !is_string($reason) || !preg_match('/^[a-z][a-z_]{0,47}$/D', $reason) ||
         !is_array($codes) || count($codes) > 4 ||
-        !is_array($fields) || count($fields) > count($known))
+        !is_array($fields) || count($fields) > count($known) ||
+        !is_array($terms) || count($terms) > count($knownTerms))
         return null;
     foreach ($codes as $code)
         if (!is_string($code) ||
             !preg_match('/^(?:[a-z][a-z0-9_]{0,47}|[A-Z][A-Z0-9_]{0,47})$/D', $code)) return null;
     foreach ($fields as $field)
         if (!in_array($field, $known, true)) return null;
+    foreach ($terms as $term)
+        if (!in_array($term, $knownTerms, true)) return null;
     return ['phase' => $value['phase'], 'http' => $value['http'] ?? null,
         'status' => $value['status'] ?? null, 'reason' => $reason,
-        'codes' => array_values($codes), 'fields' => array_values($fields)];
+        'codes' => array_values($codes), 'fields' => array_values($fields),
+        'terms' => array_values($terms)];
 }
 function with_diagnostic(array $payload, $workerValue): array {
     $diagnostic = safe_worker_diagnostic(is_array($workerValue) ? ($workerValue['diagnostic'] ?? null) : null);

@@ -307,14 +307,19 @@ echo json_encode(array_map(static function ($value) {
 }, $cases));
 '''
         valid = {"phase": "create", "http": 400, "status": None, "reason": "media_input_rejected",
-                 "codes": ["invalid_request", "INVALID_ARGUMENT"], "fields": ["model", "background"]}
+                 "codes": ["invalid_request", "INVALID_ARGUMENT"], "fields": ["model", "background"],
+                 "terms": ["image", "cannot"]}
+        legacy = {key: value for key, value in valid.items() if key != "terms"}
         cases = [
             {"diagnostic": valid},
             {"diagnostic": {**valid, "message": "PRIVATE provider prose", "raw": "PRIVATE"}},
             {"diagnostic": {**valid, "phase": "job", "http": None, "status": "incomplete"}},
+            {"diagnostic": legacy},
             {"diagnostic": {**valid, "codes": ["AIzaSyPRIVATEmixedCaseKey"]}},
             {"diagnostic": {**valid, "codes": ["invalid_request"] * 5}},
             {"diagnostic": {**valid, "fields": ["PRIVATE_FIELD"]}},
+            {"diagnostic": {**valid, "terms": ["PRIVATE"]}},
+            {"diagnostic": {**valid, "terms": "image"}},
             {"diagnostic": {**valid, "reason": "PRIVATE prose reason"}},
             {"diagnostic": {**valid, "phase": "upload"}},
             {"diagnostic": {**valid, "http": 500}},
@@ -333,9 +338,24 @@ echo json_encode(array_map(static function ($value) {
         self.assertEqual(output[0], {"ok": False, "diagnostic": valid})
         self.assertEqual(output[1], {"ok": False, "diagnostic": valid}, "extra keys dropped")
         self.assertEqual(output[2]["diagnostic"]["status"], "incomplete")
-        for rejected in output[3:]:
+        # Workers before argon-diagnostic-terms-v1 send no terms.
+        self.assertEqual(output[3], {"ok": False, "diagnostic": {**legacy, "terms": []}})
+        for rejected in output[4:]:
             self.assertEqual(rejected, {"ok": False})
         self.assertNotIn("PRIVATE", result.stdout)
+
+    def test_php_and_worker_diagnostic_vocabularies_match(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        php = (root / "scene-proxy.php").read_text()
+        worker = (root / "worker" / "scene-worker.mjs").read_text()
+        def words(pattern, text):
+            return re.findall(r"'([a-z0-9_]+)'", re.search(pattern, text, re.S).group(1))
+        # PHP drops any token outside its own copy, so a drifted list would
+        # silently hide diagnostics instead of failing loudly.
+        self.assertEqual(words(r"\$known = \[(.*?)\];", php),
+                         words(r"const ARGON_DIAG_FIELDS=Object\.freeze\(\[(.*?)\]\);", worker))
+        self.assertEqual(words(r"\$knownTerms = \[(.*?)\];", php),
+                         words(r"const ARGON_DIAG_TERMS=Object\.freeze\(\[(.*?)\]\);", worker))
 
     @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
     def test_rejected_diagnostic_poll_unlocks_explicit_retry_without_resubmitting(self):

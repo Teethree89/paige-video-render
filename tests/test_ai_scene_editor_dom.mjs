@@ -589,9 +589,9 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     const rejected=await run('argon_direct',()=>new Response(JSON.stringify({ok:false,
       error:'Google rejected the Argon request (HTTP 400). No job was created and nothing was retried; see the provider diagnostic in the activity log.',
       diagnostic:{phase:'create',http:400,status:null,reason:'media_input_rejected',
-        codes:['invalid_request'],fields:['model','background']}}),{status:502}));
+        codes:['invalid_request'],fields:['input'],terms:['image','only','one','supported']}}),{status:502}));
     assert.deepEqual(rejected.actions,['argon_start'],'No retry, Previs or Flash-Lite fallback');
-    assert.match(rejected.log,/Provider diagnostic: create · HTTP 400 · reason media_input_rejected · code invalid_request · fields model, background/);
+    assert.match(rejected.log,/Provider diagnostic: create · HTTP 400 · reason media_input_rejected · code invalid_request · fields input · terms image, only, one, supported/);
     const failed=await run('argon_previs',payload=>new Response(JSON.stringify(
       payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
       {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,

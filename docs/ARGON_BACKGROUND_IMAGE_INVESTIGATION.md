@@ -244,6 +244,43 @@ no fields, Google's own message is uninformative. In that case, report to
 Google with the Cloudflare log timestamp, following their forum process,
 rather than trying speculative paid variants.
 
+### First live result (2026-10-22, 7:04 PM EDT)
+
+The first `argon_direct` run used three real 768-px frames and a
+146,056-byte Worker request. Google rejected the create POST in **351 ms**
+(Worker `cpuTimeMs` 8), which means it failed request validation and no
+inference ran. No job was created. The diagnostic was:
+
+`create · HTTP 400 · reason unrecognized_message · code invalid_request · fields input`
+
+What this establishes:
+
+- Google's message names the `input` field and no other documented field.
+  So `background`, `store`, `model`, `response_format`/`schema`,
+  `generation_config`/thinking, `system_instruction`, `mime_type`, `data`
+  and `uri` are not what it complains about.
+- The message is not the generic "Request contains an invalid argument.",
+  so it carries a specific reason the phrase table did not recognize.
+- Payload size is ruled out: 146 KB against a 20 MB inline limit.
+
+Sharpened hypothesis (unverified): the only background request that passed
+(stage 5) sent `input` as a **string**. Every failure sent the **ContentList**
+form `[{type:text}, {type:image}]`, and background plus a text-only
+ContentList has never been tried. Rejecting the input *form* in background
+mode fits a message that names `input` without image wording, as well as
+"images are refused".
+
+To tell these apart without guessing, the diagnostic now also reports
+`terms`. These are members of a fixed vocabulary of about 80 ordinary words
+(for example `image`, `only`, `one`, `expected`, `string`, `steps`, `too`,
+`many`, `size`, `exceeds`) that appear in Google's message. They are reported
+without word order or any other text. PHP re-validates them against an
+identical list, and a test keeps the two lists in sync. Next step, with
+approval: re-run once (stage 6, which uses only the synthetic image, or
+`argon_direct`) and read the `terms`. If they indicate the input form, the
+documented StepList form `[{"type":"user_input","content":[…]}]` is the one
+candidate fix left to test.
+
 ### Remaining blockers
 
 These need the live steps above or action from Google:

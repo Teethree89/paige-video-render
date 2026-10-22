@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-image-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-diagnostic-terms-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-image-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-diagnostic-terms-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -450,41 +450,41 @@ test('Interactions error bodies become fixed-vocabulary diagnostics, never provi
   const cases=[
     // Documented Error object: code is a URI naming the error type.
     [{code:'https://ai.google.dev/errors/invalid_request',message:'Request contains an invalid argument.'},
-      {codes:['invalid_request'],reason:'generic_invalid_argument',fields:[]}],
+      {codes:['invalid_request'],reason:'generic_invalid_argument',fields:[],terms:['invalid']}],
     // Bodies reported on background interactions, Sept-Oct 2026.
     [{code:'invalid_request',message:"Model 'gemini-4-argon' does not support background interactions."},
-      {codes:['invalid_request'],reason:'background_unsupported_for_model',fields:['model','background']}],
+      {codes:['invalid_request'],reason:'background_unsupported_for_model',fields:['model','background'],terms:['not','interactions']}],
     [{code:'invalid_request',message:'Unsupported file uri: blobstore:///genai-api/blobref/global::PRIVATE_REF'},
-      {codes:['invalid_request'],reason:'file_uri_unsupported',fields:['uri']}],
+      {codes:['invalid_request'],reason:'file_uri_unsupported',fields:['uri'],terms:['file','unsupported']}],
     [{code:'invalid_request',message:'Multiple authentication credentials received. Please pass only one.'},
-      {codes:['invalid_request'],reason:'auth_credentials',fields:[]}],
+      {codes:['invalid_request'],reason:'auth_credentials',fields:[],terms:['only','one','multiple']}],
     // Documented: background with store=false is a 400.
     [{code:'invalid_request',message:'store=false is incompatible with background execution'},
-      {codes:['invalid_request'],reason:'background_requires_store',fields:['background','store']}],
+      {codes:['invalid_request'],reason:'background_requires_store',fields:['background','store'],terms:[]}],
     [{code:'invalid_request',message:'The model cannot process this image in a background request '+secret},
-      {codes:['invalid_request'],reason:'media_input_rejected',fields:['model','background']}],
+      {codes:['invalid_request'],reason:'media_input_rejected',fields:['model','background'],terms:['image','not','cannot','token']}],
     [{code:'invalid_request',message:'Invalid input[1].mime_type '+secret},
-      {codes:['invalid_request'],reason:'mime_type',fields:['input','mime_type']}],
+      {codes:['invalid_request'],reason:'mime_type',fields:['input','mime_type'],terms:['invalid','not','token']}],
     [{code:'invalid_request',message:'responseFormat.schema too complex: maxItems'},
-      {codes:['invalid_request'],reason:'output_schema',fields:['response_format','schema']}],
+      {codes:['invalid_request'],reason:'output_schema',fields:['response_format','schema'],terms:['too']}],
     [{code:'invalid_request',message:'Inline data is too large for this request'},
-      {codes:['invalid_request'],reason:'payload_too_large',fields:['data']}],
+      {codes:['invalid_request'],reason:'payload_too_large',fields:['data'],terms:['inline','too','large']}],
     [{code:'invalid_request',message:'model_interaction failed '+secret},
-      {codes:['invalid_request'],reason:'unrecognized_message',fields:[]}],
+      {codes:['invalid_request'],reason:'unrecognized_message',fields:[],terms:['not','token']}],
     // google.rpc.Status fallback: enum status, ErrorInfo reason and field paths.
     [{code:400,status:'INVALID_ARGUMENT',message:'Uninformative '+secret,details:[
       {'@type':'type.googleapis.com/google.rpc.ErrorInfo',reason:'FIELD_INVALID',
         metadata:{consumer:'projects/PRIVATE_PROJECT'}},
       {'@type':'type.googleapis.com/google.rpc.BadRequest',
         fieldViolations:[{field:'model_interaction.input[1].data',description:secret}]}]},
-      {codes:['INVALID_ARGUMENT','FIELD_INVALID'],reason:'unrecognized_message',fields:['input','data']}],
+      {codes:['INVALID_ARGUMENT','FIELD_INVALID'],reason:'unrecognized_message',fields:['input','data'],terms:['not','token']}],
     // Key-like, numeric, dotted or prose codes are dropped, never truncated.
-    [{code:env.GEMINI_API_KEY},{codes:[],reason:'no_error_body',fields:[]}],
+    [{code:env.GEMINI_API_KEY},{codes:[],reason:'no_error_body',fields:[],terms:[]}],
     [{code:'AIzaSyPRIVATEkey_0123456789abcdefghijk',status:'123456789'},
-      {codes:[],reason:'no_error_body',fields:[]}],
-    [{code:'AQ.Ab8PRIVATE',message:''},{codes:[],reason:'no_error_body',fields:[]}],
-    [{code:'Invalid request PRIVATE text'},{codes:[],reason:'no_error_body',fields:[]}],
-    [{code:'https://attacker.example/PRIVATE.key'},{codes:[],reason:'no_error_body',fields:[]}]
+      {codes:[],reason:'no_error_body',fields:[],terms:[]}],
+    [{code:'AQ.Ab8PRIVATE',message:''},{codes:[],reason:'no_error_body',fields:[],terms:[]}],
+    [{code:'Invalid request PRIVATE text'},{codes:[],reason:'no_error_body',fields:[],terms:[]}],
+    [{code:'https://attacker.example/PRIVATE.key'},{codes:[],reason:'no_error_body',fields:[],terms:[]}]
   ];
   for(const [error,expected] of cases){
     const result=argonProviderDiagnostic(error,'create',400);
@@ -494,7 +494,20 @@ test('Interactions error bodies become fixed-vocabulary diagnostics, never provi
   }
   for(const empty of [null,undefined,'PRIVATE string',42,[]])
     assert.deepEqual(argonProviderDiagnostic(empty,'poll',400),
-      {phase:'poll',http:400,status:null,codes:[],reason:'no_error_body',fields:[]});
+      {phase:'poll',http:400,status:null,codes:[],reason:'no_error_body',fields:[],terms:[]});
+  // The live 2026-10-22 direct-image create 400 named only "input" with an
+  // unrecognized phrase. Terms separate the candidate explanations.
+  for(const [message,terms] of [
+    ['Only one image is supported per input.',['image','only','one','supported']],
+    ["Invalid value at 'input' (oneof), expected string",['string','oneof','value','invalid','expected']],
+    ['input contains too many parts',['parts','too','many']],
+    ['Unable to process input image: decode failed',['image','decode']],
+    ['Input steps must not mix content types',['content','steps','not','must']]
+  ]){
+    const result=argonProviderDiagnostic({code:'invalid_request',message},'create',400);
+    assert.deepEqual(result.fields,['input'],message);
+    assert.deepEqual([...result.terms].sort(),[...terms].sort(),message);
+  }
   // A later recognized message wins over an earlier unrecognized one.
   assert.equal(argonProviderDiagnostic([{message:'PRIVATE noise'},
     {message:'Unsupported file uri: x'}],'job').reason,'file_uri_unsupported');
@@ -518,7 +531,7 @@ test('Status rejections and failed jobs report their phase without claiming no j
     const rejected={error:{code:'invalid_request',
       message:'Unsupported file uri: blobstore:///genai-api/blobref/global::PRIVATE_REF'}};
     const pollDiagnostic={phase:'poll',http:400,status:null,codes:['invalid_request'],
-      reason:'file_uri_unsupported',fields:['uri']};
+      reason:'file_uri_unsupported',fields:['uri'],terms:['file','unsupported']};
     for(const [path,body] of [['/api/scene/argon/diagnostic-status',{id,stage:'background_image'}],
       ['/api/scene/argon/status',{jobId:id,shotId:'draft_001'}]]){
       respond(400,rejected);
@@ -532,7 +545,7 @@ test('Status rejections and failed jobs report their phase without claiming no j
       message:'There was a problem processing your request. You will not be charged. PRIVATE'}],
       steps:[{type:'user_input',content:[{type:'image',data:'PRIVATE_FRAME'}]}]});
     const jobDiagnostic={phase:'job',http:null,status:'failed',codes:['INVALID_ARGUMENT'],
-      reason:'unrecognized_message',fields:[]};
+      reason:'unrecognized_message',fields:[],terms:['not']};
     assert.deepEqual(await (await post('/api/scene/argon/status',{jobId:id,shotId:'draft_001'})).json(),
       {ok:true,status:'failed',diagnostic:jobDiagnostic});
     assert.deepEqual(await (await post('/api/scene/argon/diagnostic-status',
@@ -542,7 +555,7 @@ test('Status rejections and failed jobs report their phase without claiming no j
     respond(200,{id,status:'incomplete'});
     assert.deepEqual(await (await post('/api/scene/argon/status',{jobId:id,shotId:'draft_001'})).json(),
       {ok:true,status:'failed',diagnostic:{phase:'job',http:null,status:'incomplete',codes:[],
-        reason:'incomplete_output',fields:[]}});
+        reason:'incomplete_output',fields:[],terms:[]}});
     assert.equal(calls,5,'Exactly one GET per poll; nothing is retried or resubmitted');
     assert.ok(logs.some(line=>line[0]==='argon-provider-diagnostic'));
     assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
@@ -638,7 +651,7 @@ test('Direct-image rejections are never retried and never fall back to Flash-Lit
       assert.equal(calls,1,'No retry, Files upload, Flash-Lite or Previs fallback');
       if(status===400)assert.deepEqual(JSON.parse(raw),{ok:false,error:'Argon rejected Interactions request',
         diagnostic:{phase:'create',http:400,status:null,codes:['invalid_request'],
-          reason:'media_input_rejected',fields:['model','background']}});
+          reason:'media_input_rejected',fields:['model','background'],terms:['image','cannot']}});
     }
     assert.deepEqual(logs.find(line=>line[0]==='argon-provider-fetch'),
       ['argon-provider-fetch','direct-image','runtime-type-or-network']);
@@ -766,8 +779,9 @@ test('Argon 400 diagnostics use scoped field-path evidence and do not leak provi
       assert.equal(result.error,expected,message);
       // The documented error-type code and a recognized message class reach
       // the developer; the provider's own words never do.
-      assert.deepEqual({...result.diagnostic,fields:undefined},
-        {phase:'create',http:400,status:null,codes:['invalid_request'],reason,fields:undefined},message);
+      assert.deepEqual({...result.diagnostic,fields:undefined,terms:undefined},
+        {phase:'create',http:400,status:null,codes:['invalid_request'],reason,
+          fields:undefined,terms:undefined},message);
       assert.ok(!raw.includes('PRIVATE_KEY_DO_NOT_LOG'));
       assert.ok(!raw.includes('PRIVATE_FRAME_DATA'));
       assert.deepEqual(logs.at(-2),['argon-request-400-category',category]);
