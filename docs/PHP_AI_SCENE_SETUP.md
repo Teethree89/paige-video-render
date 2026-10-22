@@ -182,9 +182,7 @@ Tests in CI stub provider calls and never consume paid API credits.
 
 The `argon_previs` model profile uses **up to two potentially billable calls**, **Primary subject only**,
 to Google's Gemini APIs. Stage A uses **Gemini 3.5 Flash-Lite** via `models.generateContent` and the
-existing encrypted `GEMINI_API_KEY`. A synchronous image analysis produces
-same bounded visual evidence contract; Stage B uses **Gemini 4 Argon** via the native Interactions API as a text-only background task to turn the evidence into
-geometry. See [the investigation](ARGON_BACKGROUND_IMAGE_INVESTIGATION.md) for
+existing encrypted `GEMINI_API_KEY`. A synchronous image-analysis call produces the same bounded visual-evidence contract. Stage B uses **Gemini 4 Argon** via the native Interactions API as a text-only background task to turn that evidence into editable geometry. See [the investigation](ARGON_BACKGROUND_IMAGE_INVESTIGATION.md) for
 the observed background/image rejection and the limits of the diagnosis.
 It uses a descriptive Previs/Runway Prep prompt targeting
 silhouette, hero masses, facade rhythm, clean grounded forms, and independent
@@ -197,8 +195,9 @@ A C4D-native project/export pipeline is a separate planned development.
   before calling the Worker; a session with nine used slots cannot start Argon.
   Reservations remain consumed on failure. Poll/resume creates no new inference.
 - Worker validates 1–3 inline JPEGs and primary-only scope, then sends one
-  synchronous request with `background:false`, `store:false`, `thinking_level:low`
-  and a 4,096 thinking/output-token cap. Its schema captures subject, composition,
+  synchronous `models.generateContent` request to Gemini 3.5 Flash-Lite with
+  `responseMimeType:application/json`, the bounded response schema, and a
+  4,096 output-token cap. No native Argon thinking settings are used in Stage A. Its schema captures subject, composition,
   palette, camera motion, uncertainty and up to 32 visible subassemblies. The
   first frame remains primary even if timestamps are not chronological.
 - Only completed, bounded, validated visual evidence reaches the second request.
@@ -209,7 +208,7 @@ A C4D-native project/export pipeline is a separate planned development.
   The final scene `response_format` includes the existing compact schema; the
   Worker still strictly validates all transforms, materials and the 48-object cap.
 - Both calls share a 40-second Worker deadline inside the existing 45-second PHP
-  timeout; analysis is additionally capped at 30 seconds. Failure in analysis
+  timeout; Flash-Lite analysis is additionally capped at 35 seconds. Failure in analysis
   stops before background creation. No automatic paid retry, probe or fallback
   occurs at either stage. **Failed/timed-out requests may still incur charges.**
 - Job ID lives **only** in the authenticated PHP session; JS submits
@@ -224,15 +223,16 @@ A C4D-native project/export pipeline is a separate planned development.
   is made to resume. Another paid job cannot start while a queued/running job
   is associated with that PHP session. Job recovery is capped at 24 hours
   in PHP; Google stores background results according to its retention policy.
-- **Client footage privacy:** Image analysis opts out of interaction storage
-  (`store:false`); images are still processed by Google. The background request
+- **Client footage privacy:** The Flash-Lite vision pass uses a direct
+  synchronous GenerateContent call, not a stored Interactions background job;
+  client images are still processed by Google under the applicable API data policies. The background request
   stores only the derived visual description and generated result. Google's
   current documentation says paid-tier stored interactions default to 55 days,
-  configurable in AI Studio to 7/14/28/55 days. `store:false` is **incompatible**
-  with background execution, not a 24-hour background-retention option. No
-  retention settings are changed by this implementation. Credentials, image
-  bytes, analysis and raw provider errors are not logged or returned to the
-  browser. The validated scene remains subject to the existing Accept flow.
+  configurable in AI Studio to 7/14/28/55 days. A stateless `store:false` Argon analysis is no longer part of this flow.
+  The background request continues using `store:true`; verify actual retention
+  settings in Google AI Studio. No
+  retention settings are changed by this implementation. Credentials, image bytes, analysis and raw provider errors are not
+  logged or returned to the browser. The validated scene remains subject to the existing Accept flow.
 - Google charges by input and output/thinking token usage; check the latest
   <https://ai.google.dev/gemini-api/docs/pricing>. Limit test spend and
   review usage in AI Studio before running client production sequences.
@@ -248,7 +248,7 @@ recognizable field path in the message. The two distinct fields
 `response_format.mime_type` (JSON output) and `input[n].mime_type` (JPEG
 input) must **not** be conflated. An unscoped mention of `mime_type` or
 `image` gives an **unknown Argon request error**, not a misleading image
-diagnosis. Our `argonInput()` already emits the exact base64/jpeg form shown
+diagnosis. The diagnostic image input already emits the exact base64/jpeg form shown
 in Google's Interactions image docs for the synchronous analysis. Do not blindly encode base64 again or
 prepend a data URI. Category logs and browser messages come from fixed
 allowlists only: no provider message, frame data, image bytes or secrets
