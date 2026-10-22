@@ -559,7 +559,7 @@ test('Argon model visibility check is separate from paid generation, CSRF protec
   }
 });
 
-test('Argon smoke tests require five separate confirmations and never sample client video',async()=>{
+test('Argon smoke tests require seven separate confirmations and do not sample client video',async()=>{
   const beforeDoc=globalThis.document,beforeFetch=globalThis.fetch,
     beforeConfirm=globalThis.confirm;
   const ids=new Map();let posted=[],confirms=0,videoObjects=0;
@@ -579,13 +579,13 @@ test('Argon smoke tests require five separate confirmations and never sample cli
     if(req.action==='argon_diag_step'){
       assert.equal(req.step,state.step);
       assert.deepEqual(Object.keys(req).sort(),['action','csrf','step']);
-      if(req.step===4)state={step:4,state:'running'};
+      if(req.step>=4)state={step:req.step,state:'running'};
       else state={step:req.step+1,state:'passed'};
       return new Response(JSON.stringify({ok:true,...state,passed:true}),{status:200});
     }
     if(req.action==='argon_diag_poll'){
       assert.deepEqual(Object.keys(req).sort(),['action','csrf']);
-      state={step:5,state:'done'};
+      state={step:state.step+1,state:state.step===6?'done':'passed'};
       return new Response(JSON.stringify({ok:true,...state,passed:true}),{status:200});
     }
     throw Error('Unexpected scene generation or model call');
@@ -597,16 +597,20 @@ test('Argon smoke tests require five separate confirmations and never sample cli
       onPreview:()=>assert.fail('No geometry should be created'),onDiscard:()=>{},
       onAccept:()=>assert.fail('No geometry to accept')});
     await new Promise(resolve=>setImmediate(resolve));
-    for(let i=0;i<5;i++)await ids.get('aiArgonSmokeRun').fire('click');
-    assert.equal(state.state,'running');
-    assert.match(ids.get('aiArgonSmokeRun').textContent,/Check running Argon diagnostic/);
-    await ids.get('aiArgonSmokeRun').fire('click');
+    for(let i=0;i<7;i++){
+      await ids.get('aiArgonSmokeRun').fire('click');
+      if(i>=4){
+        assert.equal(state.state,'running');
+        assert.match(ids.get('aiArgonSmokeRun').textContent,/Check running Argon diagnostic/);
+        await ids.get('aiArgonSmokeRun').fire('click');
+      }
+    }
     assert.equal(state.state,'done');
-    assert.equal(confirms,5);
-    assert.equal(posted.filter(p=>p.action==='argon_diag_step').length,5);
-    assert.equal(posted.filter(p=>p.action==='argon_diag_poll').length,1);
+    assert.equal(confirms,7);
+    assert.equal(posted.filter(p=>p.action==='argon_diag_step').length,7);
+    assert.equal(posted.filter(p=>p.action==='argon_diag_poll').length,3);
     assert.equal(videoObjects,0);
-    assert.match(ids.get('aiArgonSmokeSummary').textContent,/All five Argon API stages passed/);
+    assert.match(ids.get('aiArgonSmokeSummary').textContent,/All seven Argon API stages passed/);
     assert.equal(ids.get('aiArgonSmokeRun').hidden,true);
   }finally{
     if(beforeDoc===undefined)delete globalThis.document;else globalThis.document=beforeDoc;
@@ -623,7 +627,7 @@ test('Failed Argon stage 3 retries directly with explicit paid confirmation, pre
     getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
     createElement(tag){if(tag==='video')videoObjects++;return new Element();}
   };
-  globalThis.confirm=message=>{confirmed++;assert.match(message,/Retry paid Argon diagnostic 3\/5/);return true;};
+  globalThis.confirm=message=>{confirmed++;assert.match(message,/Retry paid Argon diagnostic 3\/7/);return true;};
   globalThis.fetch=async(url,opts={})=>{
     assert.equal(url,'./scene-proxy.php');
     if(!opts.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'fixed-csrf',
