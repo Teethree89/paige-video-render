@@ -30,7 +30,7 @@ Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wra
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
-- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-json-schema-validation-v1` confirms the Worker is serving schema-correct Argon Previs background execution alongside the existing three allowlisted thinking profiles and the Medium-specific capacity retry policy under `supportedProfiles` and the same two model IDs under `supportedModels`. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment from PHP/FTP success.
+- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-field-path-diagnostics-v1` confirms the Worker is serving schema-correct Argon Previs background execution alongside the existing three allowlisted thinking profiles and the Medium-specific capacity retry policy under `supportedProfiles` and the same two model IDs under `supportedModels`. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment from PHP/FTP success.
 - Lite and 3.8 Low retain at most **one additional** Gemini request on HTTP 500/502/503/504 (700ms pause, one shared 45s deadline). Medium can make **up to three total attempts**, with a roughly 1s then 2s delay and bounded jitter, **only if the second attempt also returns HTTP 503**. Other upstream 5xx stop after two attempts. Every attempt shares Medium's 70s deadline, and retries never start with less than 10s remaining. HTTP 429, permission and malformed-request failures never retry. The editor's HTTP 502 may represent PHP relaying provider 5xx; the distinct safe `Gemini is overloaded (upstream 503)` message means all permitted 503 retries were exhausted. Cloudflare's sanitized `gemini-provider-http` logs record status and attempt without raw bodies or API keys. A single PHP session-quota request can cause up to three Gemini API attempts, potentially affecting Google quota and billing.
 - HTTP **503** with `{"ok":false,"service":"paige-scene","ready":false}` means the runtime is missing one or both bindings. In Cloudflare Dashboard → Workers & Pages → `paige-video-render` → Settings → **Variables and Secrets**, confirm the two names exactly match `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN`, that their type is **Secret**, and click **Deploy** to save the production version. Never paste the values into CI logs or the public repository.
 - If the build is red, inspect the exact latest Cloudflare build log and resolve the reported issue before testing PHP.
@@ -137,16 +137,23 @@ A C4D-native project/export pipeline is a separate planned development.
   review usage in AI Studio before running client production sequences.
   There is no guaranteed spend cap just because a project was pre-funded.
 - Deployment requires **both** Cloudflare Worker and 50webs FTP publisher to
-  update. `/health.workerRevision=argon-json-schema-validation-v1` indicates the
+  update. `/health.workerRevision=argon-field-path-diagnostics-v1` indicates the
   new Worker path; if FTP deploys first, do not test Argon until Worker revision
   matches.
 
-Worker error classification: on provider HTTP 400/422, read the provider
-error **only server-side**, categorize recognized field names (output schema,
-input images, generation settings, background mode or model) and emit only a
-fixed safe error. Neither the provider message nor private images/prompts are
-logged or exposed to the browser. A generic 400 remains an unknown cause and
-must not trigger another automatic paid request.
+Worker error classification: on provider HTTP 400/422, parse only explicit
+field *paths* in structured `google.rpc.BadRequest.fieldViolations` or a
+recognizable field path in the message. The two distinct fields
+`response_format.mime_type` (JSON output) and `input[n].mime_type` (JPEG
+input) must **not** be conflated. An unscoped mention of `mime_type` or
+`image` gives an **unknown Argon request error**, not a misleading image
+diagnosis. Our `argonInput()` already emits the exact base64/jpeg form shown
+in Google's Interactions image docs. Do not blindly encode base64 again or
+prepend a data URI. Category logs and browser messages come from fixed
+allowlists only: no provider message, frame data, image bytes or secrets
+may escape the Worker. Generic 400s require checking private provider diagnostics
+or introducing an explicit safe field-path category; never trigger automatic
+paid retries.
 
 Official API: <https://ai.google.dev/gemini-api/docs/background-execution>
 and <https://ai.google.dev/gemini-api/docs/image-understanding>.

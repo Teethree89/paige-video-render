@@ -306,18 +306,49 @@ const ARGON_SCENE_SCHEMA=Object.freeze({
   },
   required:['schemaVersion','scenes']
 });
+// The Interactions contract defines TWO independent mime_type properties:
+// input[n].mime_type for JPEG frames and response_format.mime_type for JSON.
+// Do not classify any provider message mentioning only "mime_type" or "image"
+// as an image input error. Field-path evidence must identify the correct scope.
+function argonErrorCategory(error){
+  const fields=[];
+  if(Array.isArray(error?.details)){
+    for(const detail of error.details.slice(0,8)){
+      const list=detail?.fieldViolations||detail?.field_violations||[];
+      if(!Array.isArray(list))continue;
+      for(const entry of list.slice(0,8)){
+        if(typeof entry?.field==='string')fields.push(entry.field.slice(0,256));
+        if(typeof entry?.fieldPath==='string')fields.push(entry.fieldPath.slice(0,256));
+      }
+    }
+  }
+  // Some Google 400s have only a human-readable message. Extract recognized
+  // FIELD PATHS, never free-text phrases, provider values or user data.
+  const message=typeof error?.message==='string'?error.message.slice(0,2048):'';
+  const paths=message.match(/(?:response_format|responseFormat|generation_config|generationConfig|input\[\d+\](?:\.(?:data|mime_type|mimeType|type|uri))?|thinking_level|max_output_tokens|background|store|model)(?:\.[a-zA-Z_]+)*/g)||[];
+  const scopes=[...fields,...paths].map(s=>s.replace(/([a-z])([A-Z])/g,'$1_$2').toLowerCase());
+  if(scopes.some(p=>/(?:^|[.$])response_format(?:[.$]|$)/.test(p)||/json_schema|output_schema/.test(p)))
+    return 'output_format';
+  if(scopes.some(p=>/(?:^|[.$])generation_config(?:[.$]|$)/.test(p)||
+      /(?:^|[.$])(?:thinking_level|max_output_tokens)(?:[.$]|$)/.test(p)))
+    return 'generation_config';
+  // Only specific per-item paths establish image input. An unscoped
+  // mime_type is ambiguous and must be reported as unknown.
+  if(scopes.some(p=>/(?:^|[.$])input\[\d+\]\.(?:mime_type|data|uri|type)(?:[.$]|$)/.test(p)))
+    return 'image_input';
+  if(scopes.some(p=>/(?:^|[.$])(?:background|store)(?:[.$]|$)/.test(p)))
+    return 'background';
+  if(scopes.some(p=>/(?:^|[.$])model(?:[.$]|$)/.test(p)))
+    return 'model';
+  return 'unknown';
+}
 async function argonBadRequest(response){
-  // Interpret only known *field names* from the provider. Never log/return
-  // arbitrary message content, customer imagery, prompts or billing details.
+  // Only a fixed enum leaves the Worker; raw provider errors may contain
+  // account metadata, prompts, image payload fragments or other private data.
   let category='unknown';
   try{
     const data=await response.json();
-    const message=typeof data?.error?.message==='string'?data.error.message.slice(0,2048):'';
-    if(/response_format|json.schema|structured.output/i.test(message))category='output_format';
-    else if(/generation_config|thinking_level|max_output_tokens/i.test(message))category='generation_config';
-    else if(/image|mime_type|inline.data/i.test(message))category='image_input';
-    else if(/background|store|interaction.mode/i.test(message))category='background';
-    else if(/model|not.supported/i.test(message))category='model';
+    category=argonErrorCategory(data?.error);
   }catch{}
   console.warn('argon-request-400-category',category);
   const messages={
@@ -447,7 +478,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-json-schema-validation-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-field-path-diagnostics-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
