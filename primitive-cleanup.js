@@ -23,18 +23,21 @@ function rotatedAxis(rotation,axis){
 function basis(item){
   return [[1,0,0],[0,1,0],[0,0,1]].map(axis=>rotatedAxis(item.rotation,axis));
 }
-function surface(item){
+function surface(item,thinAxis=null){
   if(item.primitive==='plane'){
-    return {normal:basis(item)[2],axis:basis(item),half:[item.scale[0]/2,item.scale[1]/2,0],
+    const axis=basis(item);
+    return {normal:axis[2],axis,half:[item.scale[0]/2,item.scale[1]/2,0],
       area:item.scale[0]*item.scale[1],thickness:0};
   }
   if(item.primitive!=='box')return null;
-  const order=[0,1,2].sort((a,b)=>item.scale[a]-item.scale[b]);
-  const thin=order[0];
-  if(item.scale[thin]>.6||item.scale[thin]>.16*item.scale[order[1]])return null;
+  const thin=thinAxis===null?item.scale.indexOf(Math.min(...item.scale)):thinAxis;
+  const wide=Math.max(...item.scale);
+  // Accept thin glass/window slabs and thin two-axis trim strips, but never
+  // nudge large structural boxes or cylindrical/spherical shapes.
+  if(item.scale[thin]>.6||item.scale[thin]>.16*wide||wide<.5)return null;
+  const area=item.scale[(thin+1)%3]*item.scale[(thin+2)%3];
   return {normal:basis(item)[thin],axis:basis(item),
-    half:item.scale.map(v=>v/2),area:item.scale[order[1]]*item.scale[order[2]],
-    thickness:item.scale[thin],thin};
+    half:item.scale.map(v=>v/2),area,thickness:item.scale[thin],thin};
 }
 function projectedHalf(info,axis){
   return info.half.reduce((sum,h,i)=>sum+h*Math.abs(dot(info.axis[i],axis)),0);
@@ -84,7 +87,7 @@ function tryMoveOffBox(detail,info,host){
   return null;
 }
 function tryMoveOffPlane(detail,info,other){
-  if(detail===other||other.primitive!=='plane')return null;
+  if(detail===other||detail.primitive!=='plane'||other.primitive!=='plane')return null;
   const host=surface(other);
   if(!host||host.area<=info.area*1.1)return null;
   if(Math.abs(dot(info.normal,host.normal))<.9999)return null;
@@ -113,17 +116,23 @@ export function cleanupPrimitiveDocument(document,allowedShotIds=null){
     }
     // Candidate details with the smallest surface area first, so trim goes
     // outward from walls rather than moving architectural masses.
-    const sorted=objects.map((item,i)=>({item,i,info:surface(item)}))
-      .filter(entry=>entry.info).sort((a,b)=>a.info.area-b.info.area);
-    for(const {item,info} of sorted){
+    const candidates=objects.flatMap(item=>{
+      if(item.primitive==='plane')return [{item,info:surface(item)}];
+      if(item.primitive!=='box')return [];
+      return [0,1,2].map(axis=>({item,info:surface(item,axis)}))
+        .filter(entry=>entry.info);
+    }).sort((a,b)=>a.info.area-b.info.area);
+    const adjusted=new Set();
+    for(const {item,info} of candidates){
+      if(adjusted.has(item))continue;
       let moved=null;
       for(const host of objects){
         moved=tryMoveOffBox(item,info,host)||tryMoveOffPlane(item,info,host);
         if(moved)break;
       }
-      if(moved){item.position=moved;report.nudgedOverlaps++;}
-      else report.unchanged++;
+      if(moved){item.position=moved;report.nudgedOverlaps++;adjusted.add(item);}
     }
+    report.unchanged+=objects.length-adjusted.size;
     return {shotId:scene.shotId,objects};
   });
   // Validation after offsets protects strict finite coordinate schema.
