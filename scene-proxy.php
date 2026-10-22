@@ -52,6 +52,8 @@ function safe_worker_error(int $status, string $body): string {
         '502:Argon rejected image input configuration' => 'Argon rejected the inline reference image format. Check the Worker image payload contract.',
         '502:Argon rejected background execution configuration' => 'Argon rejected background job settings. Check model support for Interactions background mode.',
         '502:Argon rejected model configuration' => 'Argon rejected the requested model or a model-specific option. Verify paid-tier Argon access.',
+        '502:Argon model metadata check unavailable' => 'Google model metadata could not be checked right now. No generation request was made.',
+
         '502:Argon rejected Interactions request' => 'Argon returned HTTP 400 without a supported field diagnostic. No job was created; review sanitized Worker logs before retrying.',
 
         '502:AI provider capacity unavailable' => 'Gemini is overloaded (upstream 503). Automatic retries were exhausted. Try again later or select 3.8 Low.',
@@ -73,7 +75,7 @@ function safe_worker_error(int $status, string $body): string {
 
 /** Fixed-target Argon background job transport (only after session+CSRF). */
 function argon_worker_call(string $endpoint, string $secret, string $action, array $body): array {
-    if (!in_array($action, ['start', 'status'], true)) reject(400, 'Invalid Argon action');
+    if (!in_array($action, ['start', 'status', 'check'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
     $encoded = json_encode($body, JSON_UNESCAPED_SLASHES);
     if (!is_string($encoded) || strlen($encoded) > 1600000) reject(413, 'Invalid Argon request');
@@ -273,6 +275,16 @@ if ($action === 'logout') {
     $_SESSION = [];
     session_destroy();
     answer(200, ['ok' => true, 'authenticated' => false]);
+}
+// Model metadata check is authenticated, no-generation, and does not consume
+// the hourly proposal budget. No video frame or client content leaves PHP.
+if ($action === 'argon_check') {
+    $check = argon_worker_call($workerEndpoint, $secret, 'check', []);
+    if (!isset($check['available']) || !is_bool($check['available']) ||
+        !in_array($check['check'] ?? '', ['listed', 'not_listed'], true))
+        reject(502, 'Invalid Argon model check response');
+    answer(200, ['ok' => true, 'available' => $check['available'],
+        'check' => $check['check']]);
 }
 // Polling never consumes a generation quota slot. The Google job ID is
 // session-private; callers cannot supply another user's interaction ID.
