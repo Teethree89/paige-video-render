@@ -433,7 +433,12 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
   const ids=new Map();
   const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
   let startCount=0,pollCount=0,preview=null,saved=0;
-  globalThis.confirm=()=>true;
+  globalThis.confirm=message=>{
+    assert.match(message,/two paid calls/);
+    assert.match(message,/two request slots/);
+    assert.match(message,/stores the visual description/);
+    return true;
+  };
   globalThis.document={
     getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
     createElement(tag){

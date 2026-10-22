@@ -43,6 +43,8 @@ function safe_worker_error(int $status, string $body): string {
         '502:Argon diagnostic file upload failed' => 'The diagnostic image could not be uploaded to Google Files API; no Argon generation was submitted.',
         '502:Argon diagnostic upload URL was not trusted' => 'Google returned an unexpected upload destination. File transfer was blocked before inference.',
         '502:Argon diagnostic uploaded file metadata invalid' => 'The uploaded image metadata was not usable; no Argon generation was submitted.',
+        '502:Argon reference analysis unavailable' => 'Argon reference analysis did not complete. No background job was submitted and no automatic retry was made.',
+        '502:Argon reference analysis invalid' => 'Argon did not return a usable visual description. No background job was submitted and no automatic retry was made.',
 
 
         '413:Invalid image request' => 'The sampled frames exceed the Worker request size limit.',
@@ -60,7 +62,7 @@ function safe_worker_error(int $status, string $body): string {
         '502:Argon rejected generation configuration' => 'Argon rejected a generation setting (thinking level or token budget). Check the Worker model compatibility.',
         '502:Argon rejected image input configuration' => 'Argon rejected the inline reference image format. Check the Worker image payload contract.',
         '502:Argon rejected background execution configuration' => 'Argon rejected background job settings. Check model support for Interactions background mode.',
-        '502:Argon rejected model configuration' => 'Argon rejected the requested model or a model-specific option. Verify paid-tier Argon access.',
+        '502:Argon rejected model configuration' => 'Argon identified the model field as invalid. This alone does not establish a billing or entitlement problem.',
         '502:Argon model metadata check unavailable' => 'Google model metadata could not be checked right now. No generation request was made.',
 
         '502:Argon rejected Interactions request' => 'Argon returned HTTP 400 without a supported field diagnostic. No job was created; review sanitized Worker logs before retrying.',
@@ -394,7 +396,7 @@ if ($action === 'argon_status') {
 if ($action !== 'generate' && $action !== 'argon_start')
     reject(400, 'Unsupported action');
 
-// Protect upstream quota; a single session gets at most 10 proposals/hour.
+// Protect upstream quota; Argon reserves both paid calls before either is sent.
 $window = (int) ($_SESSION['ai_window'] ?? 0);
 if ($window < time() - 3600) {
     $_SESSION['ai_window'] = time();
@@ -477,8 +479,11 @@ if ($action === 'argon_start') {
     if (is_array($active) && (int) ($active['created'] ?? 0) >= time() - 86400 &&
         in_array($active['status'] ?? '', ['queued','in_progress'], true))
         reject(409, 'An Argon job is already running. Resume it instead.');
-    // One paid job is charged against the existing per-session generation quota.
-    $_SESSION['ai_calls'] = (int) ($_SESSION['ai_calls'] ?? 0) + 1;
+    // The analysis and background generation each consume a request slot.
+    // Reserve both even if analysis fails; uncertain paid calls are not refunded.
+    if ((int) ($_SESSION['ai_calls'] ?? 0) + 2 > 10)
+        reject(429, 'Session AI limit reached');
+    $_SESSION['ai_calls'] = (int) ($_SESSION['ai_calls'] ?? 0) + 2;
     $job = argon_worker_call($workerEndpoint, $secret, 'start', $workerInput);
     if (!is_string($job['jobId'] ?? null) ||
         !preg_match('/^[A-Za-z0-9_-]{8,160}$/', $job['jobId']) ||
