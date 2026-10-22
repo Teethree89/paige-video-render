@@ -14,11 +14,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-isolation-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-fileuri-diagnostic-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-isolation-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-fileuri-diagnostic-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -186,9 +186,35 @@ test('Seven Argon stages isolate text, thinking, JPEG, JSON and background featu
   const previous=globalThis.fetch;
   const expected=['text','thinking','image','json','background','background_image','background_combo'];
   const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
-  let calls=0;
+  let calls=0,uploadsStarted=0,uploadsCompleted=0;
   const id='v1_argon_smoke12345';
+  const uploadUrl='https://generativelanguage.googleapis.com/upload/v1beta/files?upload_id=test-id';
+  const fileUri='https://generativelanguage.googleapis.com/v1beta/files/syntheticTest12345';
   globalThis.fetch=async (url,opts)=>{
+    if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files'){
+      uploadsStarted++;
+      assert.equal(opts.method,'POST');
+      assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
+      assert.equal(opts.headers['X-Goog-Upload-Protocol'],'resumable');
+      assert.equal(opts.headers['X-Goog-Upload-Header-Content-Type'],'image/jpeg');
+      assert.equal(opts.redirect,'manual');
+      assert.deepEqual(JSON.parse(opts.body),{file:{display_name:'paiver-synthetic-argon-smoke'}});
+      return new Response('',{status:200,headers:{'x-goog-upload-url':uploadUrl}});
+    }
+    if(url===uploadUrl){
+      uploadsCompleted++;
+      assert.equal(opts.method,'POST');
+      assert.equal(opts.headers['X-Goog-Upload-Command'],'upload, finalize');
+      assert.equal(opts.redirect,'manual');
+      const bytes=Buffer.from(opts.body);
+      assert.equal(bytes.length,686);
+      assert.equal(bytes.readUInt16BE(0),0xffd8);
+      assert.equal(bytes.readUInt16BE(bytes.length-2),0xffd9);
+      assert.equal(createHash('sha256').update(bytes).digest('hex'),
+        'f43da1db2122208f9d6aa129f9600be94f143f0bc2afc310e272dde6c5ef464f');
+      return new Response(JSON.stringify({file:{name:'files/syntheticTest12345',
+        uri:fileUri,mimeType:'image/jpeg'}}),{status:200});
+    }
     if(url.endsWith('/'+id)){
       assert.equal(opts.body,undefined,'Background polling is GET only');
       return new Response(JSON.stringify({id,status:'completed',
@@ -213,19 +239,23 @@ test('Seven Argon stages isolate text, thinking, JPEG, JSON and background featu
         const img=body.input[1];
         assert.equal(img.type,'image');
         assert.equal(img.mime_type,'image/jpeg');
-        assert.ok(img.data.startsWith('/9j/'));
-        const jpeg=Buffer.from(img.data,'base64');
-        assert.equal(jpeg.readUInt16BE(0),0xffd8,'JPEG must begin at SOI');
-        assert.equal(jpeg.readUInt16BE(jpeg.length-2),0xffd9,'JPEG must end at EOI');
-        assert.equal(jpeg.length,686,'Known-good 32x32 JPEG byte length');
-        assert.equal(createHash('sha256').update(jpeg).digest('hex'),
-          'f43da1db2122208f9d6aa129f9600be94f143f0bc2afc310e272dde6c5ef464f',
-          'Byte-for-byte fixture was created and decoded by Pillow; catch corrupt/truncated test media');
-        const frame=jpeg.indexOf(Buffer.from([0xff,0xc0]));
-        assert.ok(frame>0,'JPEG SOF0 segment must exist');
-        assert.equal(jpeg.readUInt16BE(frame+5),32,'Synthetic image height');
-        assert.equal(jpeg.readUInt16BE(frame+7),32,'Synthetic image width');
-        assert.ok(!img.data.includes('PRIVATE_CLIENT_FOOTAGE'));
+        if(stage==='image'){
+          assert.ok(img.data.startsWith('/9j/'));
+          const jpeg=Buffer.from(img.data,'base64');
+          assert.equal(jpeg.readUInt16BE(0),0xffd8);
+          assert.equal(jpeg.readUInt16BE(jpeg.length-2),0xffd9);
+          assert.equal(jpeg.length,686);
+          assert.equal(createHash('sha256').update(jpeg).digest('hex'),
+            'f43da1db2122208f9d6aa129f9600be94f143f0bc2afc310e272dde6c5ef464f');
+          const frame=jpeg.indexOf(Buffer.from([0xff,0xc0]));
+          assert.ok(frame>0);
+          assert.equal(jpeg.readUInt16BE(frame+5),32);
+          assert.equal(jpeg.readUInt16BE(frame+7),32);
+        }else{
+          assert.equal(img.uri,fileUri,'Background tests must send stored Google file URI');
+          assert.equal(img.data,undefined,'No inline base64 in background request');
+        }
+        assert.ok(!JSON.stringify(img).includes('PRIVATE_CLIENT_FOOTAGE'));
       }
       if(['json','background_combo'].includes(stage)){
         assert.equal(body.response_format.mime_type,'application/json');
@@ -259,7 +289,58 @@ test('Seven Argon stages isolate text, thinking, JPEG, JSON and background featu
       }else assert.deepEqual(result,{ok:true,stage,status:'completed',passed:true});
     }
     assert.equal(calls,7,'exactly one billable submission for each confirmed stage');
+    assert.equal(uploadsStarted,2,'Only background JPEG tests use Google Files upload');
+    assert.equal(uploadsCompleted,2);
   }finally{globalThis.fetch=previous;}
+});
+test('Argon Files API rejects untrusted upload destinations and file URIs without submitting paid inference',async()=>{
+  const oldFetch=globalThis.fetch,auth={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+  let hits=[];
+  try{
+    const exercise=async mock=>{
+      hits=[];
+      globalThis.fetch=async (url,options)=>{
+        hits.push({url,options});
+        return mock(url,options);
+      };
+      const res=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/diagnostic',{
+        method:'POST',headers:auth,body:JSON.stringify({stage:'background_image'})
+      }),env);
+      assert.equal(res.status,502);
+      const result=await res.json();
+      assert.equal(result.ok,false);
+      assert.ok(!JSON.stringify(result).includes('SECRET_PROVIDER_INPUT'));
+      assert.ok(!hits.some(x=>x.url==='https://generativelanguage.googleapis.com/v1beta/interactions'));
+      return result.error;
+    };
+    let error=await exercise(async url=>{
+      if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files')
+        return new Response('',{status:200,headers:{
+          'x-goog-upload-url':'https://attacker.invalid/upload/v1beta/files?token=PRIVATE'
+        }});
+      assert.fail('Must not fetch untrusted upload URL: '+url);
+    });
+    assert.equal(error,'Argon diagnostic upload URL was not trusted');
+    assert.equal(hits.length,1);
+    const trustedUpload='https://generativelanguage.googleapis.com/upload/v1beta/files?upload_id=testing';
+    error=await exercise(async url=>{
+      if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files')
+        return new Response('',{status:200,headers:{'x-goog-upload-url':trustedUpload}});
+      if(url===trustedUpload)return new Response(JSON.stringify({file:{
+        mimeType:'image/jpeg',uri:'https://attacker.invalid/files/PRIVATE'
+      }}),{status:200});
+      assert.fail('Unexpected URL: '+url);
+    });
+    assert.equal(error,'Argon diagnostic uploaded file metadata invalid');
+    assert.equal(hits.length,2);
+    error=await exercise(async url=>{
+      if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files')
+        return new Response('SECRET_PROVIDER_INPUT',{status:400});
+      assert.fail('Unexpected URL: '+url);
+    });
+    assert.equal(error,'Argon diagnostic file upload failed');
+    assert.equal(hits.length,1);
+  }finally{globalThis.fetch=oldFetch;}
 });
 test('Argon diagnostic rejects unapproved stages, custom prompts and input footage without provider calls',async()=>{
   const previous=globalThis.fetch;let upstream=0;

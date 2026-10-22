@@ -30,7 +30,7 @@ Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wra
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
-- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-background-isolation-v1` confirms the Worker is serving schema-correct Argon Previs background execution alongside the existing three allowlisted thinking profiles and the Medium-specific capacity retry policy under `supportedProfiles` and the same two model IDs under `supportedModels`. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment from PHP/FTP success.
+- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-background-fileuri-diagnostic-v1` confirms the Worker is serving schema-correct Argon Previs background execution alongside the existing three allowlisted thinking profiles and the Medium-specific capacity retry policy under `supportedProfiles` and the same two model IDs under `supportedModels`. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment from PHP/FTP success.
 - Lite and 3.8 Low retain at most **one additional** Gemini request on HTTP 500/502/503/504 (700ms pause, one shared 45s deadline). Medium can make **up to three total attempts**, with a roughly 1s then 2s delay and bounded jitter, **only if the second attempt also returns HTTP 503**. Other upstream 5xx stop after two attempts. Every attempt shares Medium's 70s deadline, and retries never start with less than 10s remaining. HTTP 429, permission and malformed-request failures never retry. The editor's HTTP 502 may represent PHP relaying provider 5xx; the distinct safe `Gemini is overloaded (upstream 503)` message means all permitted 503 retries were exhausted. Cloudflare's sanitized `gemini-provider-http` logs record status and attempt without raw bodies or API keys. A single PHP session-quota request can cause up to three Gemini API attempts, potentially affecting Google quota and billing.
 - HTTP **503** with `{"ok":false,"service":"paige-scene","ready":false}` means the runtime is missing one or both bindings. In Cloudflare Dashboard → Workers & Pages → `paige-video-render` → Settings → **Variables and Secrets**, confirm the two names exactly match `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN`, that their type is **Secret**, and click **Deploy** to save the production version. Never paste the values into CI logs or the public repository.
 - If the build is red, inspect the exact latest Cloudflare build log and resolve the reported issue before testing PHP.
@@ -132,21 +132,29 @@ single-submission stages must be manually confirmed, in order:
 4. **Structured JSON** with a trivial `{ok:boolean}` schema, using text input.
 5. **Minimal background text** using the native thinking settings that
    passed Stage 2, plus `background:true, store:true`. No JSON or image.
-6. **Background synthetic JPEG**, still no JSON schema; proves whether the
-   image + background combination is accepted.
-7. **Background synthetic JPEG + structured JSON**, matching the core feature
-   combination of the production previs path. Uses `store:true`, like the
-   existing production Argon request (seven-day provider retention).
+6. **Background synthetic JPEG through Files API** (not inline), with no
+   JSON schema. Uploads a small verified synthetic JPEG to Google's Files
+   API, validates the returned URI against a trusted Google host/path, and
+   includes `{type:'image',uri:...,mime_type:'image/jpeg'}` in the interaction.
+   This isolates whether the Argon background backend rejects inline images.
+7. **Background Files API JPEG + structured JSON**. The synthetic image
+   uses the same trusted-URI upload route, with the simple JSON schema.
+   Uses `store:true`, like the production Argon request, but production
+   still uses inline frames until this alternate path is proven.
    Every background step reuses its session-held Google interaction ID while
    polling; a GET never submits another generation request.
 
-The initial combined Stage 5 was rejected with HTTP 400. The original
-request mixed `background:true, store:false`, JSON schema and JPEG, so its
-background-error classification did **not** establish which combination was
-invalid. The redesigned Stage 5 starts minimal and separates the components
-without replaying the four already-passed tests. Google documents both
-`store:true` and `store:false`; this version uses the production-style
-`store:true` so the eventual previs job follows the same contract.
+Stage 5 (background text-only) succeeded on the paid project.
+Stage 6 (background + inline synthetic JPEG) received HTTP 400, classified
+ambiguously as a model configuration problem. Both background execution and
+images work separately, so the **combination** is the suspect. Stage 6 now
+uses the documented Files API URI input instead of inline base64; if that
+passes, production can be adapted in a separate, reviewable patch rather
+than immediately uploading proprietary customer images. The Files API
+retains uploaded media for **48 hours**. Both diagnostic stages upload
+only the synthetic 32x32 test JPEG. The existing generation flow and
+client-footage privacy behavior are unchanged; no fallback triggers
+automatic paid requests.
 
 The Worker fixes model, prompt, input and token limits for every stage.
 No custom browser-supplied prompt, provider URL, job ID or thinking parameter
@@ -216,7 +224,7 @@ A C4D-native project/export pipeline is a separate planned development.
   review usage in AI Studio before running client production sequences.
   There is no guaranteed spend cap just because a project was pre-funded.
 - Deployment requires **both** Cloudflare Worker and 50webs FTP publisher to
-  update. `/health.workerRevision=argon-background-isolation-v1` indicates the
+  update. `/health.workerRevision=argon-background-fileuri-diagnostic-v1` indicates the
   new Worker path; if FTP deploys first, do not test Argon until Worker revision
   matches.
 
