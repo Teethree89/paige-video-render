@@ -101,12 +101,13 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(!smokeSummary)return;
     if(smoke.state==='done')smokeSummary.textContent='All five Argon API stages passed. No client video was submitted.';
     else if(smoke.state==='failed')smokeSummary.textContent='Stopped on stage '+(smoke.step+1)+
-      ': '+smokeNames[smoke.step]+'. Inspect the activity log before restarting.';
+      ': '+smokeNames[smoke.step]+'. You can explicitly retry this stage without replaying earlier paid tests.';
     else smokeSummary.textContent='Stage '+(smoke.step+1)+'/5: '+smokeNames[smoke.step]+
       (smoke.state==='running'?' (background job running)':'');
     if(smokeButton){
-      smokeButton.hidden=smoke.state==='failed'||smoke.state==='done';
+      smokeButton.hidden=smoke.state==='done';
       smokeButton.textContent=smoke.state==='running'?'Check running Argon diagnostic (no new charge)':
+        smoke.state==='failed'?'Retry stage '+(smoke.step+1)+' (paid)':
         'Run stage '+(smoke.step+1)+' (paid)';
     }
     if(smokeReset)smokeReset.hidden=smoke.state==='running';
@@ -343,13 +344,14 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     }finally{busy=false;ui();}
   });
   smokeButton?.addEventListener('click',async()=>{
-    if(busy||!authenticated||smoke.state==='failed'||smoke.state==='done')return;
+    if(busy||!authenticated||smoke.state==='done')return;
     const isPoll=smoke.state==='running';
     const step=smoke.step;
     if(!isPoll){
       if(typeof confirm!=='function'||!confirm(
-        'Run paid Argon diagnostic '+(step+1)+'/5: '+smokeNames[step]+
-        '? This submits exactly one billable API request. No client footage is sent.'))return;
+        (smoke.state==='failed'?'Retry':'Run')+' paid Argon diagnostic '+
+        (step+1)+'/5: '+smokeNames[step]+
+        '? This submits exactly one additional potentially billable API request. No client footage is sent.'))return;
     }
     busy=true;ui();
     try{
@@ -357,12 +359,13 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(!session.authenticated){sessionEnded();return;}
       csrf=session.csrf;smoke=session.argonSmoke||{step:0,state:'idle'};
       if(smoke.step!==step||(isPoll&&smoke.state!=='running')||
-         (!isPoll&&!['idle','passed'].includes(smoke.state)))
+         (!isPoll&&!['idle','passed','failed'].includes(smoke.state)))
         throw Error('Diagnostic state changed; refresh its status before submitting.');
-      log((isPoll?'Polling existing':'Submitting one paid')+
+      const retry=!isPoll&&smoke.state==='failed';
+      log((isPoll?'Polling existing':retry?'Retrying one paid':'Submitting one paid')+
         ' Argon diagnostic: '+smokeNames[step]+'…');
       const result=await request(isPoll?'argon_diag_poll':'argon_diag_step',
-        isPoll?{csrf}:{csrf,step});
+        isPoll?{csrf}:{csrf,step,...(retry?{retry:true}:{})});
       smoke={step:result.step,state:result.state};
       if(result.state==='done'||result.state==='passed'){
         log('Argon diagnostic '+(step+1)+'/5 passed.');

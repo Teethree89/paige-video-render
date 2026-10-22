@@ -614,3 +614,43 @@ test('Argon smoke tests require five separate confirmations and never sample cli
     if(beforeConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=beforeConfirm;
   }
 });
+
+test('Failed Argon stage 3 retries directly with explicit paid confirmation, preserving earlier passes',async()=>{
+  const beforeDoc=globalThis.document,beforeFetch=globalThis.fetch,beforeConfirm=globalThis.confirm;
+  const ids=new Map();let confirmed=0,submitted=[],videoObjects=0;
+  let state={step:2,state:'failed'};
+  globalThis.document={
+    getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
+    createElement(tag){if(tag==='video')videoObjects++;return new Element();}
+  };
+  globalThis.confirm=message=>{confirmed++;assert.match(message,/Retry paid Argon diagnostic 3\/5/);return true;};
+  globalThis.fetch=async(url,opts={})=>{
+    assert.equal(url,'./scene-proxy.php');
+    if(!opts.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'fixed-csrf',
+      argonJob:null,argonSmoke:state}),{status:200});
+    const body=JSON.parse(opts.body);submitted.push(body);
+    assert.deepEqual(body,{action:'argon_diag_step',csrf:'fixed-csrf',step:2,retry:true});
+    state={step:3,state:'passed'};
+    return new Response(JSON.stringify({ok:true,...state,passed:true}),{status:200});
+  };
+  try{
+    const shot={id:'draft_001',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:private-client-video'}),getPlayheadTime:()=>1,
+      onPreview:()=>assert.fail('no scene generation'),onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(ids.get('aiArgonSmokeRun').hidden,false);
+    assert.match(ids.get('aiArgonSmokeRun').textContent,/Retry stage 3 \(paid\)/);
+    await ids.get('aiArgonSmokeRun').fire('click');
+    assert.equal(confirmed,1);
+    assert.equal(submitted.length,1);
+    assert.equal(state.step,3);
+    assert.equal(videoObjects,0);
+    assert.match(ids.get('aiArgonSmokeRun').textContent,/Run stage 4 \(paid\)/);
+    assert.match(ids.get('aiSceneLog').textContent,/Retrying one paid Argon diagnostic/);
+  }finally{
+    if(beforeDoc===undefined)delete globalThis.document;else globalThis.document=beforeDoc;
+    if(beforeFetch===undefined)delete globalThis.fetch;else globalThis.fetch=beforeFetch;
+    if(beforeConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=beforeConfirm;
+  }
+});

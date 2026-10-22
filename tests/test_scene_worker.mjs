@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import worker,{validateInput,validateOutput,secretMatches} from '../worker/scene-worker.mjs';
 
 const token='test-token-should-be-at-least-thirty-two-chars-private';
@@ -13,11 +14,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-staged-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-jpeg-fixture-retry-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-staged-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-jpeg-fixture-retry-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -213,7 +214,17 @@ test('Five Argon diagnostic stages isolate model defaults, thinking, JPEG, JSON,
         assert.equal(img.type,'image');
         assert.equal(img.mime_type,'image/jpeg');
         assert.ok(img.data.startsWith('/9j/'));
-        assert.equal(Buffer.from(img.data,'base64').readUInt16BE(0),0xffd8);
+        const jpeg=Buffer.from(img.data,'base64');
+        assert.equal(jpeg.readUInt16BE(0),0xffd8,'JPEG must begin at SOI');
+        assert.equal(jpeg.readUInt16BE(jpeg.length-2),0xffd9,'JPEG must end at EOI');
+        assert.equal(jpeg.length,686,'Known-good 32x32 JPEG byte length');
+        assert.equal(createHash('sha256').update(jpeg).digest('hex'),
+          'f43da1db2122208f9d6aa129f9600be94f143f0bc2afc310e272dde6c5ef464f',
+          'Byte-for-byte fixture was created and decoded by Pillow; catch corrupt/truncated test media');
+        const frame=jpeg.indexOf(Buffer.from([0xff,0xc0]));
+        assert.ok(frame>0,'JPEG SOF0 segment must exist');
+        assert.equal(jpeg.readUInt16BE(frame+5),32,'Synthetic image height');
+        assert.equal(jpeg.readUInt16BE(frame+7),32,'Synthetic image width');
         assert.ok(!img.data.includes('PRIVATE_CLIENT_FOOTAGE'));
       }
       if(stage==='json'||stage==='background'){
