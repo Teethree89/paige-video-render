@@ -89,6 +89,14 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
 .ai-scene-panel button{font-size:11px;padding:10px 7px;}
 .ai-scene-panel [hidden]{display:none!important;}
 #aiSceneStatus{min-height:21px;overflow-wrap:anywhere;}
+.ai-generation-activity{margin-top:12px;border-top:1px solid #34556a;padding-top:11px;}
+.ai-generation-activity .section-label{margin-bottom:6px;}
+.ai-generation-activity .field-help{margin:5px 0 7px;}
+.ai-generation-wait{font:10px/1.4 ui-monospace,monospace;color:#a4e9dc;min-height:15px;}
+.ai-generation-log{white-space:pre-wrap;overflow-wrap:anywhere;max-height:190px;overflow-y:auto;
+  padding:8px;background:#071c2a;border:1px solid #35546a;border-radius:5px;
+  font:10px/1.65 ui-monospace,SFMono-Regular,monospace;color:#b7d6df;min-height:34px;}
+
 
 /* In-place 3D review mode; CSS [hidden] must win against the display rule. */
 .review-return{position:absolute;right:16px;top:56px;z-index:45;background:#102c39e8;border:1px solid #7ce8dc;color:#d6fffa;border-radius:5px;padding:10px 12px;font-size:12px;font-weight:700;box-shadow:0 5px 22px #0008;touch-action:manipulation}
