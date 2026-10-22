@@ -465,9 +465,12 @@ function safeGoogleUploadUrl(raw){
 function safeGoogleFileUri(raw){
   try{
     const url=new URL(raw);
+    const parts=url.pathname.split('/').filter(Boolean);
+    const validPath=(parts.length===3&&parts[0]==='v1beta'&&parts[1]==='files')||
+      (parts.length===2&&parts[0]==='files');
     if(url.protocol!=='https:'||url.hostname!=='generativelanguage.googleapis.com'||
        url.username||url.password||url.port||url.search||url.hash||
-       !/^\\/(?:v1beta\\/)?files\\/[A-Za-z0-9_-]{8,180}$/.test(url.pathname))return null;
+       !validPath||!/^[A-Za-z0-9_-]{8,180}$/.test(parts[parts.length-1]))return null;
     return url.toString();
   }catch{return null;}
 }
