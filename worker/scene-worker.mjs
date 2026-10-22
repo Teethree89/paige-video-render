@@ -392,6 +392,13 @@ function argonErrorCategory(error){
     return 'model';
   return 'unknown';
 }
+function argonFetchFailureCategory(error){
+  // Never log error.message, cause, stack or request details. Runtime fetch
+  // exceptions can embed headers, URLs, provider metadata or client footage.
+  if(error?.name==='TimeoutError'||error?.name==='AbortError')return 'timeout-or-abort';
+  if(error?.name==='TypeError')return 'runtime-type-or-network';
+  return 'other-fetch-failure';
+}
 async function argonBadRequest(response){
   // Only a fixed enum leaves the Worker; raw provider errors may contain
   // account metadata, prompts, image payload fragments or other private data.
@@ -665,13 +672,22 @@ async function argonGateway(request,env,path){
       'Api-Revision':ARGON_REVISION};
     let analysisResponse,analysis;
     try{
-      analysisResponse=await fetch(ARGON_API,{method:'POST',headers,redirect:'error',
+      // workerd rejects redirect:'error' at fetch construction, before ANY
+      // request reaches Google. 'manual' is supported and never follows 3xx.
+      // Keep the 30s analysis ceiling and check the shared 40s deadline before
+      // submitting a separate paid background job. Avoid signal composition.
+      analysisResponse=await fetch(ARGON_API,{method:'POST',headers,redirect:'manual',
         body:JSON.stringify({model:ARGON_MODEL,background:false,store:false,
           generation_config:{thinking_level:'low',max_output_tokens:ARGON_ANALYSIS_TOKENS},
           response_format:{type:'text',mime_type:'application/json',schema:ARGON_ANALYSIS_SCHEMA},
           input:argonInput(validated)}),
-        signal:AbortSignal.any([deadline,AbortSignal.timeout(30000)])});
-    }catch{return fail(502,'Argon reference analysis unavailable');}
+        signal:AbortSignal.timeout(30000)});
+    }catch(error){
+      console.warn('argon-provider-fetch','visual-analysis',argonFetchFailureCategory(error));
+      return fail(502,'Argon reference analysis unavailable');
+    }
+    if(analysisResponse.status>=300&&analysisResponse.status<400)
+      return fail(502,'Argon provider redirect blocked');
     if(analysisResponse.status===400||analysisResponse.status===422)return argonBadRequest(analysisResponse);
     if(!analysisResponse.ok)return safeProviderStatus(analysisResponse.status);
     try{analysis=validateArgonAnalysis(await analysisResponse.json());}
@@ -691,9 +707,14 @@ Use uncertainties to omit unsupported detail. Return only the scene JSON.`,
       input:JSON.stringify(analysis)};
     let response;
     try{
-      response=await fetch(ARGON_API,{method:'POST',headers,redirect:'error',
+      response=await fetch(ARGON_API,{method:'POST',headers,redirect:'manual',
         body:JSON.stringify(body),signal:deadline});
-    }catch{return fail(502,'AI provider network connection failed');}
+    }catch(error){
+      console.warn('argon-provider-fetch','background-geometry',argonFetchFailureCategory(error));
+      return fail(502,'AI provider network connection failed');
+    }
+    if(response.status>=300&&response.status<400)
+      return fail(502,'Argon provider redirect blocked');
     if(response.status===400||response.status===422)return argonBadRequest(response);
     if(!response.ok)return safeProviderStatus(response.status);
     let interaction;
@@ -744,7 +765,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-visual-analysis-background-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-workerd-redirect-manual-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
