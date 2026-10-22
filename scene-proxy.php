@@ -36,6 +36,7 @@ function safe_worker_error(int $status, string $body): string {
     $allowed = [
         '401:Unauthorized' => 'The Worker rejected the PHP access token. Verify the private PHP scene_access_token matches Cloudflare SCENE_ACCESS_TOKEN.',
         '400:Invalid image request' => 'The Worker rejected the sampled video frames. Check JPEG validation and frame sizes.',
+        '400:Invalid Argon check request' => 'The Argon model check was rejected before reaching Google. Verify that PHP sends an empty JSON object to the Worker.',
         '413:Invalid image request' => 'The sampled frames exceed the Worker request size limit.',
         '503:AI backend is not configured' => 'The AI Worker is missing its runtime configuration.',
         '429:Provider rate limit reached' => 'Gemini rate limit reached. Try later.',
@@ -77,7 +78,10 @@ function safe_worker_error(int $status, string $body): string {
 function argon_worker_call(string $endpoint, string $secret, string $action, array $body): array {
     if (!in_array($action, ['start', 'status', 'check'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
-    $encoded = json_encode($body, JSON_UNESCAPED_SLASHES);
+    // The metadata-only check accepts an empty JSON OBJECT, not an array.
+    // PHP json_encode([]) serializes as "[]", which the Worker correctly rejects
+    // with HTTP 400 before Google is queried. Always send "{}" for this route.
+    $encoded = json_encode($action === 'check' ? (object) [] : $body, JSON_UNESCAPED_SLASHES);
     if (!is_string($encoded) || strlen($encoded) > 1600000) reject(413, 'Invalid Argon request');
     $ch = curl_init($route);
     if (!$ch) reject(503, 'Could not open the Worker connection');

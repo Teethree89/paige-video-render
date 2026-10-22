@@ -135,6 +135,16 @@ test('Argon model check uses Google metadata GET, never submits paid content or 
     assert.equal(result.status,200);
     assert.deepEqual(await result.json(),{ok:true,available:true,check:'listed'});
     assert.equal(calls,1);
+    // PHP previously sent "[]" because it encoded an empty PHP array.
+    // The metadata endpoint requires "{}" and rejects [] before Google.
+    const wrongShape=await worker.fetch(new Request(
+      'https://example.workers.dev/api/scene/argon/check',{
+        method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+        body:'[]'
+      }),env);
+    assert.equal(wrongShape.status,400);
+    assert.deepEqual(await wrongShape.json(),{ok:false,error:'Invalid Argon check request'});
+    assert.equal(calls,1,'An invalid JSON shape never reaches Google');
     assert.equal((await send({frames:sample.frames})).status,400,
       'The metadata check must not accept client frames');
     assert.equal((await send({},'wrong-token')).status,401);
