@@ -47,6 +47,13 @@ function safe_worker_error(int $status, string $body): string {
         '502:AI provider authentication or permission failed' => 'Gemini rejected the provider API credentials or permissions.',
         '502:Requested AI model is unavailable' => 'The configured Gemini model is not available to this API key.',
         '502:AI provider rejected request format' => 'Gemini rejected the submitted frame or model request format.',
+        '502:Argon rejected output format configuration' => 'Argon rejected its structured JSON output configuration. The Worker must deploy the corrected response schema.',
+        '502:Argon rejected generation configuration' => 'Argon rejected a generation setting (thinking level or token budget). Check the Worker model compatibility.',
+        '502:Argon rejected image input configuration' => 'Argon rejected the inline reference image format. Check the Worker image payload contract.',
+        '502:Argon rejected background execution configuration' => 'Argon rejected background job settings. Check model support for Interactions background mode.',
+        '502:Argon rejected model configuration' => 'Argon rejected the requested model or a model-specific option. Verify paid-tier Argon access.',
+        '502:Argon rejected Interactions request' => 'Argon returned HTTP 400 without a supported field diagnostic. No job was created; review sanitized Worker logs before retrying.',
+
         '502:AI provider capacity unavailable' => 'Gemini is overloaded (upstream 503). Automatic retries were exhausted. Try again later or select 3.8 Low.',
         '404:No resumable Argon job' => 'Argon job is no longer available. Start another generation if needed.',
         '502:AI provider temporarily unavailable' => 'Gemini returned a temporary server error (upstream 5xx). Try again later or select 3.8 Low.',
