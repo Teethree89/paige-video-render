@@ -239,7 +239,11 @@ class GatewaySmokeTests(unittest.TestCase):
             "argon_worker_call($workerEndpoint, $secret, 'diagnostic-status',",
             "'argonSmoke' => [",
             "'400:Invalid Argon diagnostic request'",
-            "'504:Argon diagnostic request timed out'"
+            "'504:Argon diagnostic request timed out'",
+            "'502:Argon diagnostic fixture validation failed'",
+            "'502:Argon diagnostic file upload failed'",
+            "'502:Argon diagnostic upload URL was not trusted'",
+            "'502:Argon diagnostic uploaded file metadata invalid'"
         ):
             self.assertIn(expression, php)
         self.assertLess(php.index("if (empty($_SESSION['authenticated']))"),
