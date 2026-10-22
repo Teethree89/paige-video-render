@@ -45,6 +45,7 @@ function safe_worker_error(int $status, string $body): string {
         '502:Argon diagnostic uploaded file metadata invalid' => 'The uploaded image metadata was not usable; no Argon generation was submitted.',
         '502:Argon reference analysis unavailable' => 'Argon reference analysis did not complete. No background job was submitted and no automatic retry was made.',
         '502:Argon reference analysis invalid' => 'Argon did not return a usable visual description. No background job was submitted and no automatic retry was made.',
+        '502:Argon provider redirect blocked' => 'Google returned a redirect that the Worker correctly refused to follow. No redirected request was sent.',
 
 
         '413:Invalid image request' => 'The sampled frames exceed the Worker request size limit.',

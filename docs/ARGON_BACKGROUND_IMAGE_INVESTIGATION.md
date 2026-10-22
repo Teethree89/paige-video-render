@@ -80,6 +80,38 @@ under the unchanged PHP 45-second transport budget, with a 30-second analysis
 ceiling. Failure, timeout or malformed analysis stops the second paid call.
 The three Flash profiles and their retry policies are unchanged.
 
+## Live 4:14 PM failure and workerd compatibility correction
+
+The production Argon Previs attempt on 2026-10-22 at 4:14:12 PM EDT
+returned HTTP 502 from Cloudflare in about **6 ms**, while the Worker
+invocation itself completed without an uncaught exception. The editor
+displayed `Argon reference analysis did not complete`, which maps to the
+Worker's caught exception around the synchronous image-analysis fetch.
+No text-only background job was submitted. The invocation log did not
+capture the actual exception class or message.
+
+Code review found a specific runtime incompatibility: PR #70 had added
+`redirect:'error'` to both Argon `fetch` calls. **Cloudflare workerd
+rejects this value synchronously**; only `follow` and `manual` are
+implemented. Node tests had mocked `fetch` and therefore silently accepted
+the invalid Cloudflare request setting. Public reproductions:
+https://github.com/bluesky-social/atproto/issues/4052 and
+https://github.com/better-auth/better-auth/issues/10052 .
+
+The fix uses `redirect:'manual'` and explicitly blocks all 3xx responses
+without following them or disclosing their Location headers. It also
+uses a standalone 30s analysis timeout and retains the shared 40s
+deadline check before the second paid call; the prior signal composition
+is unnecessary. Both paid stages now log only allowlisted failure
+categories and stage labels, never raw errors, prompt/media content,
+secrets or request metadata. Workerd-style test mocks fail on
+`redirect:'error'` and verify the new behavior and 3xx safety contract.
+
+This fixes a verified **code-level workerd incompatibility** that matches
+the observed fast 502, but the specific exception was not present in the
+Cloudflare log, so live confirmation and reconstruction quality remain
+pending. No paid provider calls were performed during this fix.
+
 ## Verification and limits
 
 Offline regression tests reproduce a provider that rejects background image
@@ -99,5 +131,5 @@ The old diagnostic stages 6–7 intentionally retain the direct provider probe;
 they are not prerequisites for this workaround and should not be replayed.
 
 Deployment requires both the PHP/frontend and Worker changes. Check the safe
-Worker revision `argon-visual-analysis-background-v1`. No deployment, key,
+Worker revision `argon-workerd-redirect-manual-v1`. No deployment, key,
 billing, retention-setting, or private-media changes are part of this PR.

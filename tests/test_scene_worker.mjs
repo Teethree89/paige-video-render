@@ -26,11 +26,11 @@ const analysisResult=(value=visualAnalysis)=>({status:'completed',steps:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-visual-analysis-background-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-workerd-redirect-manual-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-visual-analysis-background-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-workerd-redirect-manual-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -84,7 +84,8 @@ test('Argon reconstructs via synchronous visual evidence and text-only backgroun
       assert.equal(opts.headers['Api-Revision'],'2026-05-20');
       const data=JSON.parse(opts.body);
       assert.equal(data.model,'gemini-4-argon');
-      assert.equal(opts.redirect,'error');
+      assert.equal(opts.redirect,'manual','Cloudflare workerd rejects redirect:error before fetching');
+      assert.equal(opts.signal instanceof AbortSignal,true);
       outputBudget+=data.generation_config.max_output_tokens;
       // Reproduce the observed provider restriction, rather than accepting
       // the very payload that previously failed in the live service.
@@ -157,6 +158,53 @@ test('Argon reconstructs via synchronous visual evidence and text-only backgroun
   }finally{globalThis.fetch=prior;}
 });
 
+test('Argon uses workerd-compatible fetch options and never follows provider redirects',async()=>{
+  const previous=globalThis.fetch,previousWarn=console.warn;
+  const body={...sample,profile:'argon_previs',mode:'primary_subject'};
+  const request=()=>new Request('https://example.workers.dev/api/scene/argon/start',{
+    method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  });
+  const logs=[];console.warn=(...args)=>logs.push(args);
+  try{
+    for(const stage of [1,2]){
+      for(const redirectCode of [301,302,307,308]){
+        let calls=0;
+        globalThis.fetch=async(_url,opts)=>{
+          calls++;
+          // Simulates workerd's actual behavior, unlike Node's permissive fetch.
+          if(opts.redirect==='error')throw new TypeError('Invalid redirect value PRIVATE_SECRET');
+          assert.equal(opts.redirect,'manual','Never auto-follow provider redirects');
+          assert.equal(opts.method,'POST');
+          assert.ok(opts.signal instanceof AbortSignal);
+          if(calls<stage)return new Response(JSON.stringify(analysisResult()));
+          return new Response(null,{status:redirectCode,
+            headers:{Location:'https://attacker.example/PRIVATE_SECRET'}});
+        };
+        const response=await worker.fetch(request(),env);
+        assert.equal(response.status,502);
+        assert.deepEqual(await response.json(),{ok:false,error:'Argon provider redirect blocked'});
+        assert.equal(calls,stage,'No second paid request after a redirect');
+      }
+    }
+    for(const [name,expected] of [
+      ['TypeError','runtime-type-or-network'],
+      ['TimeoutError','timeout-or-abort'],
+      ['NetworkError','other-fetch-failure']
+    ]){
+      globalThis.fetch=async()=>{throw Object.assign(
+        new Error('PRIVATE_SECRET '+env.GEMINI_API_KEY+' '+token),{name}
+      );};
+      const response=await worker.fetch(request(),env);
+      assert.deepEqual(await response.json(),
+        {ok:false,error:'Argon reference analysis unavailable'});
+      assert.deepEqual(logs.at(-1),['argon-provider-fetch','visual-analysis',expected]);
+    }
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE_SECRET'));
+    assert.ok(!JSON.stringify(logs).includes(env.GEMINI_API_KEY));
+    assert.ok(!JSON.stringify(logs).includes(token));
+  }finally{globalThis.fetch=previous;console.warn=previousWarn;}
+});
 test('Argon rejects incomplete, malformed, oversized or unbounded analysis before paying for background generation',async()=>{
   const prior=globalThis.fetch;let calls=0;
   const invalid=[
