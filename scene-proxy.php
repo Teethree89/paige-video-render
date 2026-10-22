@@ -36,6 +36,7 @@ function safe_worker_error(int $status, string $body): string {
     $allowed = [
         '401:Unauthorized' => 'The Worker rejected the PHP access token. Verify the private PHP scene_access_token matches Cloudflare SCENE_ACCESS_TOKEN.',
         '400:Invalid image request' => 'The Worker rejected the sampled video frames. Check JPEG validation and frame sizes.',
+        '400:Invalid Argon check request' => 'The Argon model check was rejected before reaching Google. Verify that PHP sends an empty JSON object to the Worker.',
         '413:Invalid image request' => 'The sampled frames exceed the Worker request size limit.',
         '503:AI backend is not configured' => 'The AI Worker is missing its runtime configuration.',
         '429:Provider rate limit reached' => 'Gemini rate limit reached. Try later.',
