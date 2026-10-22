@@ -48,6 +48,7 @@ function safe_worker_error(int $status, string $body): string {
         '502:Requested AI model is unavailable' => 'The configured Gemini model is not available to this API key.',
         '502:AI provider rejected request format' => 'Gemini rejected the submitted frame or model request format.',
         '502:AI provider capacity unavailable' => 'Gemini is overloaded (upstream 503). Automatic retries were exhausted. Try again later or select 3.8 Low.',
+        '404:No resumable Argon job' => 'Argon job is no longer available. Start another generation if needed.',
         '502:AI provider temporarily unavailable' => 'Gemini returned a temporary server error (upstream 5xx). Try again later or select 3.8 Low.',
         '502:Invalid provider response' => 'Gemini returned an unreadable response.',
         '502:Provider produced no usable scene' => 'Gemini did not produce usable scene JSON.',
@@ -62,6 +63,41 @@ function safe_worker_error(int $status, string $body): string {
            (in_array($status, [400, 401, 403, 404, 413, 429, 500, 502, 503, 504], true)
                ? (string) $status : 'other') . ').';
 }
+
+/** Fixed-target Argon background job transport (only after session+CSRF). */
+function argon_worker_call(string $endpoint, string $secret, string $action, array $body): array {
+    if (!in_array($action, ['start', 'status'], true)) reject(400, 'Invalid Argon action');
+    $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
+    $encoded = json_encode($body, JSON_UNESCAPED_SLASHES);
+    if (!is_string($encoded) || strlen($encoded) > 1600000) reject(413, 'Invalid Argon request');
+    $ch = curl_init($route);
+    if (!$ch) reject(503, 'Could not open the Worker connection');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $encoded,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json',
+            'Authorization: Bearer ' . $secret],
+        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => $action === 'start' ? 45 : 30,
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_RETURNTRANSFER => true
+    ]);
+    if (defined('CURLOPT_PROTOCOLS')) curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+    $response = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if (!is_string($response) || strlen($response) > 1500000)
+        reject(502, 'Could not retrieve Argon Worker response');
+    $value = json_decode($response, true);
+    if ($status < 200 || $status >= 300)
+        reject($status === 429 ? 429 : 502, safe_worker_error($status, $response));
+    if (!is_array($value) || ($value['ok'] ?? false) !== true)
+        reject(502, 'Invalid Argon Worker response');
+    return $value;
+}
+
 function is_https(): bool {
     // Do not trust arbitrary X-Forwarded-Proto headers from an internet client.
     return isset($_SERVER['HTTPS'])
@@ -187,8 +223,13 @@ if (!isset($_SESSION['csrf'])) {
 }
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method === 'GET') {
+    $active = !empty($_SESSION['authenticated']) ? ($_SESSION['argon_job'] ?? null) : null;
+    if (is_array($active) && (int) ($active['created'] ?? 0) < time() - 86400)
+        $active = null;
     answer(200, ['ok' => true, 'authenticated' => !empty($_SESSION['authenticated']),
-                 'csrf' => $_SESSION['csrf']]);
+                 'csrf' => $_SESSION['csrf'],
+                 'argonJob' => $active === null ? null : [
+                    'shotId' => $active['shotId'], 'status' => $active['status']]]);
 }
 if ($method !== 'POST') reject(405, 'Use GET or POST');
 if (!same_origin()) reject(403, 'Same-origin editor request required');
@@ -226,7 +267,26 @@ if ($action === 'logout') {
     session_destroy();
     answer(200, ['ok' => true, 'authenticated' => false]);
 }
-if ($action !== 'generate') reject(400, 'Unsupported action');
+// Polling never consumes a generation quota slot. The Google job ID is
+// session-private; callers cannot supply another user's interaction ID.
+if ($action === 'argon_status') {
+    $job = $_SESSION['argon_job'] ?? null;
+    if (!is_array($job) || (int) ($job['created'] ?? 0) < time() - 86400)
+        reject(404, 'No resumable Argon job in this session');
+    if (!preg_match('/^[A-Za-z0-9_-]{8,160}$/', (string) ($job['id'] ?? '')))
+        reject(400, 'Invalid Argon job');
+    $value = argon_worker_call($workerEndpoint, $secret, 'status',
+        ['jobId' => $job['id'], 'shotId' => $job['shotId']]);
+    if (!in_array($value['status'] ?? '', ['queued','in_progress','completed','failed'], true))
+        reject(502, 'Invalid Argon job status');
+    $_SESSION['argon_job']['status'] = $value['status'];
+    answer(200, ['ok' => true, 'status' => $value['status'],
+        'shotId' => $job['shotId']] +
+        (($value['status'] === 'completed' && isset($value['proposal'])) ?
+          ['proposal' => $value['proposal']] : []));
+}
+if ($action !== 'generate' && $action !== 'argon_start')
+    reject(400, 'Unsupported action');
 
 // Protect upstream quota; a single session gets at most 10 proposals/hour.
 $window = (int) ($_SESSION['ai_window'] ?? 0);
@@ -266,7 +326,7 @@ $workerInput = ['shotId' => $shotId, 'frames' => $validated];
 if (array_key_exists('profile', $input)) {
     if (array_key_exists('model', $input) ||
         !is_string($input['profile']) ||
-        !in_array($input['profile'], ['lite_default', 'g38_low', 'g38_medium'], true)) {
+        !in_array($input['profile'], ['lite_default', 'g38_low', 'g38_medium', 'argon_previs'], true)) {
         reject(400, 'Unsupported AI profile');
     }
     $workerInput['profile'] = $input['profile'];
@@ -301,6 +361,31 @@ if (array_key_exists('layer', $input)) {
     $workerInput['layer'] = $pass;
     $workerInput['existing'] = $prior;
 }
+// Paid Argon background generation is opt-in and primary-subject only.
+if ($action === 'argon_start') {
+    if (($workerInput['profile'] ?? '') !== 'argon_previs' ||
+        ($workerInput['mode'] ?? '') !== 'primary_subject' ||
+        array_key_exists('layer', $workerInput))
+        reject(400, 'Argon Previs requires Primary subject only');
+    $active = $_SESSION['argon_job'] ?? null;
+    if (is_array($active) && (int) ($active['created'] ?? 0) >= time() - 86400 &&
+        in_array($active['status'] ?? '', ['queued','in_progress'], true))
+        reject(409, 'An Argon job is already running. Resume it instead.');
+    // One paid job is charged against the existing per-session generation quota.
+    $_SESSION['ai_calls'] = (int) ($_SESSION['ai_calls'] ?? 0) + 1;
+    $job = argon_worker_call($workerEndpoint, $secret, 'start', $workerInput);
+    if (!is_string($job['jobId'] ?? null) ||
+        !preg_match('/^[A-Za-z0-9_-]{8,160}$/', $job['jobId']) ||
+        !in_array($job['status'] ?? '', ['queued','in_progress','completed','failed'], true))
+        reject(502, 'Argon Worker returned invalid job');
+    $_SESSION['argon_job'] = [
+        'id' => $job['jobId'], 'shotId' => $shotId, 'created' => time(),
+        'status' => $job['status']
+    ];
+    answer(200, ['ok' => true, 'status' => $job['status'], 'shotId' => $shotId]);
+}
+if (($workerInput['profile'] ?? '') === 'argon_previs')
+    reject(400, 'Use the Argon background job endpoint');
 // Medium may take longer; it is deliberately disallowed in the 4-pass mode.
 if (($workerInput['profile'] ?? '') === 'g38_medium' &&
     (($workerInput['mode'] ?? '') !== 'primary_subject' ||
