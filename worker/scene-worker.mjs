@@ -16,7 +16,7 @@ const PROFILE_SETTINGS = Object.freeze({
   g38_low: Object.freeze({model:'gemini-3.8-flash',thinkingLevel:'low',timeoutMs:45000}),
   g38_medium: Object.freeze({model:'gemini-3.8-flash',thinkingLevel:'medium',timeoutMs:70000})
 });
-const SUPPORTED_PROFILES = Object.freeze(Object.keys(PROFILE_SETTINGS));
+const SUPPORTED_PROFILES = Object.freeze([...Object.keys(PROFILE_SETTINGS),'argon_previs']);
 const MAX_BYTES = 1_600_000;
 const FRAME_LIMIT = 3;
 const ENVIRONMENT_PASSES = Object.freeze(['structures','ground','vegetation','details']);
@@ -266,6 +266,120 @@ function layerPrompt(layer,existing) {
 export {validateOutput,secretMatches};
 
 
+
+const ARGON_PROFILE='argon_previs';
+const ARGON_MODEL='gemini-4-argon';
+const ARGON_MAX_OUTPUT_TOKENS=16384; // hard cap on thinking + output spend
+const ARGON_REVISION='2026-05-20';
+const ARGON_API='https://generativelanguage.googleapis.com/v1beta/interactions';
+const ARGON_JOB_ID=/^[A-Za-z0-9_-]{8,160}$/;
+// Paid job stays on Google's server; no Cloudflare storage/bindings required.
+function safeProviderStatus(status){
+  if(status===429)return fail(429,'Provider rate limit reached');
+  if(status===401||status===403)return fail(502,'AI provider authentication or permission failed');
+  if(status===404)return fail(502,'Requested AI model is unavailable');
+  if(status===400||status===422)return fail(502,'AI provider rejected request format');
+  if(status===503)return fail(502,'AI provider capacity unavailable');
+  if(status>=500)return fail(502,'AI provider temporarily unavailable');
+  return fail(502,'AI provider refused the request');
+}
+function argonPrompt(shotId){
+  return PRIMARY_PROMPT.replaceAll('SHOT_ID',shotId)+\`
+PREVIS / RUNWAY PREP — CLIENT COMPOSITE RECONSTRUCTION:
+This scene will be edited as Three.js primitives and exported to After Effects,
+GLB/C4D-friendly geometry and an MP4 previs for a video-to-video workflow.
+Preserve the actual reference's shot-facing silhouette, composition, important
+spatial relationships, recognizable facade rhythm, roofline and hero shapes.
+Prioritize a clean camera-visible blockout over busy filler, tiny geometry or
+inaccurate invented details. Keep foreground, midground and background forms
+distinguishable where evidenced. Use descriptive editable names for structural
+masses, roof features, entrances, glazing, emissive-looking facade bands and
+site elements. Materials remain basic color/metalness/roughness only; no
+invented lights or effects. Return one valid scene JSON, at most 48 shapes.
+\`;
+}
+function argonInput(validated){
+  const input=[{type:'text',text:argonPrompt(validated.shotId)}];
+  for(let i=0;i<validated.content.length;i++){
+    const part=validated.content[i];
+    if(typeof part.text==='string')input.push({type:'text',text:part.text});
+    else input.push({type:'image',data:part.inlineData.data,mime_type:'image/jpeg'});
+  }
+  return input;
+}
+function argonSafeStatus(raw){
+  if(raw==='queued'||raw==='in_progress')return raw;
+  if(raw==='completed')return 'completed';
+  if(raw==='failed'||raw==='cancelled'||raw==='requires_action')return 'failed';
+  return null;
+}
+async function argonGateway(request,env,path){
+  if(request.method!=='POST')return fail(405,'POST required');
+  let payload;
+  try{payload=await readLimitedBody(request);}
+  catch(error){return fail(error?.message==='Request too large'?413:400,'Invalid image request');}
+  if(path==='/api/scene/argon/start'){
+    let validated;
+    try{
+      if(payload?.profile!==ARGON_PROFILE||payload?.mode!=='primary_subject'||
+         payload.layer!==undefined||payload.model!==undefined)
+        throw Error('Argon requires paid primary-subject profile');
+      validated=validateInput({...payload,profile:'g38_medium'});
+    }catch{return fail(400,'Invalid image request');}
+    const body={model:ARGON_MODEL,background:true,store:true,
+      generation_config:{thinking_level:'medium',max_output_tokens:ARGON_MAX_OUTPUT_TOKENS},
+      response_format:{type:'text',mime_type:'application/json'},
+      input:argonInput(validated)};
+    let response;
+    try{
+      response=await fetch(ARGON_API,{method:'POST',
+        headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY,
+          'Api-Revision':ARGON_REVISION},
+        body:JSON.stringify(body),signal:AbortSignal.timeout(35000)});
+    }catch{return fail(502,'AI provider network connection failed');}
+    if(!response.ok)return safeProviderStatus(response.status);
+    let interaction;
+    try{interaction=await response.json();}catch{return fail(502,'Invalid provider response');}
+    if(typeof interaction?.id!=='string'||!ARGON_JOB_ID.test(interaction.id))
+      return fail(502,'Invalid provider response');
+    const status=argonSafeStatus(interaction.status);
+    if(!status)return fail(502,'Invalid provider response');
+    return reply({ok:true,jobId:interaction.id,status});
+  }
+  if(path==='/api/scene/argon/status'){
+    const id=payload?.jobId,shotId=payload?.shotId;
+    if(typeof id!=='string'||!ARGON_JOB_ID.test(id)||
+       typeof shotId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(shotId)||
+       Object.keys(payload).some(k=>!['jobId','shotId'].includes(k)))
+      return fail(400,'Invalid Argon job request');
+    let response;
+    try{
+      response=await fetch(ARGON_API+'/'+encodeURIComponent(id),{
+        headers:{'x-goog-api-key':env.GEMINI_API_KEY,'Api-Revision':ARGON_REVISION},
+        signal:AbortSignal.timeout(20000)});
+    }catch{return fail(502,'AI provider network connection failed');}
+    if(!response.ok)return safeProviderStatus(response.status);
+    let interaction;
+    try{interaction=await response.json();}catch{return fail(502,'Invalid provider response');}
+    if(interaction?.id!==id)return fail(502,'Invalid provider response');
+    const status=argonSafeStatus(interaction.status);
+    if(!status)return fail(502,'Invalid provider response');
+    if(status!=='completed')return reply({ok:true,status});
+    // Only terminal model_output text is accepted; never expose thought steps,
+    // provider messages, input frames or arbitrary account metadata.
+    const pieces=(interaction.steps||[]).filter(s=>s?.type==='model_output')
+      .flatMap(s=>Array.isArray(s.content)?s.content:[])
+      .filter(x=>x?.type==='text'&&typeof x.text==='string').map(x=>x.text);
+    const output=pieces.join('');
+    if(!output||output.length>120000)return fail(502,'Provider produced no usable scene');
+    try{
+      const proposal=validateOutput(JSON.parse(output),shotId,MAX_PRIMARY_OBJECTS);
+      return reply({ok:true,status:'completed',proposal});
+    }catch{return fail(502,'Provider scene did not match the editor schema');}
+  }
+  return fail(404,'Not found');
+}
+
 export default {
   async fetch(request,env){
     const path=new URL(request.url).pathname;
@@ -275,15 +389,16 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'gemini-medium-backoff-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-background-previs-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
-    if(path!=='/api/scene')return fail(404,'Not found');
+    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
     if(!env.GEMINI_API_KEY || !env.SCENE_ACCESS_TOKEN)
       return fail(503,'AI backend is not configured');
     const bearer=request.headers.get('Authorization')||'';
     const token=bearer.startsWith('Bearer ')?bearer.slice(7):'';
     if(!secretMatches(token,env.SCENE_ACCESS_TOKEN))return fail(401,'Unauthorized');
+    if(path.startsWith('/api/scene/argon/'))return argonGateway(request,env,path);
     let validated,layerSpec;
     try {
       const payload=await readLimitedBody(request);
