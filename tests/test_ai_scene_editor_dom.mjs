@@ -521,3 +521,40 @@ test('Paid Argon disallows layered environment before spending or sampling video
     globalThis.fetch=oldFetch;
   }
 });
+
+test('Argon model visibility check is separate from paid generation, CSRF protected, and never samples client frames',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch;
+  const ids=new Map();let checks=0,paid=0,videos=0;
+  globalThis.document={
+    getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
+    createElement(tag){if(tag==='video')videos++;return new Element();}
+  };
+  globalThis.fetch=async(url,options={})=>{
+    assert.equal(url,'./scene-proxy.php');
+    if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',
+      argonJob:null}),{status:200});
+    const body=JSON.parse(options.body);
+    if(body.action==='argon_check'){
+      checks++;
+      assert.equal(body.csrf,'test-csrf');
+      assert.deepEqual(Object.keys(body).sort(),['action','csrf']);
+      return new Response(JSON.stringify({ok:true,available:true,check:'listed'}),{status:200});
+    }
+    paid++;throw Error('No paid generation should be sent by model-check button');
+  };
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:()=>assert.fail('No proposal expected'),onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(ids.get('aiSceneCheckArgon').disabled,false);
+    await ids.get('aiSceneCheckArgon').fire('click');
+    assert.equal(checks,1);assert.equal(paid,0);assert.equal(videos,0);
+    assert.match(ids.get('aiSceneStatus').textContent,/does not guarantee/);
+    assert.match(ids.get('aiSceneLog').textContent,/no generation or reference frames/);
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+    globalThis.fetch=oldFetch;
+  }
+});

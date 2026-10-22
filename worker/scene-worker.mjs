@@ -401,11 +401,38 @@ function argonSafeStatus(raw){
   if(raw==='failed'||raw==='cancelled'||raw==='requires_action')return 'failed';
   return null;
 }
+// No-generation model metadata probe; GET does not infer or spend tokens.
+// Visibility is not proof of quota, entitlement or successful Interactions use.
+async function checkArgonModel(env){
+  let response;
+  try {
+    response=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-4-argon',{
+      method:'GET',
+      headers:{'x-goog-api-key':env.GEMINI_API_KEY},
+      signal:AbortSignal.timeout(12000)
+    });
+  }catch{return fail(502,'Argon model metadata check unavailable');}
+  if(response.status===403||response.status===404)
+    return reply({ok:true,available:false,check:'not_listed'});
+  if(!response.ok)return fail(502,'Argon model metadata check unavailable');
+  let data;
+  try{data=await response.json();}catch{return fail(502,'Argon model metadata check unavailable');}
+  if(data?.name!=='models/gemini-4-argon')
+    return fail(502,'Argon model metadata check unavailable');
+  return reply({ok:true,available:true,check:'listed'});
+}
 async function argonGateway(request,env,path){
   if(request.method!=='POST')return fail(405,'POST required');
   let payload;
   try{payload=await readLimitedBody(request);}
   catch(error){return fail(error?.message==='Request too large'?413:400,'Invalid image request');}
+  if(path==='/api/scene/argon/check'){
+    // Reject extra caller-supplied configuration: only the configured key/model
+    // are consulted, and no frames or proprietary content are transmitted.
+    if(!payload||typeof payload!=='object'||Array.isArray(payload)||
+       Object.keys(payload).length!==0)return fail(400,'Invalid Argon check request');
+    return checkArgonModel(env);
+  }
   if(path==='/api/scene/argon/start'){
     let validated;
     try{
@@ -478,9 +505,9 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-field-path-diagnostics-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-model-check-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
-    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status'].includes(path))return fail(404,'Not found');
+    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status','/api/scene/argon/check'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
     if(!env.GEMINI_API_KEY || !env.SCENE_ACCESS_TOKEN)
       return fail(503,'AI backend is not configured');
