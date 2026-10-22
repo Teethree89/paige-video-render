@@ -315,6 +315,12 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     position:[0,1,0],rotation:[0,0,0],scale:[2,2,2],
     material:{color:'#123456',metalness:0,roughness:.6}
   }]}]};
+  // Gemini returns two visually identical primitives; the browser's
+  // automatic cleanup must remove the duplicate before preview/accept.
+  scene.scenes[0].objects.push({
+    ...structuredClone(scene.scenes[0].objects[0]),
+    id:'entry_frame_duplicate',name:'Duplicate generated detail'
+  });
   const env={GEMINI_API_KEY:'mock',SCENE_ACCESS_TOKEN:'private-test-token-12345678901234567890'};
   globalThis.fetch=async (url,options={})=>{
     if(String(url).includes('generativelanguage.googleapis.com')){
@@ -357,6 +363,8 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(sent,1,'primary mode uses only one authenticated request');
     assert.equal(preview?.objects[0]?.name,'Detailed entrance frame');
+    assert.equal(preview?.objects.length,1,'auto cleanup removes duplicate model objects');
+    assert.match(ids.get('aiSceneLog').textContent,/Z-fighting cleanup: 1 duplicates removed/);
     assert.equal(ids.get('aiSceneCleanup').hidden,false);
     assert.match(ids.get('aiSceneLog').textContent,/Gemini processing primary subject/);
     assert.match(ids.get('aiSceneLog').textContent,/reasoning\/geometry are not streamed/);
