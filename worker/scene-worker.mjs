@@ -450,6 +450,66 @@ function diagnosticPassed(interaction,stage){
 function diagnosticFrame(){
   return {type:'image',data:ARGON_DIAG_JPEG,mime_type:'image/jpeg'};
 }
+// Synthetic-image *diagnostic* only: test Files API URI references instead
+// of inline base64 for background image processing. No client frames are
+// uploaded and no browser-configurable URLs or prompts are accepted.
+function safeGoogleUploadUrl(raw){
+  try{
+    const url=new URL(raw);
+    if(url.protocol!=='https:'||url.hostname!=='generativelanguage.googleapis.com'||
+       url.username||url.password||url.port||url.hash||
+       !url.pathname.startsWith('/upload/v1beta/files'))return null;
+    return url.toString();
+  }catch{return null;}
+}
+function safeGoogleFileUri(raw){
+  try{
+    const url=new URL(raw);
+    if(url.protocol!=='https:'||url.hostname!=='generativelanguage.googleapis.com'||
+       url.username||url.password||url.port||url.search||url.hash||
+       !/^\\/(?:v1beta\\/)?files\\/[A-Za-z0-9_-]{8,180}$/.test(url.pathname))return null;
+    return url.toString();
+  }catch{return null;}
+}
+async function uploadArgonDiagnosticJpeg(env){
+  const binary=Uint8Array.from(atob(ARGON_DIAG_JPEG),ch=>ch.charCodeAt(0));
+  if(binary.length<100||binary.length>4096||
+     binary[0]!==0xff||binary[1]!==0xd8||
+     binary[binary.length-2]!==0xff||binary[binary.length-1]!==0xd9)
+    return {error:'Argon diagnostic fixture validation failed'};
+  let init,complete;
+  try{
+    init=await fetch('https://generativelanguage.googleapis.com/upload/v1beta/files',{
+      method:'POST',
+      headers:{'x-goog-api-key':env.GEMINI_API_KEY,
+        'X-Goog-Upload-Protocol':'resumable',
+        'X-Goog-Upload-Command':'start',
+        'X-Goog-Upload-Header-Content-Length':String(binary.length),
+        'X-Goog-Upload-Header-Content-Type':'image/jpeg',
+        'Content-Type':'application/json'},
+      body:JSON.stringify({file:{display_name:'paiver-synthetic-argon-smoke'}}),
+      redirect:'manual',signal:AbortSignal.timeout(12000)
+    });
+    if(!init.ok)return {error:'Argon diagnostic file upload failed'};
+    const uploadUrl=safeGoogleUploadUrl(init.headers.get('x-goog-upload-url'));
+    if(!uploadUrl)return {error:'Argon diagnostic upload URL was not trusted'};
+    complete=await fetch(uploadUrl,{
+      method:'POST',redirect:'manual',
+      headers:{'Content-Type':'image/jpeg','X-Goog-Upload-Offset':'0',
+        'X-Goog-Upload-Command':'upload, finalize',
+        'Content-Length':String(binary.length)},
+      body:binary,signal:AbortSignal.timeout(12000)
+    });
+  }catch{return {error:'Argon diagnostic file upload failed'};}
+  if(!complete.ok)return {error:'Argon diagnostic file upload failed'};
+  let data;
+  try{data=await complete.json();}catch{return {error:'Argon diagnostic file upload failed'};}
+  const uri=safeGoogleFileUri(data?.file?.uri);
+  if(!uri||data?.file?.mimeType!=='image/jpeg')
+    return {error:'Argon diagnostic uploaded file metadata invalid'};
+  return {uri};
+}
+
 async function argonDiagnostic(requestPayload,env,path){
   if(path==='/api/scene/argon/diagnostic-status'){
     if(!requestPayload||typeof requestPayload!=='object'||Array.isArray(requestPayload)||
@@ -480,11 +540,18 @@ async function argonDiagnostic(requestPayload,env,path){
     return fail(400,'Invalid Argon diagnostic request');
   // First isolate background itself; then add a synthetic image and finally
   // JSON formatting. Use stored background results, just like Argon Previs.
+  const fileInput=['background_image','background_combo'].includes(stage);
+  let media=diagnosticFrame();
+  if(fileInput){
+    const uploaded=await uploadArgonDiagnosticJpeg(env);
+    if(!uploaded.uri)return fail(502,uploaded.error);
+    media={type:'image',uri:uploaded.uri,mime_type:'image/jpeg'};
+  }
   const input=['text','thinking','background'].includes(stage)?'Reply with OK.'
     :stage==='json'?'Return a JSON object with ok set to true.'
     :[{type:'text',text:['image','background_image'].includes(stage)?
         'Is this JPEG an image? Reply YES.':
-        'Inspect this JPEG and return JSON with ok set to true.'},diagnosticFrame()];
+        'Inspect this JPEG and return JSON with ok set to true.'},media];
   const structured=['json','background_combo'].includes(stage);
   // Stage 1 exactly matches Google's minimal REST example, with NO thinking
   // or token-budget fields; stage 2 introduces thinking_level separately.
@@ -601,7 +668,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-background-isolation-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-background-fileuri-diagnostic-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
