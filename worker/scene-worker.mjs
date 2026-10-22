@@ -284,7 +284,7 @@ function safeProviderStatus(status){
   return fail(502,'AI provider refused the request');
 }
 function argonPrompt(shotId){
-  return PRIMARY_PROMPT.replaceAll('SHOT_ID',shotId)+\`
+  return PRIMARY_PROMPT.replaceAll('SHOT_ID',shotId)+`
 PREVIS / RUNWAY PREP — CLIENT COMPOSITE RECONSTRUCTION:
 This scene will be edited as Three.js primitives and exported to After Effects,
 GLB/C4D-friendly geometry and an MP4 previs for a video-to-video workflow.
@@ -296,7 +296,7 @@ distinguishable where evidenced. Use descriptive editable names for structural
 masses, roof features, entrances, glazing, emissive-looking facade bands and
 site elements. Materials remain basic color/metalness/roughness only; no
 invented lights or effects. Return one valid scene JSON, at most 48 shapes.
-\`;
+`;
 }
 function argonInput(validated){
   const input=[{type:'text',text:argonPrompt(validated.shotId)}];
