@@ -423,7 +423,10 @@ async function checkArgonModel(env){
 }
 // Opt-in low-cost diagnostic requests. Each stage is a separately confirmed
 // billable API call. No arbitrary model, prompt, token cap or URL from browser.
-const ARGON_DIAG_STAGES=Object.freeze(['text','image','json','background']);
+const ARGON_DIAG_STAGES=Object.freeze(['text','thinking','image','json','background']);
+// A known-valid tiny blue 16x16 JPEG created offline, NOT a client's frame.
+// Isolates multimedia request compatibility without transmitting private footage.
+const ARGON_DIAG_JPEG='/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAQABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDFooor7w+LP//Z';
 const ARGON_DIAG_FORMAT=Object.freeze({
   type:'text',mime_type:'application/json',
   schema:{type:'object',properties:{ok:{type:'boolean'}},required:['ok']}
@@ -436,19 +439,15 @@ function diagnosticText(value){
 }
 function diagnosticPassed(interaction,stage){
   if(interaction?.status!=='completed')return false;
-  const output=diagnosticText(interaction);
+  const output=diagnosticText(interaction)||(typeof interaction.output_text==='string'?interaction.output_text:'');
   if(!output||output.length>10000)return false;
   if(['json','background'].includes(stage)){
     try{return JSON.parse(output)?.ok===true;}catch{return false;}
   }
   return true;
 }
-function diagnosticFrame(frame){
-  const content=validateInput({shotId:'argon_smoke',profile:'g38_low',
-    frames:[frame]}).content;
-  const jpeg=content.find(p=>p.inlineData)?.inlineData;
-  if(!jpeg||jpeg.mimeType!=='image/jpeg')throw Error('Invalid image request');
-  return {type:'image',data:jpeg.data,mime_type:'image/jpeg'};
+function diagnosticFrame(){
+  return {type:'image',data:ARGON_DIAG_JPEG,mime_type:'image/jpeg'};
 }
 async function argonDiagnostic(requestPayload,env,path){
   if(path==='/api/scene/argon/diagnostic-status'){
@@ -476,25 +475,18 @@ async function argonDiagnostic(requestPayload,env,path){
   const stage=requestPayload?.stage;
   if(!ARGON_DIAG_STAGES.includes(stage)||!requestPayload||
       typeof requestPayload!=='object'||Array.isArray(requestPayload)||
-      Object.keys(requestPayload).some(k=>!['stage','frame'].includes(k))||
-      (stage==='text'||stage==='json')&&requestPayload.frame!==undefined||
-      (stage==='image'||stage==='background')&&!requestPayload.frame)
+      Object.keys(requestPayload).some(k=>k!=='stage'))
     return fail(400,'Invalid Argon diagnostic request');
-  let input;
-  try{
-    if(stage==='text')input='Reply with the word OK.';
-    else if(stage==='json')input='Return a JSON object with ok set to true.';
-    else{
-      const jpeg=diagnosticFrame(requestPayload.frame);
-      input=[{type:'text',text:stage==='image'?
-        'Identify whether this JPEG is an image. Reply YES.':
-        'Inspect this JPEG and return JSON with ok set to true.'},jpeg];
-    }
-  }catch{return fail(400,'Invalid Argon diagnostic request');}
+  const input=stage==='text'||stage==='thinking'?'Reply with OK.'
+    :stage==='json'?'Return a JSON object with ok set to true.'
+    :[{type:'text',text:stage==='image'?'Is this JPEG an image? Reply YES.':
+        'Inspect this JPEG and return JSON with ok set to true.'},diagnosticFrame()];
   const structured=stage==='json'||stage==='background';
+  // Stage 1 exactly matches Google's minimal REST example, with NO thinking
+  // or token-budget fields; stage 2 introduces thinking_level separately.
   const body={
     model:ARGON_MODEL,input,
-    generation_config:{thinking_level:'low',max_output_tokens:4096},
+    ...(stage==='text'?{}:{generation_config:{thinking_level:'low',max_output_tokens:4096}}),
     ...(structured?{response_format:ARGON_DIAG_FORMAT}:{}),
     ...(stage==='background'?{background:true,store:false}:{})
   };
