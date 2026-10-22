@@ -149,6 +149,13 @@ test('three sampled video frames become previewable and accepted without alterin
     assert.deepEqual(preview.objects.map(x=>x.layer),
       ['structures','ground','vegetation','details']);
     assert.equal(ids.get('aiSceneInspect').hidden,false);
+    assert.equal(ids.get('aiSceneCleanup').hidden,false);
+    assert.match(ids.get('aiSceneLog').textContent,/pass 1\/4 —/);
+    assert.match(ids.get('aiSceneLog').textContent,/Z-fighting cleanup/);
+    const beforeCleanup=structuredClone(preview);
+    await ids.get('aiSceneCleanup').fire('click');
+    assert.deepEqual(preview,beforeCleanup,'manual pass must be safe to repeat');
+    assert.match(ids.get('aiSceneLog').textContent,/Manual cleanup/);
     await ids.get('aiSceneInspect').fire('click');
     assert.deepEqual(inspected,['shot_a']);
 
@@ -156,6 +163,7 @@ test('three sampled video frames become previewable and accepted without alterin
     await ids.get('aiSceneDiscard').fire('click');
     assert.equal(preview,null);
     assert.equal(ids.get('aiSceneInspect').hidden,true);
+    assert.equal(ids.get('aiSceneCleanup').hidden,true);
     assert.deepEqual(sequence,preservedOriginal,'Discard must preserve the original timeline');
     await ids.get('aiSceneGenerate').fire('click');
     await ids.get('aiSceneAccept').fire('click');
@@ -307,6 +315,12 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     position:[0,1,0],rotation:[0,0,0],scale:[2,2,2],
     material:{color:'#123456',metalness:0,roughness:.6}
   }]}]};
+  // Gemini returns two visually identical primitives; the browser's
+  // automatic cleanup must remove the duplicate before preview/accept.
+  scene.scenes[0].objects.push({
+    ...structuredClone(scene.scenes[0].objects[0]),
+    id:'entry_frame_duplicate',name:'Duplicate generated detail'
+  });
   const env={GEMINI_API_KEY:'mock',SCENE_ACCESS_TOKEN:'private-test-token-12345678901234567890'};
   globalThis.fetch=async (url,options={})=>{
     if(String(url).includes('generativelanguage.googleapis.com')){
@@ -349,12 +363,23 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(sent,1,'primary mode uses only one authenticated request');
     assert.equal(preview?.objects[0]?.name,'Detailed entrance frame');
+    assert.equal(preview?.objects.length,1,'auto cleanup removes duplicate model objects');
+    assert.match(ids.get('aiSceneLog').textContent,/Z-fighting cleanup: 1 duplicates removed/);
+    assert.equal(ids.get('aiSceneCleanup').hidden,false);
+    assert.match(ids.get('aiSceneLog').textContent,/Gemini processing primary subject/);
+    assert.match(ids.get('aiSceneLog').textContent,/reasoning\/geometry are not streamed/);
+    assert.match(ids.get('aiSceneLog').textContent,/Preview ready: 1 editable objects/);
+    const prior=structuredClone(preview);
+    await ids.get('aiSceneCleanup').fire('click');
+    assert.deepEqual(preview,prior,'cleanup of already-clean scene is idempotent');
+    assert.match(ids.get('aiSceneStatus').textContent,/0 overlapping surfaces adjusted/);
     assert.equal(accepted,0,'preview must not change the timeline');
     assert.ok(encodes.some(x=>x.width===768&&x.quality===.78));
     assert.ok(encodes.some(x=>x.width===768&&x.quality<.78),'oversized JPEG must reduce quality');
     assert.ok(encodes.filter(x=>x.width===768&&x.quality===.78).length>=3,
       'each sampled reference frame starts in detailed mode');
-    assert.match(ids.get('aiSceneStatus').textContent,/Preview: 1 editable objects/);
+    assert.match(ids.get('aiSceneLog').textContent,/Preview ready: 1 editable objects/);
+    assert.match(ids.get('aiSceneStatus').textContent,/Preview updated; nothing saved until accepted/);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;
     else globalThis.document=oldDocument;

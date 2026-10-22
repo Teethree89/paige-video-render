@@ -9,6 +9,7 @@ import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
+import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {shotAnchorMap,fitDistance} from './primitive-preview.js';
 
 const el=id=>document.getElementById(id);
@@ -150,6 +151,33 @@ async function boot(){
      doc.scenes.push(entry);
      sequence.primitiveScenes=validatePrimitiveDocument(doc,sequence.shots.map(s=>s.id));
      syncPrimitiveWorld();renderWorld();saveLocal();
+   }
+ });
+ el('primitiveCleanupSaved')?.addEventListener('click',()=>{
+   const note=el('primitiveStatus');
+   try{
+     if(aiSceneEditor?.hasPending?.()){
+       note.textContent='Accept or discard the AI preview before cleaning the saved chapter.';
+       return;
+     }
+     const shot=shotAt(playhead);
+     const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
+     const current=doc.scenes.find(s=>s.shotId===shot.id);
+     if(!current?.objects?.length){
+       note.textContent='No saved primitive geometry in this chapter to clean.';
+       return;
+     }
+     const cleaned=cleanupPrimitiveDocument({schemaVersion:1,scenes:[current]},[shot.id]);
+     const report=cleaned.report;
+     const summary=cleanupSummary(report);
+     if(report.removedDuplicates||report.nudgedOverlaps){
+       doc.scenes=doc.scenes.map(s=>s.shotId===shot.id?cleaned.document.scenes[0]:s);
+       sequence.primitiveScenes=validatePrimitiveDocument(doc,sequence.shots.map(s=>s.id));
+       syncPrimitiveWorld();saveLocal();renderWorld();
+     }
+     note.textContent=summary+' Saved chapter '+shot.id+'. Export JSON for a backup.';
+   }catch(error){
+     note.textContent='Geometry cleanup failed: '+error.message;
    }
  });
  setupVideoImport({onApply:({timeline,videoUrl})=>{
