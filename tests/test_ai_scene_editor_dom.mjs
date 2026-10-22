@@ -434,7 +434,9 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
   const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
   let startCount=0,pollCount=0,preview=null,saved=0;
   globalThis.confirm=message=>{
-    assert.match(message,/two paid calls/);
+    assert.match(message,/two potentially billable calls/);
+    assert.match(message,/Gemini 3\.5 Flash-Lite/);
+    assert.match(message,/Gemini 4 Argon/);
     assert.match(message,/two request slots/);
     assert.match(message,/stores the visual description/);
     return true;
