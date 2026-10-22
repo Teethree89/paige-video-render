@@ -325,7 +325,7 @@ function argonErrorCategory(error){
   // Some Google 400s have only a human-readable message. Extract recognized
   // FIELD PATHS, never free-text phrases, provider values or user data.
   const message=typeof error?.message==='string'?error.message.slice(0,2048):'';
-  const paths=message.match(/(?:response_format|responseFormat|generation_config|generationConfig|input\\[\\d+\\](?:\\.(?:data|mime_type|mimeType|type|uri))?|thinking_level|max_output_tokens|background|store|model)(?:\\.[a-zA-Z_]+)*/g)||[];
+  const paths=message.match(/(?:response_format|responseFormat|generation_config|generationConfig|input\[\d+\](?:\.(?:data|mime_type|mimeType|type|uri))?|thinking_level|max_output_tokens|background|store|model)(?:\.[a-zA-Z_]+)*/g)||[];
   const scopes=[...fields,...paths].map(s=>s.replace(/([a-z])([A-Z])/g,'$1_$2').toLowerCase());
   if(scopes.some(p=>/(?:^|[.$])response_format(?:[.$]|$)/.test(p)||/json_schema|output_schema/.test(p)))
     return 'output_format';
@@ -334,7 +334,7 @@ function argonErrorCategory(error){
     return 'generation_config';
   // Only specific per-item paths establish image input. An unscoped
   // mime_type is ambiguous and must be reported as unknown.
-  if(scopes.some(p=>/(?:^|[.$])input\\[\\d+\\]\\.(?:mime_type|data|uri|type)(?:[.$]|$)/.test(p)))
+  if(scopes.some(p=>/(?:^|[.$])input\[\d+\]\.(?:mime_type|data|uri|type)(?:[.$]|$)/.test(p)))
     return 'image_input';
   if(scopes.some(p=>/(?:^|[.$])(?:background|store)(?:[.$]|$)/.test(p)))
     return 'background';
