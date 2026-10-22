@@ -445,15 +445,6 @@ site elements. Materials remain basic color/metalness/roughness only; no
 invented lights or effects. Return one valid scene JSON, at most 48 shapes.
 `;
 }
-function argonInput(validated){
-  const input=[{type:'text',text:ARGON_ANALYSIS_PROMPT}];
-  for(let i=0;i<validated.content.length;i++){
-    const part=validated.content[i];
-    if(typeof part.text==='string')input.push({type:'text',text:part.text});
-    else input.push({type:'image',data:part.inlineData.data,mime_type:'image/jpeg'});
-  }
-  return input;
-}
 function argonSafeStatus(raw){
   if(raw==='queued'||raw==='in_progress')return raw;
   if(raw==='completed')return 'completed';
