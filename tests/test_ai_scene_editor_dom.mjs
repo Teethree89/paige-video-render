@@ -420,7 +420,7 @@ test('Medium thinking cannot start a full-environment request or sample video',a
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(upstreamRequests,0);
     assert.equal(videoObjects,0);
-    assert.match(ids.get('aiSceneStatus').textContent,/only for Primary subject only/);
+    assert.match(ids.get('aiSceneStatus').textContent,/require Primary subject only/);
   }finally{
     if(priorDocument===undefined)delete globalThis.document;
     else globalThis.document=priorDocument;
