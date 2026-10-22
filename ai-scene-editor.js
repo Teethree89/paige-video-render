@@ -1,4 +1,5 @@
 import {validatePrimitiveDocument} from './primitive-schema.js';
+import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {referenceFrameTimes,ENVIRONMENT_PASSES,appendEnvironmentPass} from './environment-generation.js';
 
 const el=id=>document.getElementById(id);
@@ -88,9 +89,37 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
-  const discard=el('aiSceneDiscard'),message=el('aiSceneStatus');
+  const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
+  const activity=el('aiSceneLog'),waitInfo=el('aiSceneWait');
   let csrf=null,authenticated=false,pending=null,pendingShot=null,busy=true;
+  let activityLines=[];
   const status=text=>{message.textContent=text;};
+  const log=(description)=>{
+    const time=new Date().toLocaleTimeString();
+    activityLines.push(time+'  '+description);
+    activityLines=activityLines.slice(-50);
+    if(activity)activity.textContent=activityLines.join('\n');
+  };
+  const clearActivity=()=>{
+    activityLines=[];
+    if(activity)activity.textContent='';
+    if(waitInfo)waitInfo.textContent='';
+  };
+  async function sendGeneration(payload,label){
+    log('Gemini processing '+label+' (reasoning/geometry are not streamed by this API).');
+    const started=Date.now();
+    const timer=setInterval(()=>{
+      if(waitInfo)waitInfo.textContent='Waiting on Gemini: '+Math.floor((Date.now()-started)/1000)+'s elapsed';
+    },1000);
+    try{
+      const response=await request('generate',payload);
+      log('Gemini response received for '+label+' ('+Math.max(0,Math.round((Date.now()-started)/1000))+'s).');
+      return response;
+    }finally{
+      clearInterval(timer);
+      if(waitInfo)waitInfo.textContent='';
+    }
+  }
   const ui=()=>{
     loginArea.hidden=authenticated;
     controls.hidden=!authenticated;
@@ -100,6 +129,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(modelSelect)modelSelect.disabled=busy;
     inspect.hidden=!pending;inspect.disabled=busy||!pending;
     accept.hidden=!pending; discard.hidden=!pending;
+    if(cleanupButton){cleanupButton.hidden=!pending;cleanupButton.disabled=busy||!pending;}
     accept.disabled=busy;discard.disabled=busy;
   };
   const sessionEnded=()=>{
@@ -145,12 +175,14 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       status('Reattach your imported MP4 before requesting an AI scene.');
       return;
     }
-    busy=true;ui();
+    busy=true;ui();clearActivity();
+    log('Checking your authenticated editor session…');
     try {
       // Check PHP's actual current session BEFORE decoding/compressing video.
       const session=await readServerSession();
       if(!session.authenticated){sessionEnded();return;}
       csrf=session.csrf;
+      log('Session verified; reference source and chapter selected.');
       const fullEnvironment=scope.value!=='subject';
       // Support older cached dropdown markup while sending the new profile
       // format. Neither reasoning level nor deadlines come from the browser.
@@ -161,38 +193,54 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         throw Error('Unsupported AI profile selected');
       if(fullEnvironment&&profile==='g38_medium')
         throw Error('Gemini 3.8 Medium is available only for Primary subject only.');
+      log('Preparing reference frames from the selected chapter…');
       status('Sampling the selected playhead frame and two chapter context frames…');
       const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.(),
         fullEnvironment?'standard':'primary');
+      log(frames.length+' reference JPEG frames sampled.');
+      log('Generation profile: '+({lite_default:'Gemini 3.5 Flash-Lite',
+        g38_low:'Gemini 3.8 Low',g38_medium:'Gemini 3.8 Medium'}[profile])+'.');
       let doc;
       if(fullEnvironment){
         let assembled=[];
         for(let i=0;i<ENVIRONMENT_PASSES.length;i++){
           const pass=ENVIRONMENT_PASSES[i];
-          status('Reconstructing environment '+(i+1)+' / '+ENVIRONMENT_PASSES.length+': '+pass.label+'…');
-          const result=await request('generate',{
+          const label='pass '+(i+1)+'/'+ENVIRONMENT_PASSES.length+' — '+pass.label;
+          status('Reconstructing '+label+'…');
+          log('Starting '+label+'…');
+          const result=await sendGeneration({
             csrf,shotId:shot.id,frames,profile,layer:pass.id,existing:assembled
-          });
+          },label);
           assembled=appendEnvironmentPass(shot.id,assembled,result.proposal,pass.id);
+          log('Validated '+label+': '+assembled.filter(o=>o.layer===pass.id).length+' objects.');
         }
+        log('Validating combined environment scene…');
         doc=validatePrimitiveDocument({schemaVersion:1,
           scenes:[{shotId:shot.id,objects:assembled}]},getSequence().shots.map(s=>s.id));
       }else {
-        status('Gemini is proposing the primary subject…');
-        const result=await request('generate',{csrf,shotId:shot.id,frames,profile,mode:'primary_subject'});
+        status('Gemini is analyzing reference views and generating editable geometry…');
+        const result=await sendGeneration({csrf,shotId:shot.id,frames,profile,mode:'primary_subject'},
+          'primary subject');
+        log('Validating AI scene JSON and transforms…');
         doc=validatePrimitiveDocument(result.proposal,getSequence().shots.map(s=>s.id));
       }
       if(doc.scenes.length!==1||doc.scenes[0].shotId!==shot.id)
         throw Error('Model returned geometry for the wrong shot.');
       if(getActiveShot()?.id!==shot.id)throw Error('Selected chapter changed; generate again.');
+      log('Checking planar overlaps and exact duplicate shapes…');
+      const result=cleanupPrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
+      doc=result.document;
+      log(cleanupSummary(result.report));
       if(pending){onDiscard();pending=null;pendingShot=null;}
       pending=doc.scenes[0];pendingShot=shot.id;
       onPreview(pending);
+      log('Preview ready: '+pending.objects.length+' editable objects. No scene saved.');
       const counts=fullEnvironment?ENVIRONMENT_PASSES.map(p=>
         p.label+': '+pending.objects.filter(o=>o.layer===p.id).length).join(' · '):'';
       status('Preview: '+pending.objects.length+' editable objects. '+counts+
         '. Inspect, accept or discard. No changes saved yet.');
     }catch(error){
+      log('Generation failed: '+error.message);
       if(error.status===401){
         // PHP rejected generation because its session was lost between
         // preflight and the POST. Never leave the Generate button unlocked.
@@ -219,6 +267,23 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   inspect.addEventListener('click',()=>{
     if(pending&&!busy&&getActiveShot()?.id===pendingShot)onInspect?.(pendingShot);
   });
+  cleanupButton?.addEventListener('click',()=>{
+    if(busy||!pending)return;
+    if(getActiveShot()?.id!==pendingShot){
+      status('Chapter changed; return to the proposed scene to clean it.');return;
+    }
+    try{
+      log('Manual cleanup: checking the current proposed geometry…');
+      const result=cleanupPrimitiveDocument({schemaVersion:1,scenes:[pending]},
+        getSequence().shots.map(s=>s.id));
+      pending=result.document.scenes[0];
+      onPreview(pending);
+      const summary=cleanupSummary(result.report);
+      log(summary);
+      status(summary+' Preview updated; nothing saved until accepted.');
+    }catch(error){log('Cleanup failed: '+error.message);status('Cleanup failed: '+error.message);}
+    ui();
+  });
   accept.addEventListener('click',()=>{
     if(!pending||busy)return;
     if(getActiveShot()?.id!==pendingShot){
@@ -228,6 +293,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(current?.objects?.length&&!confirm('Replace existing objects in this shot with the proposed geometry?'))return;
     try{
       onAccept(pending);
+      log('Preview accepted into the editable timeline.');
       status('Accepted. Geometry saved in your working timeline; export JSON for a backup.');
       pending=null;pendingShot=null;
     }catch(error){status('Could not accept geometry: '+error.message);}
@@ -236,6 +302,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   discard.addEventListener('click',()=>{
     if(busy)return;
     onDiscard();pending=null;pendingShot=null;
+    log('Preview discarded. Saved geometry was not changed.');
     status('Preview discarded; saved geometry is unchanged.');ui();
   });
   ui();checkLogin();
