@@ -30,7 +30,7 @@ Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wra
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
-- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-background-previs-v1` confirms the Worker is serving Argon Previs background execution alongside the existing three allowlisted thinking profiles and the Medium-specific capacity retry policy under `supportedProfiles` and the same two model IDs under `supportedModels`. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment from PHP/FTP success.
+- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-json-schema-validation-v1` confirms the Worker is serving schema-correct Argon Previs background execution alongside the existing three allowlisted thinking profiles and the Medium-specific capacity retry policy under `supportedProfiles` and the same two model IDs under `supportedModels`. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment from PHP/FTP success.
 - Lite and 3.8 Low retain at most **one additional** Gemini request on HTTP 500/502/503/504 (700ms pause, one shared 45s deadline). Medium can make **up to three total attempts**, with a roughly 1s then 2s delay and bounded jitter, **only if the second attempt also returns HTTP 503**. Other upstream 5xx stop after two attempts. Every attempt shares Medium's 70s deadline, and retries never start with less than 10s remaining. HTTP 429, permission and malformed-request failures never retry. The editor's HTTP 502 may represent PHP relaying provider 5xx; the distinct safe `Gemini is overloaded (upstream 503)` message means all permitted 503 retries were exhausted. Cloudflare's sanitized `gemini-provider-http` logs record status and attempt without raw bodies or API keys. A single PHP session-quota request can cause up to three Gemini API attempts, potentially affecting Google quota and billing.
 - HTTP **503** with `{"ok":false,"service":"paige-scene","ready":false}` means the runtime is missing one or both bindings. In Cloudflare Dashboard → Workers & Pages → `paige-video-render` → Settings → **Variables and Secrets**, confirm the two names exactly match `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN`, that their type is **Secret**, and click **Deploy** to save the production version. Never paste the values into CI logs or the public repository.
 - If the build is red, inspect the exact latest Cloudflare build log and resolve the reported issue before testing PHP.
@@ -106,8 +106,11 @@ A C4D-native project/export pipeline is a separate planned development.
   happens once through authenticated PHP `argon_start`, which counts as **one**
   of the existing 10 requests per session/hour.
 - Worker validates three inline JPEGs and primary-only scope, then calls
-  `POST /v1beta/interactions` with JSON `response_format`,
-  `generation_config.thinking_level=medium` and `max_output_tokens=32768`.
+  `POST /v1beta/interactions` with a compact structured JSON `response_format`
+  **including a required schema**, `generation_config.thinking_level=medium`
+  and `max_output_tokens=32768`. Google documents a schema for JSON output;
+  omitting it may result in HTTP 400. Avoid nested array size constraints
+  in Google's schema; strict shape limits are validated in the Worker.
   Tokens include thinking; **paid generation can incur charges even on failure**.
   No automatic second Argon submission or model fallback.
 - Job ID lives **only** in the authenticated PHP session; JS submits
@@ -123,19 +126,27 @@ A C4D-native project/export pipeline is a separate planned development.
   is associated with that PHP session. Job recovery is capped at 24 hours
   in PHP; Google stores background results according to its retention policy.
 - **Client footage privacy:** Background interactions are stored on Google's
-  servers. On paid accounts Google currently states a default **55-day
-  retention** that can be adjusted in AI Studio. Only use client reference
-  footage if their agreements permit this storage/processing. No input
-  frames, interaction output or API credentials are logged or stored in
-  browser localStorage by this Argon flow.
+  servers. Google's background-execution documentation states that with
+  `store:true` (our current setting), interaction data is retained for **7 days**;
+  `store:false` uses a **24-hour** job-retention period. Confirm your client
+  agreements permit that processing and retention. No input frames, model
+  output or API credentials are logged or stored in browser localStorage
+  by this Argon flow.
 - Google charges by input and output/thinking token usage; check the latest
   <https://ai.google.dev/gemini-api/docs/pricing>. Limit test spend and
   review usage in AI Studio before running client production sequences.
   There is no guaranteed spend cap just because a project was pre-funded.
 - Deployment requires **both** Cloudflare Worker and 50webs FTP publisher to
-  update. `/health.workerRevision=argon-background-previs-v1` indicates the
+  update. `/health.workerRevision=argon-json-schema-validation-v1` indicates the
   new Worker path; if FTP deploys first, do not test Argon until Worker revision
   matches.
+
+Worker error classification: on provider HTTP 400/422, read the provider
+error **only server-side**, categorize recognized field names (output schema,
+input images, generation settings, background mode or model) and emit only a
+fixed safe error. Neither the provider message nor private images/prompts are
+logged or exposed to the browser. A generic 400 remains an unknown cause and
+must not trigger another automatic paid request.
 
 Official API: <https://ai.google.dev/gemini-api/docs/background-execution>
 and <https://ai.google.dev/gemini-api/docs/image-understanding>.
