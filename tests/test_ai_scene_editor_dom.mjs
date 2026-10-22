@@ -427,3 +427,97 @@ test('Medium thinking cannot start a full-environment request or sample video',a
     globalThis.fetch=priorFetch;
   }
 });
+
+test('Paid Argon Previs submits once, polls privately, and previews without accepting',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
+  const ids=new Map();
+  const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  let startCount=0,pollCount=0,preview=null,saved=0;
+  globalThis.confirm=()=>true;
+  globalThis.document={
+    getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
+    createElement(tag){
+      if(tag==='video')return new FakeVideo();
+      if(tag==='canvas')return {width:0,height:0,getContext:()=>({drawImage:()=>{}}),
+        toDataURL:()=>jpeg};
+      return new Element();
+    }
+  };
+  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
+    id:'client_building',name:'Client composite hero building',primitive:'box',
+    position:[0,2,0],rotation:[0,0,0],scale:[8,4,4],
+    material:{color:'#123456',metalness:0,roughness:.6}
+  }]}]};
+  globalThis.fetch=async(url,options={})=>{
+    assert.equal(url,'./scene-proxy.php');
+    if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',
+      argonJob:null}),{status:200});
+    const payload=JSON.parse(options.body);
+    assert.equal(payload.csrf,'test-csrf');
+    if(payload.action==='argon_start'){
+      startCount++;
+      assert.equal(payload.profile,'argon_previs');
+      assert.equal(payload.mode,'primary_subject');
+      assert.equal(payload.frames.length,3);
+      assert.equal(payload.layer,undefined);
+      return new Response(JSON.stringify({ok:true,status:'in_progress',shotId:'shot_a'}),{status:200});
+    }
+    assert.equal(payload.action,'argon_status');
+    assert.equal(payload.jobId,undefined,'job ID stays server-side');
+    pollCount++;
+    return new Response(JSON.stringify({ok:true,status:'completed',shotId:'shot_a',
+      proposal:scene}),{status:200});
+  };
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:entry=>{preview=entry;},onDiscard:()=>{preview=null;},
+      onAccept:()=>{saved++;}});
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='subject';
+    ids.get('aiSceneModel').value='argon_previs';
+    await ids.get('aiSceneGenerate').fire('click');
+    assert.equal(startCount,1);
+    assert.equal(pollCount,1);
+    assert.equal(preview?.objects[0]?.id,'client_building');
+    assert.equal(saved,0);
+    assert.match(ids.get('aiSceneLog').textContent,/Argon background status: completed/);
+    assert.match(ids.get('aiSceneLog').textContent,/Z-fighting cleanup/);
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+    if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
+    globalThis.fetch=oldFetch;
+  }
+});
+
+test('Paid Argon disallows layered environment before spending or sampling video',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
+  const ids=new Map();let posts=0,sampled=0;
+  globalThis.document={
+    getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
+    createElement(tag){if(tag==='video')sampled++;return new Element();}
+  };
+  globalThis.confirm=()=>{throw Error('Environment selection should reject before payment confirmation');};
+  globalThis.fetch=async(url,opts={})=>{
+    if(!opts.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',
+      argonJob:null}),{status:200});
+    posts++;throw Error('Must never send paid job');
+  };
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:()=>assert.fail('no preview'),onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='environment';
+    ids.get('aiSceneModel').value='argon_previs';
+    await ids.get('aiSceneGenerate').fire('click');
+    assert.equal(posts,0);assert.equal(sampled,0);
+    assert.match(ids.get('aiSceneStatus').textContent,/require Primary subject only/);
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+    if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
+    globalThis.fetch=oldFetch;
+  }
+});
