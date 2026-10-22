@@ -247,7 +247,7 @@ if ($method === 'GET') {
                  'argonJob' => $active === null ? null : [
                     'shotId' => $active['shotId'], 'status' => $active['status']],
                  'argonSmoke' => [
-                    'step' => min(5, max(0, (int) ($_SESSION['argon_smoke']['step'] ?? 0))),
+                    'step' => min(7, max(0, (int) ($_SESSION['argon_smoke']['step'] ?? 0))),
                     'state' => (string) ($_SESSION['argon_smoke']['state'] ?? 'idle')]]);
 }
 if ($method !== 'POST') reject(405, 'Use GET or POST');
@@ -287,8 +287,9 @@ if ($action === 'logout') {
     answer(200, ['ok' => true, 'authenticated' => false]);
 }
 // Five explicit, fixed-input, potentially billable Argon tests.
-// Only one step at a time; never run the next step automatically.
-$argonSmokeStages = ['text','thinking','image','json','background'];
+// Only one manually confirmed diagnostic submission at a time. Earlier
+// successful stages remain completed; a retry must match the failed stage.
+$argonSmokeStages = ['text','thinking','image','json','background','background_image','background_combo'];
 if ($action === 'argon_diag_reset') {
     if (($_SESSION['argon_smoke']['state'] ?? '') === 'running')
         reject(409, 'An Argon diagnostic is still running; finish polling it first');
@@ -298,27 +299,31 @@ if ($action === 'argon_diag_reset') {
 if ($action === 'argon_diag_poll') {
     $smoke = $_SESSION['argon_smoke'] ?? null;
     if (!is_array($smoke) || ($smoke['state'] ?? '') !== 'running' ||
-        ($smoke['step'] ?? -1) !== 4 || !is_string($smoke['id'] ?? null) ||
+        !is_int($smoke['step'] ?? null) ||
+        $smoke['step'] < 4 || $smoke['step'] >= count($argonSmokeStages) ||
+        !is_string($smoke['id'] ?? null) ||
         !preg_match('/^[A-Za-z0-9_-]{8,160}$/', $smoke['id']))
         reject(400, 'No background diagnostic is running');
     $result = argon_worker_call($workerEndpoint, $secret, 'diagnostic-status',
-        ['id' => $smoke['id'], 'stage' => 'background']);
+        ['id' => $smoke['id'], 'stage' => $argonSmokeStages[$smoke['step']]]);
     $state = $result['status'] ?? '';
     if (in_array($state, ['queued','in_progress'], true))
-        answer(200, ['ok' => true, 'step' => 4, 'state' => 'running']);
+        answer(200, ['ok' => true, 'step' => $smoke['step'], 'state' => 'running']);
     if ($state === 'completed' && ($result['passed'] ?? false) === true) {
-        $_SESSION['argon_smoke'] = ['step' => 5, 'state' => 'done'];
-        answer(200, ['ok' => true, 'step' => 5, 'state' => 'done', 'passed' => true]);
+        $next = $smoke['step'] + 1;
+        $_SESSION['argon_smoke'] = [
+            'step' => $next,
+            'state' => $next === count($argonSmokeStages) ? 'done' : 'passed'
+        ];
+        answer(200, ['ok' => true, 'step' => $next,
+            'state' => $_SESSION['argon_smoke']['state'], 'passed' => true]);
     }
-    $_SESSION['argon_smoke'] = ['step' => 4, 'state' => 'failed'];
-    answer(200, ['ok' => true, 'step' => 4, 'state' => 'failed', 'passed' => false]);
+    $_SESSION['argon_smoke'] = ['step' => $smoke['step'], 'state' => 'failed'];
+    answer(200, ['ok' => true, 'step' => $smoke['step'], 'state' => 'failed', 'passed' => false]);
 }
 if ($action === 'argon_diag_step') {
     $step = $_SESSION['argon_smoke']['step'] ?? 0;
     $state = $_SESSION['argon_smoke']['state'] ?? 'idle';
-    // A failed diagnostic can be retried at exactly that stage ONLY with an
-    // explicit retry:true from the authenticated editor. Earlier successful
-    // billable stages are retained; no implicit restart or skip is allowed.
     $retry = ($input['retry'] ?? null) === true;
     if (!is_int($step) || $step < 0 || $step >= count($argonSmokeStages) ||
         !is_int($input['step'] ?? null) || $input['step'] !== $step ||
@@ -331,25 +336,25 @@ if ($action === 'argon_diag_step') {
         $_SESSION['argon_diag_window'] = time();
         $_SESSION['argon_diag_calls'] = 0;
     }
-    if ((int) ($_SESSION['argon_diag_calls'] ?? 0) >= 8)
+    // Three isolated background requests can now follow the four completed
+    // stages. Ten/day still limits paid diagnostic spend per PHP session.
+    if ((int) ($_SESSION['argon_diag_calls'] ?? 0) >= 10)
         reject(429, 'Argon diagnostic daily submission limit reached');
     $_SESSION['argon_diag_calls'] = (int) ($_SESSION['argon_diag_calls'] ?? 0) + 1;
-    // Mark as failed BEFORE network I/O so a rejected/timeout provider
-    // response cannot leave the session locked at "running" forever.
     $_SESSION['argon_smoke'] = ['step' => $step, 'state' => 'failed'];
     $result = argon_worker_call($workerEndpoint, $secret, 'diagnostic',
         ['stage' => $argonSmokeStages[$step]]);
-    if (($result['status'] ?? '') === 'in_progress' && $step === 4 &&
+    if (($result['status'] ?? '') === 'in_progress' && $step >= 4 &&
         is_string($result['id'] ?? null) &&
         preg_match('/^[A-Za-z0-9_-]{8,160}$/', $result['id'])) {
-        $_SESSION['argon_smoke'] = ['step' => 4, 'state' => 'running', 'id' => $result['id']];
-        answer(200, ['ok' => true, 'step' => 4, 'state' => 'running']);
+        $_SESSION['argon_smoke'] = ['step' => $step, 'state' => 'running', 'id' => $result['id']];
+        answer(200, ['ok' => true, 'step' => $step, 'state' => 'running']);
     }
     if (($result['status'] ?? '') === 'completed' && ($result['passed'] ?? false) === true) {
         $_SESSION['argon_smoke'] = ['step' => $step + 1,
-            'state' => $step === 4 ? 'done' : 'passed'];
+            'state' => $step === count($argonSmokeStages)-1 ? 'done' : 'passed'];
         answer(200, ['ok' => true, 'step' => $step + 1,
-            'state' => $step === 4 ? 'done' : 'passed', 'passed' => true]);
+            'state' => $_SESSION['argon_smoke']['state'], 'passed' => true]);
     }
     answer(200, ['ok' => true, 'step' => $step, 'state' => 'failed', 'passed' => false]);
 }
