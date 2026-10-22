@@ -96,7 +96,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     smokeSummary=el('aiArgonSmokeSummary');
   const smokeNames=['Minimal text, model defaults','Explicit native thinking_level=low',
     'Synthetic JPEG understanding','Structured JSON schema','Background text only',
-    'Background with synthetic JPEG','Background with JPEG + JSON'];
+    'Background with Google Files JPEG','Background with Files JPEG + JSON'];
   let smoke={step:0,state:'idle'};
   const updateSmoke=()=>{
     if(!smokeSummary)return;
