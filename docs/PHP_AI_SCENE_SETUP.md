@@ -30,7 +30,7 @@ Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wra
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
-- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-flash-visual-analysis-v1` identifies the two-step Argon path: synchronous visual analysis followed by text-only background geometry. The existing three Flash profiles and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
+- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-direct-image-diagnostics-v1` identifies the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile, and sanitized provider diagnostics for Argon rejections. The existing three Flash profiles and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
 - Lite and 3.8 Low retain at most **one additional** Gemini request on HTTP 500/502/503/504 (700ms pause, one shared 45s deadline). Medium can make **up to three total attempts**, with a roughly 1s then 2s delay and bounded jitter, **only if the second attempt also returns HTTP 503**. Other upstream 5xx stop after two attempts. Every attempt shares Medium's 70s deadline, and retries never start with less than 10s remaining. HTTP 429, permission and malformed-request failures never retry. The editor's HTTP 502 may represent PHP relaying provider 5xx; the distinct safe `Gemini is overloaded (upstream 503)` message means all permitted 503 retries were exhausted. Cloudflare's sanitized `gemini-provider-http` logs record status and attempt without raw bodies or API keys. A single PHP session-quota request can cause up to three Gemini API attempts, potentially affecting Google quota and billing.
 - HTTP **503** with `{"ok":false,"service":"paige-scene","ready":false}` means the runtime is missing one or both bindings. In Cloudflare Dashboard → Workers & Pages → `paige-video-render` → Settings → **Variables and Secrets**, confirm the two names exactly match `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN`, that their type is **Secret**, and click **Deploy** to save the production version. Never paste the values into CI logs or the public repository.
 - If the build is red, inspect the exact latest Cloudflare build log and resolve the reported issue before testing PHP.
@@ -132,29 +132,23 @@ single-submission stages must be manually confirmed, in order:
 4. **Structured JSON** with a trivial `{ok:boolean}` schema, using text input.
 5. **Minimal background text** using the native thinking settings that
    passed Stage 2, plus `background:true, store:true`. No JSON or image.
-6. **Background synthetic JPEG through Files API** (not inline), with no
-   JSON schema. Uploads a small verified synthetic JPEG to Google's Files
-   API, validates the returned URI against a trusted Google host/path, and
-   includes `{type:'image',uri:...,mime_type:'image/jpeg'}` in the interaction.
-   This checks whether changing image transport avoids the background rejection.
-7. **Background Files API JPEG + structured JSON**. The synthetic image
-   uses the same trusted-URI upload route, with the simple JSON schema.
-   Uses `store:true`. Production now analyzes inline frames synchronously and
+6. **Background synthetic JPEG, inline**, with no JSON schema. The
+   ImageContent is identical to Stage 3; only `background:true, store:true`
+   are added. It is the same transport as the `argon_direct` profile.
+7. **Background inline JPEG + structured JSON**, using the simple JSON schema
+   and `store:true`. Argon Previs instead analyzes the frames synchronously and
    sends only descriptive text to its background request.
    Every background step reuses its session-held Google interaction ID while
    polling; a GET never submits another generation request.
 
-Stage 5 (background text-only) succeeded on the paid project.
-Stage 6 (background + inline synthetic JPEG) received HTTP 400, classified
-ambiguously as a model configuration problem. Both background execution and
-images work separately, so the **combination** is the suspect. Stage 6 now
-uses the documented Files API URI input instead of inline base64; if that
-passes, production can be adapted in a separate, reviewable patch rather
-than immediately uploading proprietary customer images. The Files API
-retains uploaded media for **48 hours**. Both diagnostic stages upload
-only the synthetic 32x32 test JPEG. The existing generation flow and
-client-footage privacy behavior are unchanged; no fallback triggers
-automatic paid requests.
+Stage 5 (background text-only) succeeded on the paid project. Stage 6
+received HTTP 400 both inline and through a Files API URI (`b3f687f`). The
+Worker then reduced Google's only diagnostic, `error.message`, to `unknown`.
+See [the investigation](ARGON_BACKGROUND_IMAGE_INVESTIGATION.md). Stages 6–7
+are back to inline input and now return a sanitized provider diagnostic. The
+Files probe was removed: it adds a 48-hour file copy and showed the same
+rejection. Both stages send only the synthetic 32x32 test JPEG. No fallback
+ever triggers an automatic paid request.
 
 The Worker fixes model, prompt, input and token limits for every stage.
 No custom browser-supplied prompt, provider URL, job ID or thinking parameter
@@ -165,7 +159,8 @@ session**, and halts on error. After a failure, the same failed stage can be
 stages do not need replaying. A separate confirmation is required before
 each possible paid submission; nothing runs automatically.
 
-A rejected HTTP 400 should result in a sanitized field-specific error.
+A rejected HTTP 400, a rejected status GET, or a job that ends `failed`
+returns a sanitized provider diagnostic, which appears in the activity log.
 A synchronous response timeout (~30s Worker budget) is **inconclusive**:
 it may reflect latency rather than lack of model support. Never infer a
 successful paid job merely from metadata visibility. If a stage fails, do
@@ -238,8 +233,8 @@ A C4D-native project/export pipeline is a separate planned development.
   review usage in AI Studio before running client production sequences.
   There is no guaranteed spend cap just because a project was pre-funded.
 - Deployment requires **both** Cloudflare Worker and 50webs FTP publisher to
-  update. `/health.workerRevision=argon-flash-visual-analysis-v1` indicates the
-  new Worker path; if FTP deploys first, do not test Argon until Worker revision
+  update. `/health.workerRevision=argon-direct-image-diagnostics-v1` indicates the
+  current Worker path; if FTP deploys first, do not test Argon until Worker revision
   matches.
 
 Worker error classification: on provider HTTP 400/422, parse only explicit
@@ -258,9 +253,53 @@ paid retries.
 
 A generic prose mention of `model` is not evidence of a bad model ID or missing
 paid-tier access. Structured field violations take precedence over message text.
+
+**Provider diagnostic.** The documented Interactions error body is only
+`{error:{code, message}}`; Google sends no field violations. The user-facing
+category above therefore usually stays `unknown`. Alongside it, the Worker
+returns `diagnostic: {phase, http, status, codes, reason, fields}`:
+
+- `phase` is `create` (POST rejected, so no job exists), `poll` (GET
+  rejected, so the job may exist) or `job` (`interaction.errors[]`).
+- `codes` holds snake_case or UPPER_SNAKE error-type tokens only.
+- `reason` comes from a fixed phrase table, for example
+  `background_unsupported_for_model`, `file_uri_unsupported`,
+  `media_input_rejected`, `mime_type`, `output_schema`,
+  `generic_invalid_argument` or `unrecognized_message`.
+- `fields` lists documented request field names mentioned in the message.
+
+Provider prose never leaves the Worker and is not logged. PHP
+`safe_worker_diagnostic()` re-validates every token before forwarding it.
+Cloudflare logs show `argon-provider-diagnostic` with the same tokens.
 Stages 6–7 still test the **direct** background/image provider combination; they
 are not prerequisites for the production two-step path and may still fail.
 Do not replay the paid diagnostic sequence to validate this workaround.
+
+### Experimental Argon Direct image (`argon_direct`)
+
+This is opt-in and primary-subject only. The editor confirmation names it
+**EXPERIMENTAL**.
+
+- **One paid call.** The 1–3 validated JPEG frames go straight to Gemini 4
+  Argon as one background interaction. Input is ordered timestamp-label text
+  items, each followed by `{type:image, data, mime_type:image/jpeg}`, primary
+  frame first. The request also carries `background:true`, `store:true`,
+  `thinking_level:medium`, the full 32,768 thinking/output allowance, the
+  same scene `response_format` schema, and the Previs prompt in
+  `system_instruction`. Text visible in the images is treated as reference
+  content, never as an instruction. PHP reserves **one** slot.
+- **Unchanged behavior.** Session-bound job ID, GET-only polling, Resume,
+  duplicate-job blocking, the 48-object `validateOutput`, and
+  preview/Accept/Discard all work as before.
+- **No retry or fallback.** A rejection returns the provider diagnostic and
+  stops; it never retries and never falls back to Flash-Lite or Previs.
+  Previs remains the proven path, and choosing it is manual.
+- **Privacy.** Unlike Previs, Google stores the reference images with the
+  interaction (paid default 55 days, or the shorter AI Studio retention
+  setting). The confirmation and help text say so.
+- **Unverified.** Google returned HTTP 400 to this combination in earlier
+  diagnostics. Follow the investigation's step-by-step live plan
+  (stage 6 → stage 7 → one direct job), with approval for each step.
 
 Official API: <https://ai.google.dev/gemini-api/docs/background-execution>
 and <https://ai.google.dev/gemini-api/docs/image-understanding>.

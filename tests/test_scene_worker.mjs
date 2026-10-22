@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import worker,{validateInput,validateOutput,secretMatches} from '../worker/scene-worker.mjs';
+import worker,{validateInput,validateOutput,secretMatches,argonProviderDiagnostic} from '../worker/scene-worker.mjs';
 
 const token='test-token-should-be-at-least-thirty-two-chars-private';
 const image='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-flash-visual-analysis-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-image-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-flash-visual-analysis-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-image-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -366,35 +366,10 @@ test('Seven Argon stages isolate text, thinking, JPEG, JSON and background featu
   const previous=globalThis.fetch;
   const expected=['text','thinking','image','json','background','background_image','background_combo'];
   const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
-  let calls=0,uploadsStarted=0,uploadsCompleted=0;
+  let calls=0;
   const id='v1_argon_smoke12345';
-  const uploadUrl='https://generativelanguage.googleapis.com/upload/v1beta/files?upload_id=test-id';
-  const fileUri='https://generativelanguage.googleapis.com/v1beta/files/syntheticTest12345';
   globalThis.fetch=async (url,opts)=>{
-    if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files'){
-      uploadsStarted++;
-      assert.equal(opts.method,'POST');
-      assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
-      assert.equal(opts.headers['X-Goog-Upload-Protocol'],'resumable');
-      assert.equal(opts.headers['X-Goog-Upload-Header-Content-Type'],'image/jpeg');
-      assert.equal(opts.redirect,'manual');
-      assert.deepEqual(JSON.parse(opts.body),{file:{display_name:'paiver-synthetic-argon-smoke'}});
-      return new Response('',{status:200,headers:{'x-goog-upload-url':uploadUrl}});
-    }
-    if(url===uploadUrl){
-      uploadsCompleted++;
-      assert.equal(opts.method,'POST');
-      assert.equal(opts.headers['X-Goog-Upload-Command'],'upload, finalize');
-      assert.equal(opts.redirect,'manual');
-      const bytes=Buffer.from(opts.body);
-      assert.equal(bytes.length,686);
-      assert.equal(bytes.readUInt16BE(0),0xffd8);
-      assert.equal(bytes.readUInt16BE(bytes.length-2),0xffd9);
-      assert.equal(createHash('sha256').update(bytes).digest('hex'),
-        'f43da1db2122208f9d6aa129f9600be94f143f0bc2afc310e272dde6c5ef464f');
-      return new Response(JSON.stringify({file:{name:'files/syntheticTest12345',
-        uri:fileUri,mimeType:'image/jpeg'}}),{status:200});
-    }
+    assert.ok(!url.includes('/upload/'),'No Google Files upload: stages 6-7 send inline JPEG');
     if(url.endsWith('/'+id)){
       assert.equal(opts.body,undefined,'Background polling is GET only');
       return new Response(JSON.stringify({id,status:'completed',
@@ -416,25 +391,24 @@ test('Seven Argon stages isolate text, thinking, JPEG, JSON and background featu
       assert.deepEqual(body.generation_config,{thinking_level:'low',max_output_tokens:4096});
       if(['thinking','background'].includes(stage))assert.equal(typeof body.input,'string');
       if(['image','background_image','background_combo'].includes(stage)){
+        // Synchronous and background image stages send the identical
+        // documented ImageContent, so only background/store differ.
         const img=body.input[1];
+        assert.deepEqual(Object.keys(img).sort(),['data','mime_type','type']);
         assert.equal(img.type,'image');
         assert.equal(img.mime_type,'image/jpeg');
-        if(stage==='image'){
-          assert.ok(img.data.startsWith('/9j/'));
-          const jpeg=Buffer.from(img.data,'base64');
-          assert.equal(jpeg.readUInt16BE(0),0xffd8);
-          assert.equal(jpeg.readUInt16BE(jpeg.length-2),0xffd9);
-          assert.equal(jpeg.length,686);
-          assert.equal(createHash('sha256').update(jpeg).digest('hex'),
-            'f43da1db2122208f9d6aa129f9600be94f143f0bc2afc310e272dde6c5ef464f');
-          const frame=jpeg.indexOf(Buffer.from([0xff,0xc0]));
-          assert.ok(frame>0);
-          assert.equal(jpeg.readUInt16BE(frame+5),32);
-          assert.equal(jpeg.readUInt16BE(frame+7),32);
-        }else{
-          assert.equal(img.uri,fileUri,'Background tests must send stored Google file URI');
-          assert.equal(img.data,undefined,'No inline base64 in background request');
-        }
+        assert.equal(img.uri,undefined);
+        assert.ok(img.data.startsWith('/9j/'));
+        const jpeg=Buffer.from(img.data,'base64');
+        assert.equal(jpeg.readUInt16BE(0),0xffd8);
+        assert.equal(jpeg.readUInt16BE(jpeg.length-2),0xffd9);
+        assert.equal(jpeg.length,686);
+        assert.equal(createHash('sha256').update(jpeg).digest('hex'),
+          'f43da1db2122208f9d6aa129f9600be94f143f0bc2afc310e272dde6c5ef464f');
+        const frame=jpeg.indexOf(Buffer.from([0xff,0xc0]));
+        assert.ok(frame>0);
+        assert.equal(jpeg.readUInt16BE(frame+5),32);
+        assert.equal(jpeg.readUInt16BE(frame+7),32);
         assert.ok(!JSON.stringify(img).includes('PRIVATE_CLIENT_FOOTAGE'));
       }
       if(['json','background_combo'].includes(stage)){
@@ -469,58 +443,207 @@ test('Seven Argon stages isolate text, thinking, JPEG, JSON and background featu
       }else assert.deepEqual(result,{ok:true,stage,status:'completed',passed:true});
     }
     assert.equal(calls,7,'exactly one billable submission for each confirmed stage');
-    assert.equal(uploadsStarted,2,'Only background JPEG tests use Google Files upload');
-    assert.equal(uploadsCompleted,2);
   }finally{globalThis.fetch=previous;}
 });
-test('Argon Files API rejects untrusted upload destinations and file URIs without submitting paid inference',async()=>{
-  const oldFetch=globalThis.fetch,auth={Authorization:'Bearer '+token,'Content-Type':'application/json'};
-  let hits=[];
+test('Interactions error bodies become fixed-vocabulary diagnostics, never provider prose',()=>{
+  const secret='PRIVATE_PROSE '+env.GEMINI_API_KEY+' '+token;
+  const cases=[
+    // Documented Error object: code is a URI naming the error type.
+    [{code:'https://ai.google.dev/errors/invalid_request',message:'Request contains an invalid argument.'},
+      {codes:['invalid_request'],reason:'generic_invalid_argument',fields:[]}],
+    // Bodies reported on background interactions, Sept-Oct 2026.
+    [{code:'invalid_request',message:"Model 'gemini-4-argon' does not support background interactions."},
+      {codes:['invalid_request'],reason:'background_unsupported_for_model',fields:['model','background']}],
+    [{code:'invalid_request',message:'Unsupported file uri: blobstore:///genai-api/blobref/global::PRIVATE_REF'},
+      {codes:['invalid_request'],reason:'file_uri_unsupported',fields:['uri']}],
+    [{code:'invalid_request',message:'Multiple authentication credentials received. Please pass only one.'},
+      {codes:['invalid_request'],reason:'auth_credentials',fields:[]}],
+    // Documented: background with store=false is a 400.
+    [{code:'invalid_request',message:'store=false is incompatible with background execution'},
+      {codes:['invalid_request'],reason:'background_requires_store',fields:['background','store']}],
+    [{code:'invalid_request',message:'The model cannot process this image in a background request '+secret},
+      {codes:['invalid_request'],reason:'media_input_rejected',fields:['model','background']}],
+    [{code:'invalid_request',message:'Invalid input[1].mime_type '+secret},
+      {codes:['invalid_request'],reason:'mime_type',fields:['input','mime_type']}],
+    [{code:'invalid_request',message:'responseFormat.schema too complex: maxItems'},
+      {codes:['invalid_request'],reason:'output_schema',fields:['response_format','schema']}],
+    [{code:'invalid_request',message:'Inline data is too large for this request'},
+      {codes:['invalid_request'],reason:'payload_too_large',fields:['data']}],
+    [{code:'invalid_request',message:'model_interaction failed '+secret},
+      {codes:['invalid_request'],reason:'unrecognized_message',fields:[]}],
+    // google.rpc.Status fallback: enum status, ErrorInfo reason and field paths.
+    [{code:400,status:'INVALID_ARGUMENT',message:'Uninformative '+secret,details:[
+      {'@type':'type.googleapis.com/google.rpc.ErrorInfo',reason:'FIELD_INVALID',
+        metadata:{consumer:'projects/PRIVATE_PROJECT'}},
+      {'@type':'type.googleapis.com/google.rpc.BadRequest',
+        fieldViolations:[{field:'model_interaction.input[1].data',description:secret}]}]},
+      {codes:['INVALID_ARGUMENT','FIELD_INVALID'],reason:'unrecognized_message',fields:['input','data']}],
+    // Key-like, numeric, dotted or prose codes are dropped, never truncated.
+    [{code:env.GEMINI_API_KEY},{codes:[],reason:'no_error_body',fields:[]}],
+    [{code:'AIzaSyPRIVATEkey_0123456789abcdefghijk',status:'123456789'},
+      {codes:[],reason:'no_error_body',fields:[]}],
+    [{code:'AQ.Ab8PRIVATE',message:''},{codes:[],reason:'no_error_body',fields:[]}],
+    [{code:'Invalid request PRIVATE text'},{codes:[],reason:'no_error_body',fields:[]}],
+    [{code:'https://attacker.example/PRIVATE.key'},{codes:[],reason:'no_error_body',fields:[]}]
+  ];
+  for(const [error,expected] of cases){
+    const result=argonProviderDiagnostic(error,'create',400);
+    assert.deepEqual(result,{phase:'create',http:400,status:null,...expected},JSON.stringify(error).slice(0,60));
+    const text=JSON.stringify(result);
+    assert.ok(!text.includes('PRIVATE')&&!text.includes(env.GEMINI_API_KEY)&&!text.includes(token));
+  }
+  for(const empty of [null,undefined,'PRIVATE string',42,[]])
+    assert.deepEqual(argonProviderDiagnostic(empty,'poll',400),
+      {phase:'poll',http:400,status:null,codes:[],reason:'no_error_body',fields:[]});
+  // A later recognized message wins over an earlier unrecognized one.
+  assert.equal(argonProviderDiagnostic([{message:'PRIVATE noise'},
+    {message:'Unsupported file uri: x'}],'job').reason,'file_uri_unsupported');
+  assert.equal(argonProviderDiagnostic(Array(9).fill({code:'invalid_request'}),'job').codes.length,1);
+});
+test('Status rejections and failed jobs report their phase without claiming no job exists',async()=>{
+  const prior=globalThis.fetch,priorWarn=console.warn;const logs=[];let calls=0;
+  console.warn=(...args)=>logs.push(args);
+  const id='v1_phase_job_123';
+  const post=(path,body)=>worker.fetch(new Request('https://example.workers.dev'+path,{
+    method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify(body)}),env);
+  const respond=(status,body)=>{globalThis.fetch=async(url,opts)=>{
+    calls++;
+    assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions/'+id);
+    assert.equal(opts.method,undefined,'Polling stays GET only');
+    assert.equal(opts.body,undefined);
+    return new Response(JSON.stringify(body),{status});
+  };};
   try{
-    const exercise=async mock=>{
-      hits=[];
-      globalThis.fetch=async (url,options)=>{
-        hits.push({url,options});
-        return mock(url,options);
+    const rejected={error:{code:'invalid_request',
+      message:'Unsupported file uri: blobstore:///genai-api/blobref/global::PRIVATE_REF'}};
+    const pollDiagnostic={phase:'poll',http:400,status:null,codes:['invalid_request'],
+      reason:'file_uri_unsupported',fields:['uri']};
+    for(const [path,body] of [['/api/scene/argon/diagnostic-status',{id,stage:'background_image'}],
+      ['/api/scene/argon/status',{jobId:id,shotId:'draft_001'}]]){
+      respond(400,rejected);
+      const response=await post(path,body);
+      assert.equal(response.status,502);
+      assert.deepEqual(await response.json(),{ok:false,
+        error:'Argon rejected interaction status request',diagnostic:pollDiagnostic});
+    }
+    // Async failure reported inside the interaction resource itself.
+    respond(200,{id,status:'failed',errors:[{code:'INVALID_ARGUMENT',
+      message:'There was a problem processing your request. You will not be charged. PRIVATE'}],
+      steps:[{type:'user_input',content:[{type:'image',data:'PRIVATE_FRAME'}]}]});
+    const jobDiagnostic={phase:'job',http:null,status:'failed',codes:['INVALID_ARGUMENT'],
+      reason:'unrecognized_message',fields:[]};
+    assert.deepEqual(await (await post('/api/scene/argon/status',{jobId:id,shotId:'draft_001'})).json(),
+      {ok:true,status:'failed',diagnostic:jobDiagnostic});
+    assert.deepEqual(await (await post('/api/scene/argon/diagnostic-status',
+      {id,stage:'background_combo'})).json(),
+      {ok:true,status:'failed',passed:false,diagnostic:jobDiagnostic});
+    // Documented "incomplete" (e.g. max tokens) is terminal, not unreadable.
+    respond(200,{id,status:'incomplete'});
+    assert.deepEqual(await (await post('/api/scene/argon/status',{jobId:id,shotId:'draft_001'})).json(),
+      {ok:true,status:'failed',diagnostic:{phase:'job',http:null,status:'incomplete',codes:[],
+        reason:'incomplete_output',fields:[]}});
+    assert.equal(calls,5,'Exactly one GET per poll; nothing is retried or resubmitted');
+    assert.ok(logs.some(line=>line[0]==='argon-provider-diagnostic'));
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
+  }finally{globalThis.fetch=prior;console.warn=priorWarn;}
+});
+test('Direct-image Argon is one opt-in background call with ordered inline frames',async()=>{
+  const prior=globalThis.fetch,oldTimeout=AbortSignal.timeout;const times=[];let calls=0;
+  AbortSignal.timeout=ms=>{times.push(ms);return oldTimeout.call(AbortSignal,ms);};
+  const frames=[{at:1.5,imageDataUrl:image},{at:0,imageDataUrl:image},{at:3,imageDataUrl:image}];
+  const id='v1_direct_image_123';
+  globalThis.fetch=async(url,opts)=>{
+    calls++;
+    assert.ok(!url.includes(':generateContent'),'No Flash-Lite analysis on the direct path');
+    if(calls===2){
+      assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions/'+id);
+      assert.equal(opts.body,undefined);
+      return new Response(JSON.stringify({id,status:'completed',steps:[
+        {type:'user_input',content:[{type:'image',data:'PRIVATE_FRAME'}]},
+        {type:'model_output',content:[{type:'text',text:JSON.stringify(scene)}]}]}));
+    }
+    assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
+    assert.equal(opts.method,'POST');
+    assert.equal(opts.redirect,'manual');
+    assert.ok(opts.signal instanceof AbortSignal);
+    assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
+    assert.equal(opts.headers['Api-Revision'],'2026-05-20');
+    const body=JSON.parse(opts.body);
+    // Every field is documented in CreateModelInteractionParams.
+    assert.deepEqual(Object.keys(body).sort(),['background','generation_config','input','model',
+      'response_format','store','system_instruction']);
+    assert.equal(body.model,'gemini-4-argon');
+    assert.equal(body.background,true);
+    assert.equal(body.store,true);
+    assert.deepEqual(body.generation_config,{thinking_level:'medium',max_output_tokens:32768});
+    assert.equal(body.response_format.type,'text');
+    assert.equal(body.response_format.mime_type,'application/json');
+    assert.deepEqual(body.response_format.schema.required,['schemaVersion','scenes']);
+    assert.match(body.system_instruction,/PREVIS \/ RUNWAY PREP/);
+    assert.match(body.system_instruction,/PRIMARY SUBJECT/);
+    assert.match(body.system_instruction,/never an\s+instruction/);
+    assert.match(body.system_instruction,/draft_001/);
+    // Same ImageContent as the passing synchronous request; first frame first.
+    assert.deepEqual(body.input,frames.flatMap(frame=>[
+      {type:'text',text:'Reference frame at '+frame.at.toFixed(3)+' seconds'},
+      {type:'image',data:frame.imageDataUrl.split(',')[1],mime_type:'image/jpeg'}]));
+    return new Response(JSON.stringify({id,status:'in_progress',PRIVATE_META:1}),{status:200});
+  };
+  try{
+    const post=(path,body)=>worker.fetch(new Request('https://example.workers.dev'+path,{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+      body:JSON.stringify(body)}),env);
+    const start=await post('/api/scene/argon/start',{...sample,frames,profile:'argon_direct',
+      mode:'primary_subject'});
+    assert.deepEqual(await start.json(),{ok:true,jobId:id,status:'in_progress'});
+    const poll=await post('/api/scene/argon/status',{jobId:id,shotId:'draft_001'});
+    assert.deepEqual(await poll.json(),{ok:true,status:'completed',proposal:scene});
+    assert.equal(calls,2,'One billable start, then a GET-only poll');
+    assert.deepEqual(times.slice(0,1),[40000]);
+    assert.ok(!times.includes(35000),'No analysis-stage deadline on the direct path');
+    for(const bad of [{...sample,profile:'argon_direct'},
+      {...sample,profile:'argon_direct',mode:'primary_subject',layer:'structures'},
+      {...sample,profile:'argon_direct',mode:'primary_subject',model:'gemini-4-argon'},
+      {...sample,frames:[{at:1,imageDataUrl:'https://untrusted.test/a.jpg'}],
+        profile:'argon_direct',mode:'primary_subject'}])
+      assert.equal((await post('/api/scene/argon/start',bad)).status,400);
+    assert.equal(calls,2,'Invalid direct requests never reach Google');
+    // The synchronous scene route never accepts the background-only profile.
+    assert.equal((await post('/api/scene',{...sample,profile:'argon_direct',
+      mode:'primary_subject'})).status,400);
+  }finally{globalThis.fetch=prior;AbortSignal.timeout=oldTimeout;}
+});
+test('Direct-image rejections are never retried and never fall back to Flash-Lite or Previs',async()=>{
+  const prior=globalThis.fetch,oldWarn=console.warn;const logs=[];
+  console.warn=(...args)=>logs.push(args);
+  try{
+    for(const status of [400,401,403,404,422,429,500,503,302,'network','json']){
+      let calls=0;
+      globalThis.fetch=async(url)=>{
+        calls++;
+        assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
+        if(status==='network')throw new TypeError('PRIVATE_PROVIDER_ERROR '+env.GEMINI_API_KEY);
+        if(status==='json')return new Response('PRIVATE_PROVIDER_ERROR');
+        return new Response(JSON.stringify({error:{code:'invalid_request',
+          message:'The model cannot process this image in a background request PRIVATE_FRAME'}}),
+          {status,headers:status===302?{Location:'https://attacker.example/PRIVATE'}:{}});
       };
-      const res=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/diagnostic',{
-        method:'POST',headers:auth,body:JSON.stringify({stage:'background_image'})
-      }),env);
-      assert.equal(res.status,502);
-      const result=await res.json();
-      assert.equal(result.ok,false);
-      assert.ok(!JSON.stringify(result).includes('SECRET_PROVIDER_INPUT'));
-      assert.ok(!hits.some(x=>x.url==='https://generativelanguage.googleapis.com/v1beta/interactions'));
-      return result.error;
-    };
-    let error=await exercise(async url=>{
-      if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files')
-        return new Response('',{status:200,headers:{
-          'x-goog-upload-url':'https://attacker.invalid/upload/v1beta/files?token=PRIVATE'
-        }});
-      assert.fail('Must not fetch untrusted upload URL: '+url);
-    });
-    assert.equal(error,'Argon diagnostic upload URL was not trusted');
-    assert.equal(hits.length,1);
-    const trustedUpload='https://generativelanguage.googleapis.com/upload/v1beta/files?upload_id=testing';
-    error=await exercise(async url=>{
-      if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files')
-        return new Response('',{status:200,headers:{'x-goog-upload-url':trustedUpload}});
-      if(url===trustedUpload)return new Response(JSON.stringify({file:{
-        mimeType:'image/jpeg',uri:'https://attacker.invalid/files/PRIVATE'
-      }}),{status:200});
-      assert.fail('Unexpected URL: '+url);
-    });
-    assert.equal(error,'Argon diagnostic uploaded file metadata invalid');
-    assert.equal(hits.length,2);
-    error=await exercise(async url=>{
-      if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files')
-        return new Response('SECRET_PROVIDER_INPUT',{status:400});
-      assert.fail('Unexpected URL: '+url);
-    });
-    assert.equal(error,'Argon diagnostic file upload failed');
-    assert.equal(hits.length,1);
-  }finally{globalThis.fetch=oldFetch;}
+      const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/start',{
+        method:'POST',headers:{Authorization:'Bearer '+token},
+        body:JSON.stringify({...sample,profile:'argon_direct',mode:'primary_subject'})}),env);
+      assert.equal(response.status,status===429?429:502);
+      const raw=await response.text();
+      assert.ok(!raw.includes('PRIVATE')&&!raw.includes(env.GEMINI_API_KEY));
+      assert.equal(calls,1,'No retry, Files upload, Flash-Lite or Previs fallback');
+      if(status===400)assert.deepEqual(JSON.parse(raw),{ok:false,error:'Argon rejected Interactions request',
+        diagnostic:{phase:'create',http:400,status:null,codes:['invalid_request'],
+          reason:'media_input_rejected',fields:['model','background']}});
+    }
+    assert.deepEqual(logs.find(line=>line[0]==='argon-provider-fetch'),
+      ['argon-provider-fetch','direct-image','runtime-type-or-network']);
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
+  }finally{globalThis.fetch=prior;console.warn=oldWarn;}
 });
 test('Argon diagnostic rejects unapproved stages, custom prompts and input footage without provider calls',async()=>{
   const previous=globalThis.fetch;let upstream=0;
@@ -551,78 +674,78 @@ test('Argon 400 diagnostics use scoped field-path evidence and do not leak provi
   const samples=[
     {
       message:'Invalid response_format.schema: PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected output format configuration',category:'output_format'
+      expected:'Argon rejected output format configuration',category:'output_format',reason:'output_schema'
     },
     {
       message:'Invalid generation_config.thinking_level PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected generation configuration',category:'generation_config'
+      expected:'Argon rejected generation configuration',category:'generation_config',reason:'generation_config'
     },
     {
       message:'Invalid input[2].mime_type PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected image input configuration',category:'image_input'
+      expected:'Argon rejected image input configuration',category:'image_input',reason:'mime_type'
     },
     // Both incoming images and outgoing structured JSON have mime_type.
     // A bare mention of it must NEVER be falsely labeled an image problem.
     {
       message:'Unsupported mime_type PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected Interactions request',category:'unknown'
+      expected:'Argon rejected Interactions request',category:'unknown',reason:'mime_type'
     },
     {
       message:'Image request cannot be processed PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected Interactions request',category:'unknown'
+      expected:'Argon rejected Interactions request',category:'unknown',reason:'media_input_rejected'
     },
     {
       message:'Invalid responseFormat.mimeType PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected output format configuration',category:'output_format'
+      expected:'Argon rejected output format configuration',category:'output_format',reason:'output_schema'
     },
     {
       message:'Invalid background PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected background execution configuration',category:'background'
+      expected:'Argon rejected background execution configuration',category:'background',reason:'unrecognized_message'
     },
     {
       message:'Unsupported model PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected model configuration',category:'model'
+      expected:'Argon rejected model configuration',category:'model',reason:'unrecognized_message'
     },
     {
       message:'The model cannot process this image in a background request PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected Interactions request',category:'unknown'
+      expected:'Argon rejected Interactions request',category:'unknown',reason:'media_input_rejected'
     },
     {
       message:'model_interaction request is invalid PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected Interactions request',category:'unknown'
+      expected:'Argon rejected Interactions request',category:'unknown',reason:'unrecognized_message'
     },
     {
       message:'Unsupported model-specific option PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected Interactions request',category:'unknown'
+      expected:'Argon rejected Interactions request',category:'unknown',reason:'unrecognized_message'
     },
     {
       message:'Invalid response_format.schema PRIVATE_KEY_DO_NOT_LOG',
       details:[{fieldViolations:[{field:'model_interaction.input[1].mime_type'}]}],
-      expected:'Argon rejected image input configuration',category:'image_input'
+      expected:'Argon rejected image input configuration',category:'image_input',reason:'output_schema'
     },
     {
       message:'Request contains an invalid argument PRIVATE_KEY_DO_NOT_LOG',
-      expected:'Argon rejected Interactions request',category:'unknown'
+      expected:'Argon rejected Interactions request',category:'unknown',reason:'unrecognized_message'
     },
     {
       message:'Uninformative provider text PRIVATE_KEY_DO_NOT_LOG',
       details:[{'@type':'type.googleapis.com/google.rpc.BadRequest',
         fieldViolations:[{field:'model_interaction.input[1].mime_type',
           description:'PRIVATE_FRAME_DATA'}]}],
-      expected:'Argon rejected image input configuration',category:'image_input'
+      expected:'Argon rejected image input configuration',category:'image_input',reason:'unrecognized_message'
     },
     {
       message:'Uninformative provider text PRIVATE_KEY_DO_NOT_LOG',
       details:[{'@type':'type.googleapis.com/google.rpc.BadRequest',
         field_violations:[{field:'response_format.mime_type',
           description:'PRIVATE_FRAME_DATA'}]}],
-      expected:'Argon rejected output format configuration',category:'output_format'
+      expected:'Argon rejected output format configuration',category:'output_format',reason:'unrecognized_message'
     }
   ];
   let calls=0;const logs=[];
   console.warn=(...args)=>logs.push(args);
   try{
-    for(const {message,expected,category,details} of samples){
+    for(const {message,expected,category,reason,details} of samples){
       globalThis.fetch=async(url)=>{
         if(url.includes(':generateContent')){calls++;return new Response(JSON.stringify(analysisResult()));}
 
@@ -638,10 +761,17 @@ test('Argon 400 diagnostics use scoped field-path evidence and do not leak provi
       }),env);
       assert.equal(response.status,502);
       const raw=await response.text();
-      assert.deepEqual(JSON.parse(raw),{ok:false,error:expected},message);
+      const result=JSON.parse(raw);
+      assert.deepEqual(Object.keys(result).sort(),['diagnostic','error','ok']);
+      assert.equal(result.error,expected,message);
+      // The documented error-type code and a recognized message class reach
+      // the developer; the provider's own words never do.
+      assert.deepEqual({...result.diagnostic,fields:undefined},
+        {phase:'create',http:400,status:null,codes:['invalid_request'],reason,fields:undefined},message);
       assert.ok(!raw.includes('PRIVATE_KEY_DO_NOT_LOG'));
       assert.ok(!raw.includes('PRIVATE_FRAME_DATA'));
-      assert.deepEqual(logs.at(-1),['argon-request-400-category',category]);
+      assert.deepEqual(logs.at(-2),['argon-request-400-category',category]);
+      assert.deepEqual(logs.at(-1),['argon-provider-diagnostic',JSON.stringify(result.diagnostic)]);
     }
     assert.equal(calls,samples.length*2,'one vision call then one Argon error per test; no retries');
     assert.ok(!JSON.stringify(logs).includes('PRIVATE_KEY_DO_NOT_LOG'));
