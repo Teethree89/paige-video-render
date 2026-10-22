@@ -14,11 +14,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-isolation-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-fileuri-diagnostic-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-isolation-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-fileuri-diagnostic-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -292,6 +292,55 @@ test('Seven Argon stages isolate text, thinking, JPEG, JSON and background featu
     assert.equal(uploadsStarted,2,'Only background JPEG tests use Google Files upload');
     assert.equal(uploadsCompleted,2);
   }finally{globalThis.fetch=previous;}
+});
+test('Argon Files API rejects untrusted upload destinations and file URIs without submitting paid inference',async()=>{
+  const oldFetch=globalThis.fetch,auth={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+  let hits=[];
+  try{
+    const exercise=async mock=>{
+      hits=[];
+      globalThis.fetch=async (url,options)=>{
+        hits.push({url,options});
+        return mock(url,options);
+      };
+      const res=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/diagnostic',{
+        method:'POST',headers:auth,body:JSON.stringify({stage:'background_image'})
+      }),env);
+      assert.equal(res.status,502);
+      const result=await res.json();
+      assert.equal(result.ok,false);
+      assert.ok(!JSON.stringify(result).includes('SECRET_PROVIDER_INPUT'));
+      assert.ok(!hits.some(x=>x.url==='https://generativelanguage.googleapis.com/v1beta/interactions'));
+      return result.error;
+    };
+    let error=await exercise(async url=>{
+      if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files')
+        return new Response('',{status:200,headers:{
+          'x-goog-upload-url':'https://attacker.invalid/upload/v1beta/files?token=PRIVATE'
+        }});
+      assert.fail('Must not fetch untrusted upload URL: '+url);
+    });
+    assert.equal(error,'Argon diagnostic upload URL was not trusted');
+    assert.equal(hits.length,1);
+    const trustedUpload='https://generativelanguage.googleapis.com/upload/v1beta/files?upload_id=testing';
+    error=await exercise(async url=>{
+      if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files')
+        return new Response('',{status:200,headers:{'x-goog-upload-url':trustedUpload}});
+      if(url===trustedUpload)return new Response(JSON.stringify({file:{
+        mimeType:'image/jpeg',uri:'https://attacker.invalid/files/PRIVATE'
+      }}),{status:200});
+      assert.fail('Unexpected URL: '+url);
+    });
+    assert.equal(error,'Argon diagnostic uploaded file metadata invalid');
+    assert.equal(hits.length,2);
+    error=await exercise(async url=>{
+      if(url==='https://generativelanguage.googleapis.com/upload/v1beta/files')
+        return new Response('SECRET_PROVIDER_INPUT',{status:400});
+      assert.fail('Unexpected URL: '+url);
+    });
+    assert.equal(error,'Argon diagnostic file upload failed');
+    assert.equal(hits.length,1);
+  }finally{globalThis.fetch=oldFetch;}
 });
 test('Argon diagnostic rejects unapproved stages, custom prompts and input footage without provider calls',async()=>{
   const previous=globalThis.fetch;let upstream=0;
