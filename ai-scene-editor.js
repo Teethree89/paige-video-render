@@ -25,7 +25,8 @@ export function describeDiagnostic(d) {
   const list=value=>Array.isArray(value)?value.filter(x=>typeof x==='string').join(', '):'';
   return 'Provider diagnostic: '+[d.phase,d.http?'HTTP '+d.http:d.status,
     'reason '+d.reason,list(d.codes)&&'code '+list(d.codes),
-    list(d.fields)&&'fields '+list(d.fields)].filter(Boolean).join(' · ');
+    list(d.fields)&&'fields '+list(d.fields),
+    list(d.terms)&&'terms '+list(d.terms)].filter(Boolean).join(' · ');
 }
 async function readServerSession() {
   const response=await fetch(api,{credentials:'same-origin',cache:'no-store'});
