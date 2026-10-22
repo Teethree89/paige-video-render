@@ -59,6 +59,38 @@ The Worker URL is pinned in `scene-proxy.php` and does not belong in the private
 
 **You must create that private file manually.** The repository/FTP publishing job cannot and must not upload it.
 
+### Generation activity and geometry cleanup (client-side)
+
+The editor's **Generation activity** panel shows honest stage events:
+authenticated session checked, video JPEG frames sampled, the selected
+model/profile, each environment pass dispatched/completed, schema validation,
+post-generation overlap cleanup, and the preview result. While a synchronous
+Gemini request is running, an elapsed-seconds indicator updates without claiming
+to receive private chain-of-thought or actual partial Gemini construction steps.
+All provider retries happen server-side within one response; the activity log
+cannot show individual 503 attempts until the request has returned. A future
+async implementation can expose genuine server-side stages.
+
+After strict scene JSON validation and **before** a proposed scene is previewed,
+`primitive-cleanup.js` runs an entirely deterministic, no-API-cost cleanup pass:
+it removes only duplicate shapes with matching primitive, material, layer and
+transform, and moves small overlapping planes/thin rectangular detail pieces
+off large coplanar surfaces by a small offset. It honors rotated planes and
+thin facade trims, preserves semantic IDs and other chapters, and intentionally
+leaves deep intersections/ambiguous surfaces untouched. It is **not** a general
+mesh intersection repair utility.
+
+- **Re-run z-fighting cleanup on preview** is available only while a new AI
+  proposal is pending; it updates the temporary 3D view, not the timeline. Repeated
+  runs should make zero further adjustments if nothing has changed.
+- **Clean up saved chapter geometry** operates on the currently selected
+  already-accepted primitive chapter and saves only when it makes a change.
+  It cannot run over an unaccepted proposal. Export the timeline JSON to
+  preserve a backup before subsequent manual edits.
+- The activity feed is not persisted and has a bounded 50-line history.
+  It contains no authentication secrets, provider response bodies, images,
+  or Gemini's hidden reasoning.
+
 ## 3. Public PHP proxy
 
 `scene-proxy.php` is intentionally deployed next to `index.html` by the GitHub FTP workflow. It loads the absolute private path using PHP `require`, not a URL. It fails closed if the config, SSL, PHP sessions, cURL, valid Worker URL, or credentials are missing. It requires same-origin requests, an editor passphrase login, HttpOnly Secure SameSite session cookie, a per-session CSRF token, controlled 3-frame JPEG input, and a 10-request-per-session/hour quota limit.
