@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-json-schema-validation-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-field-path-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-json-schema-validation-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-field-path-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -113,24 +113,70 @@ test('Argon Previs background accepts bounded primary frames and polls validated
     assert.equal(calls,2);
   }finally{globalThis.fetch=prior;}
 });
-test('Argon 400 diagnostics classify only allowlisted field names and never expose provider body',async()=>{
+test('Argon 400 diagnostics use scoped field-path evidence and do not leak provider bodies',async()=>{
   const priorFetch=globalThis.fetch,priorWarn=console.warn;
   const samples=[
-    ['Invalid response_format JSON schema', 'Argon rejected output format configuration','output_format'],
-    ['Invalid generation_config.thinking_level', 'Argon rejected generation configuration','generation_config'],
-    ['Unsupported image mime_type', 'Argon rejected image input configuration','image_input'],
-    ['background not supported', 'Argon rejected background execution configuration','background'],
-    ['Unsupported model setting', 'Argon rejected model configuration','model'],
-    ['Request contains an invalid argument.', 'Argon rejected Interactions request','unknown']
+    {
+      message:'Invalid response_format.schema: PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected output format configuration',category:'output_format'
+    },
+    {
+      message:'Invalid generation_config.thinking_level PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected generation configuration',category:'generation_config'
+    },
+    {
+      message:'Invalid input[2].mime_type PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected image input configuration',category:'image_input'
+    },
+    // Both incoming images and outgoing structured JSON have mime_type.
+    // A bare mention of it must NEVER be falsely labeled an image problem.
+    {
+      message:'Unsupported mime_type PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected Interactions request',category:'unknown'
+    },
+    {
+      message:'Image request cannot be processed PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected Interactions request',category:'unknown'
+    },
+    {
+      message:'Invalid responseFormat.mimeType PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected output format configuration',category:'output_format'
+    },
+    {
+      message:'Invalid background PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected background execution configuration',category:'background'
+    },
+    {
+      message:'Unsupported model PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected model configuration',category:'model'
+    },
+    {
+      message:'Request contains an invalid argument PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected Interactions request',category:'unknown'
+    },
+    {
+      message:'Uninformative provider text PRIVATE_KEY_DO_NOT_LOG',
+      details:[{'@type':'type.googleapis.com/google.rpc.BadRequest',
+        fieldViolations:[{field:'model_interaction.input[1].mime_type',
+          description:'PRIVATE_FRAME_DATA'}]}],
+      expected:'Argon rejected image input configuration',category:'image_input'
+    },
+    {
+      message:'Uninformative provider text PRIVATE_KEY_DO_NOT_LOG',
+      details:[{'@type':'type.googleapis.com/google.rpc.BadRequest',
+        field_violations:[{field:'response_format.mime_type',
+          description:'PRIVATE_FRAME_DATA'}]}],
+      expected:'Argon rejected output format configuration',category:'output_format'
+    }
   ];
   let calls=0;const logs=[];
   console.warn=(...args)=>logs.push(args);
   try{
-    for(const [message,expected,category] of samples){
+    for(const {message,expected,category,details} of samples){
       globalThis.fetch=async()=>{
         calls++;
         return new Response(JSON.stringify({
-          error:{code:'invalid_request',message:message+' PRIVATE_KEY_DO_NOT_LOG'},
+          error:{code:'invalid_request',message,details},
           extra:{input:'PRIVATE_FRAME_DATA'}
         }),{status:400});
       };
@@ -140,12 +186,12 @@ test('Argon 400 diagnostics classify only allowlisted field names and never expo
       }),env);
       assert.equal(response.status,502);
       const raw=await response.text();
-      assert.deepEqual(JSON.parse(raw),{ok:false,error:expected});
+      assert.deepEqual(JSON.parse(raw),{ok:false,error:expected},message);
       assert.ok(!raw.includes('PRIVATE_KEY_DO_NOT_LOG'));
       assert.ok(!raw.includes('PRIVATE_FRAME_DATA'));
       assert.deepEqual(logs.at(-1),['argon-request-400-category',category]);
     }
-    assert.equal(calls,samples.length,'400 must never trigger another paid generation attempt');
+    assert.equal(calls,samples.length,'400 must not automatically trigger another paid request');
     assert.ok(!JSON.stringify(logs).includes('PRIVATE_KEY_DO_NOT_LOG'));
     assert.ok(!JSON.stringify(logs).includes('PRIVATE_FRAME_DATA'));
     assert.ok(!JSON.stringify(logs).includes(env.GEMINI_API_KEY));
