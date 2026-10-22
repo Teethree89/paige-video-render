@@ -77,7 +77,10 @@ function safe_worker_error(int $status, string $body): string {
 function argon_worker_call(string $endpoint, string $secret, string $action, array $body): array {
     if (!in_array($action, ['start', 'status', 'check'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
-    $encoded = json_encode($body, JSON_UNESCAPED_SLASHES);
+    // The metadata-only check accepts an empty JSON OBJECT, not an array.
+    // PHP json_encode([]) serializes as "[]", which the Worker correctly rejects
+    // with HTTP 400 before Google is queried. Always send "{}" for this route.
+    $encoded = json_encode($action === 'check' ? (object) [] : $body, JSON_UNESCAPED_SLASHES);
     if (!is_string($encoded) || strlen($encoded) > 1600000) reject(413, 'Invalid Argon request');
     $ch = curl_init($route);
     if (!$ch) reject(503, 'Could not open the Worker connection');
