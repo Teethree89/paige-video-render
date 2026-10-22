@@ -316,10 +316,16 @@ if ($action === 'argon_diag_poll') {
 if ($action === 'argon_diag_step') {
     $step = $_SESSION['argon_smoke']['step'] ?? 0;
     $state = $_SESSION['argon_smoke']['state'] ?? 'idle';
+    // A failed diagnostic can be retried at exactly that stage ONLY with an
+    // explicit retry:true from the authenticated editor. Earlier successful
+    // billable stages are retained; no implicit restart or skip is allowed.
+    $retry = ($input['retry'] ?? null) === true;
     if (!is_int($step) || $step < 0 || $step >= count($argonSmokeStages) ||
         !is_int($input['step'] ?? null) || $input['step'] !== $step ||
-        !in_array($state, ['idle','passed'], true))
-        reject(409, 'Finish or reset the current Argon diagnostic step first');
+        count(array_diff(array_keys($input), ['action','csrf','step','retry'])) > 0 ||
+        (($state === 'failed') !== $retry) ||
+        !in_array($state, ['idle','passed','failed'], true))
+        reject(409, 'Finish or explicitly retry the current Argon diagnostic step first');
     $window = (int) ($_SESSION['argon_diag_window'] ?? 0);
     if ($window < time() - 86400) {
         $_SESSION['argon_diag_window'] = time();
