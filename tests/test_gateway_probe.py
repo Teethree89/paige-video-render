@@ -190,6 +190,20 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("CURLOPT_TIMEOUT => $action === 'start' ? 45 : 30", php)
         self.assertIn("CURLOPT_SSL_VERIFYPEER => true", php)
 
+    def test_argon_model_check_requires_same_session_and_no_generation_quota(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        self.assertIn("if ($action === 'argon_check')", php)
+        self.assertIn("argon_worker_call($workerEndpoint, $secret, 'check', [])", php)
+        self.assertIn("['start', 'status', 'check']", php)
+        self.assertIn("'available' => $check['available']", php)
+        self.assertIn("'502:Argon model metadata check unavailable'", php)
+        self.assertLess(php.index("if (empty($_SESSION['authenticated']))"),
+                        php.index("if ($action === 'argon_check')"))
+        self.assertLess(php.index("if (!is_string($providedCsrf)"),
+                        php.index("if ($action === 'argon_check')"))
+        self.assertLess(php.index("if ($action === 'argon_check')"),
+                        php.index("$_SESSION['ai_calls'] = 0"))
+
     def test_php_only_maps_fixed_worker_failure_messages(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         self.assertIn("function safe_worker_error(int $status, string $body): string", php)
