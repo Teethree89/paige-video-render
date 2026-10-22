@@ -39,6 +39,11 @@ function safe_worker_error(int $status, string $body): string {
         '400:Invalid Argon check request' => 'The Argon model check was rejected before reaching Google. Verify that PHP sends an empty JSON object to the Worker.',
         '400:Invalid Argon diagnostic request' => 'The Argon diagnostic payload was rejected before Google was called.',
         '504:Argon diagnostic request timed out' => 'Argon did not answer the small synchronous test within 30 seconds. This is inconclusive; no automatic retry was made.',
+        '502:Argon diagnostic fixture validation failed' => 'The synthetic diagnostic JPEG did not pass integrity checks; no inference request was submitted.',
+        '502:Argon diagnostic file upload failed' => 'The diagnostic image could not be uploaded to Google Files API; no Argon generation was submitted.',
+        '502:Argon diagnostic upload URL was not trusted' => 'Google returned an unexpected upload destination. File transfer was blocked before inference.',
+        '502:Argon diagnostic uploaded file metadata invalid' => 'The uploaded image metadata was not usable; no Argon generation was submitted.',
+
 
         '413:Invalid image request' => 'The sampled frames exceed the Worker request size limit.',
         '503:AI backend is not configured' => 'The AI Worker is missing its runtime configuration.',
