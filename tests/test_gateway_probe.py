@@ -209,7 +209,7 @@ class GatewaySmokeTests(unittest.TestCase):
         )
         self.assertEqual(php_array.stdout, "[]")
         self.assertIn("'400:Invalid Argon check request'", php)
-        self.assertIn("['start', 'status', 'check']", php)
+        self.assertIn("['start', 'status', 'check', 'diagnostic', 'diagnostic-status']", php)
         self.assertIn("'available' => $check['available']", php)
         self.assertIn("'502:Argon model metadata check unavailable'", php)
         self.assertLess(php.index("if (empty($_SESSION['authenticated']))"),
