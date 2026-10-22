@@ -269,7 +269,7 @@ export {validateOutput,secretMatches};
 
 const ARGON_PROFILE='argon_previs';
 const ARGON_MODEL='gemini-4-argon';
-const ARGON_MAX_OUTPUT_TOKENS=16384; // hard cap on thinking + output spend
+const ARGON_MAX_OUTPUT_TOKENS=32768; // Google-recommended cap; includes billed thinking + output
 const ARGON_REVISION='2026-05-20';
 const ARGON_API='https://generativelanguage.googleapis.com/v1beta/interactions';
 const ARGON_JOB_ID=/^[A-Za-z0-9_-]{8,160}$/;
