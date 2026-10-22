@@ -133,6 +133,29 @@ class GatewaySmokeTests(unittest.TestCase):
              patch.object(probe, "build_opener", return_value=RotatedOpener()):
             self.assertEqual(probe.check_session_continuity(), (True, False, "server-session-rotated", 200))
 
+    def test_php_proxy_uses_only_syntax_the_production_php_70_host_parses(self):
+        # The live host reports X-Powered-By: PHP/7.0.33, but CI's php -l uses
+        # a newer PHP. A 7.1+ construct is a parse error in production, so
+        # every request becomes an empty HTTP 500 (regression from PR #74).
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        forbidden = {
+            "nullable parameter type": r"[(,]\s*\?\s*[A-Za-z_\\]\w*\s+&?(?:\.\.\.)?\$",
+            "nullable return type": r"\)\s*:\s*\?\s*[A-Za-z_\\]",
+            "closure return type": r"\bfunction\s*\([^)]*\)\s*(?:use\s*\([^)]*\)\s*)?:",
+            "null coalescing assignment": r"\?\?=",
+            "arrow function": r"\bfn\s*\(",
+            "nullsafe operator": r"\?->",
+            "match expression": r"\bmatch\s*\(",
+        }
+        for name, pattern in forbidden.items():
+            with self.subTest(construct=name):
+                self.assertIsNone(re.search(pattern, php), name)
+        # In PHP 7.0, "void" is just a class name. It is only safe on the two
+        # helpers that always exit and therefore never return a value.
+        self.assertEqual(
+            sorted(re.findall(r"\bfunction\s+(\w+)\s*\([^)]*\)\s*:\s*void\b", php)),
+            ["answer", "reject"])
+
     def test_php_requires_secure_cookie_only_sessions_before_start(self):
         script = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         start = script.index("if (!session_start())")

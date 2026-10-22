@@ -37,6 +37,8 @@ The experimental workflow `.github/workflows/zen-free-model-benchmark.yml` tests
 
 See [docs/PHP_AI_SCENE_SETUP.md](docs/PHP_AI_SCENE_SETUP.md). The actual server file `/www/certificates/paiver.php` is manually created OUTSIDE the public FTP directory; do not put its values anywhere in the repository or ZIP. The public `scene-proxy.php` is protected by editor passphrase, PHP session, CSRF, strict workers.dev target and bounded JPEG requests. The Worker uses `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN` runtime secrets for Gemini 2.5 Flash-Lite. Never create an open browser-to-Worker auth path. Do not claim live functionality until hosting PHP/cURL and deployed Cloudflare Worker are independently confirmed.
 
+**Production PHP is 7.0.33** (live `X-Powered-By` header). `scene-proxy.php` must use PHP 7.0 syntax only: no nullable types (`?array`, `?callable`), no return types on closures, and `void` only on functions that always `exit`. A 7.1+ construct is a parse error in production that turns every request into an empty HTTP 500. CI lints with `php:7.0-cli`.
+
 ## Argon direct image and provider diagnostics
 
 Read [docs/ARGON_BACKGROUND_IMAGE_INVESTIGATION.md](docs/ARGON_BACKGROUND_IMAGE_INVESTIGATION.md) (second pass) first. Interactions API errors are documented as `{error:{code,message}}` only: keep reducing them to the fixed-vocabulary `diagnostic` (phase, codes, reason, fields). Never forward or log provider prose, and never drop the classification to a bare `unknown`. The opt-in `argon_direct` profile (inline JPEG + background) is **unverified** until a live, individually approved run succeeds. It must never retry or fall back automatically. Flash-Lite → Argon Previs stays the proven path.
