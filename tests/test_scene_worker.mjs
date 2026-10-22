@@ -623,7 +623,9 @@ test('Argon 400 diagnostics use scoped field-path evidence and do not leak provi
   console.warn=(...args)=>logs.push(args);
   try{
     for(const {message,expected,category,details} of samples){
-      globalThis.fetch=async()=>{
+      globalThis.fetch=async(url)=>{
+        if(url.includes(':generateContent')){calls++;return new Response(JSON.stringify(analysisResult()));}
+
         calls++;
         return new Response(JSON.stringify({
           error:{code:'invalid_request',message,details},
@@ -641,7 +643,7 @@ test('Argon 400 diagnostics use scoped field-path evidence and do not leak provi
       assert.ok(!raw.includes('PRIVATE_FRAME_DATA'));
       assert.deepEqual(logs.at(-1),['argon-request-400-category',category]);
     }
-    assert.equal(calls,samples.length,'400 must not automatically trigger another paid request');
+    assert.equal(calls,samples.length*2,'one vision call then one Argon error per test; no retries');
     assert.ok(!JSON.stringify(logs).includes('PRIVATE_KEY_DO_NOT_LOG'));
     assert.ok(!JSON.stringify(logs).includes('PRIVATE_FRAME_DATA'));
     assert.ok(!JSON.stringify(logs).includes(env.GEMINI_API_KEY));
