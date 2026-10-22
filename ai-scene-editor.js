@@ -91,6 +91,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
   const resumeArgon=el('aiSceneResumeArgon');
+  const checkArgon=el('aiSceneCheckArgon');
   const activity=el('aiSceneLog'),waitInfo=el('aiSceneWait');
   let csrf=null,authenticated=false,pending=null,pendingShot=null,busy=true,argonJob=null;
   let activityLines=[];
@@ -171,6 +172,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     create.disabled=busy||!authenticated;
     scope.disabled=busy;
     if(modelSelect)modelSelect.disabled=busy;
+    if(checkArgon)checkArgon.disabled=busy||!authenticated;
     if(resumeArgon){resumeArgon.hidden=!authenticated||!argonJob||!!pending;
       resumeArgon.disabled=busy||!authenticated;}
     inspect.hidden=!pending;inspect.disabled=busy||!pending;
@@ -314,6 +316,29 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         status('AI proposal failed: '+error.message);
       }
       onDiscard();pending=null;pendingShot=null;
+    }finally{busy=false;ui();}
+  });
+  checkArgon?.addEventListener('click',async()=>{
+    if(busy||!authenticated)return;
+    busy=true;ui();
+    log('Checking Gemini 4 Argon model metadata (no generation or reference frames)…');
+    status('Checking Argon model visibility with your existing API key…');
+    try{
+      const session=await readServerSession();
+      if(!session.authenticated){sessionEnded();return;}
+      csrf=session.csrf;
+      const result=await request('argon_check',{csrf});
+      if(typeof result.available!=='boolean')throw Error('Model metadata check returned an invalid result');
+      if(result.available){
+        log('Google lists gemini-4-argon for this key. This does not guarantee generation entitlement.');
+        status('Argon model metadata is visible. This does not guarantee paid generation access or request validity.');
+      }else{
+        log('Google does not expose gemini-4-argon model metadata for this API key.');
+        status('Argon model metadata is not available for this key. Verify the Google AI Studio project, paid tier, and model availability before trying another paid generation.');
+      }
+    }catch(error){
+      log('Argon model check failed: '+error.message);
+      status('Argon model check failed: '+error.message+'. No paid generation was submitted.');
     }finally{busy=false;ui();}
   });
   resumeArgon?.addEventListener('click',async()=>{
