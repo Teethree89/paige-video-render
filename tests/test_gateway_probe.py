@@ -343,6 +343,7 @@ function argon_worker_call($endpoint, $secret, $action, $body) {
             "502:Argon rejected model configuration": "does not establish a billing or entitlement problem",
             "502:Argon reference analysis unavailable": "No background job was submitted",
             "502:Argon reference analysis invalid": "usable visual description",
+            "502:Argon provider redirect blocked": "correctly refused to follow",
             "502:Argon rejected Interactions request": "No job was created",
 
             "502:AI provider capacity unavailable": "Gemini is overloaded (upstream 503)",
