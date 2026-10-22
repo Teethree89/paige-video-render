@@ -37,6 +37,9 @@ function safe_worker_error(int $status, string $body): string {
         '401:Unauthorized' => 'The Worker rejected the PHP access token. Verify the private PHP scene_access_token matches Cloudflare SCENE_ACCESS_TOKEN.',
         '400:Invalid image request' => 'The Worker rejected the sampled video frames. Check JPEG validation and frame sizes.',
         '400:Invalid Argon check request' => 'The Argon model check was rejected before reaching Google. Verify that PHP sends an empty JSON object to the Worker.',
+        '400:Invalid Argon diagnostic request' => 'The Argon diagnostic payload was rejected before Google was called.',
+        '504:Argon diagnostic request timed out' => 'Argon did not answer the small synchronous test within 30 seconds. This is inconclusive; no automatic retry was made.',
+
         '413:Invalid image request' => 'The sampled frames exceed the Worker request size limit.',
         '503:AI backend is not configured' => 'The AI Worker is missing its runtime configuration.',
         '429:Provider rate limit reached' => 'Gemini rate limit reached. Try later.',
@@ -76,7 +79,7 @@ function safe_worker_error(int $status, string $body): string {
 
 /** Fixed-target Argon background job transport (only after session+CSRF). */
 function argon_worker_call(string $endpoint, string $secret, string $action, array $body): array {
-    if (!in_array($action, ['start', 'status', 'check'], true)) reject(400, 'Invalid Argon action');
+    if (!in_array($action, ['start', 'status', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
     // The metadata-only check accepts an empty JSON OBJECT, not an array.
     // PHP json_encode([]) serializes as "[]", which the Worker correctly rejects
@@ -92,7 +95,7 @@ function argon_worker_call(string $endpoint, string $secret, string $action, arr
             'Authorization: Bearer ' . $secret],
         CURLOPT_FOLLOWLOCATION => false,
         CURLOPT_CONNECTTIMEOUT => 8,
-        CURLOPT_TIMEOUT => $action === 'start' ? 45 : 30,
+        CURLOPT_TIMEOUT => in_array($action, ['start','diagnostic'], true) ? 45 : 30,
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_RETURNTRANSFER => true
@@ -242,7 +245,10 @@ if ($method === 'GET') {
     answer(200, ['ok' => true, 'authenticated' => !empty($_SESSION['authenticated']),
                  'csrf' => $_SESSION['csrf'],
                  'argonJob' => $active === null ? null : [
-                    'shotId' => $active['shotId'], 'status' => $active['status']]]);
+                    'shotId' => $active['shotId'], 'status' => $active['status']],
+                 'argonSmoke' => [
+                    'step' => min(5, max(0, (int) ($_SESSION['argon_smoke']['step'] ?? 0))),
+                    'state' => (string) ($_SESSION['argon_smoke']['state'] ?? 'idle')]]);
 }
 if ($method !== 'POST') reject(405, 'Use GET or POST');
 if (!same_origin()) reject(403, 'Same-origin editor request required');
@@ -279,6 +285,67 @@ if ($action === 'logout') {
     $_SESSION = [];
     session_destroy();
     answer(200, ['ok' => true, 'authenticated' => false]);
+}
+// Five explicit, fixed-input, potentially billable Argon tests.
+// Only one step at a time; never run the next step automatically.
+$argonSmokeStages = ['text','thinking','image','json','background'];
+if ($action === 'argon_diag_reset') {
+    if (($_SESSION['argon_smoke']['state'] ?? '') === 'running')
+        reject(409, 'An Argon diagnostic is still running; finish polling it first');
+    $_SESSION['argon_smoke'] = ['step' => 0, 'state' => 'idle'];
+    answer(200, ['ok' => true, 'step' => 0, 'state' => 'idle']);
+}
+if ($action === 'argon_diag_poll') {
+    $smoke = $_SESSION['argon_smoke'] ?? null;
+    if (!is_array($smoke) || ($smoke['state'] ?? '') !== 'running' ||
+        ($smoke['step'] ?? -1) !== 4 || !is_string($smoke['id'] ?? null) ||
+        !preg_match('/^[A-Za-z0-9_-]{8,160}$/', $smoke['id']))
+        reject(400, 'No background diagnostic is running');
+    $result = argon_worker_call($workerEndpoint, $secret, 'diagnostic-status',
+        ['id' => $smoke['id'], 'stage' => 'background']);
+    $state = $result['status'] ?? '';
+    if (in_array($state, ['queued','in_progress'], true))
+        answer(200, ['ok' => true, 'step' => 4, 'state' => 'running']);
+    if ($state === 'completed' && ($result['passed'] ?? false) === true) {
+        $_SESSION['argon_smoke'] = ['step' => 5, 'state' => 'done'];
+        answer(200, ['ok' => true, 'step' => 5, 'state' => 'done', 'passed' => true]);
+    }
+    $_SESSION['argon_smoke'] = ['step' => 4, 'state' => 'failed'];
+    answer(200, ['ok' => true, 'step' => 4, 'state' => 'failed', 'passed' => false]);
+}
+if ($action === 'argon_diag_step') {
+    $step = $_SESSION['argon_smoke']['step'] ?? 0;
+    $state = $_SESSION['argon_smoke']['state'] ?? 'idle';
+    if (!is_int($step) || $step < 0 || $step >= count($argonSmokeStages) ||
+        !is_int($input['step'] ?? null) || $input['step'] !== $step ||
+        !in_array($state, ['idle','passed'], true))
+        reject(409, 'Finish or reset the current Argon diagnostic step first');
+    $window = (int) ($_SESSION['argon_diag_window'] ?? 0);
+    if ($window < time() - 86400) {
+        $_SESSION['argon_diag_window'] = time();
+        $_SESSION['argon_diag_calls'] = 0;
+    }
+    if ((int) ($_SESSION['argon_diag_calls'] ?? 0) >= 8)
+        reject(429, 'Argon diagnostic daily submission limit reached');
+    $_SESSION['argon_diag_calls'] = (int) ($_SESSION['argon_diag_calls'] ?? 0) + 1;
+    // Mark as failed BEFORE network I/O so a rejected/timeout provider
+    // response cannot leave the session locked at "running" forever.
+    $_SESSION['argon_smoke'] = ['step' => $step, 'state' => 'failed'];
+    $result = argon_worker_call($workerEndpoint, $secret, 'diagnostic',
+        ['stage' => $argonSmokeStages[$step]]);
+    if (($result['status'] ?? '') === 'in_progress' && $step === 4 &&
+        is_string($result['id'] ?? null) &&
+        preg_match('/^[A-Za-z0-9_-]{8,160}$/', $result['id'])) {
+        $_SESSION['argon_smoke'] = ['step' => 4, 'state' => 'running', 'id' => $result['id']];
+        answer(200, ['ok' => true, 'step' => 4, 'state' => 'running']);
+    }
+    if (($result['status'] ?? '') === 'completed' && ($result['passed'] ?? false) === true) {
+        $_SESSION['argon_smoke'] = ['step' => $step + 1,
+            'state' => $step === 4 ? 'done' : 'passed'];
+        answer(200, ['ok' => true, 'step' => $step + 1,
+            'state' => $step === 4 ? 'done' : 'passed', 'passed' => true]);
+    }
+    answer(200, ['ok' => true, 'step' => $step, 'state' => 'failed', 'passed' => false]);
 }
 // Model metadata check is authenticated, no-generation, and does not consume
 // the hourly proposal budget. No video frame or client content leaves PHP.
