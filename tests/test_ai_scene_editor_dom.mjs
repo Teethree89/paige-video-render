@@ -558,3 +558,59 @@ test('Argon model visibility check is separate from paid generation, CSRF protec
     globalThis.fetch=oldFetch;
   }
 });
+
+test('Argon smoke tests require five separate confirmations and never sample client video',async()=>{
+  const beforeDoc=globalThis.document,beforeFetch=globalThis.fetch,
+    beforeConfirm=globalThis.confirm;
+  const ids=new Map();let posted=[],confirms=0,videoObjects=0;
+  let state={step:0,state:'idle'};
+  globalThis.document={
+    getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
+    createElement(tag){if(tag==='video')videoObjects++;return new Element();}
+  };
+  globalThis.confirm=()=>{confirms++;return true;};
+  globalThis.fetch=async(url,opts={})=>{
+    assert.equal(url,'./scene-proxy.php');
+    if(!opts.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'fixed-csrf',
+      argonJob:null,argonSmoke:state}),{status:200});
+    const req=JSON.parse(opts.body);
+    assert.equal(req.csrf,'fixed-csrf');
+    posted.push(req);
+    if(req.action==='argon_diag_step'){
+      assert.equal(req.step,state.step);
+      assert.deepEqual(Object.keys(req).sort(),['action','csrf','step']);
+      if(req.step===4)state={step:4,state:'running'};
+      else state={step:req.step+1,state:'passed'};
+      return new Response(JSON.stringify({ok:true,...state,passed:true}),{status:200});
+    }
+    if(req.action==='argon_diag_poll'){
+      assert.deepEqual(Object.keys(req).sort(),['action','csrf']);
+      state={step:5,state:'done'};
+      return new Response(JSON.stringify({ok:true,...state,passed:true}),{status:200});
+    }
+    throw Error('Unexpected scene generation or model call');
+  };
+  try{
+    const shot={id:'draft_001',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:private-video'}),getPlayheadTime:()=>1,
+      onPreview:()=>assert.fail('No geometry should be created'),onDiscard:()=>{},
+      onAccept:()=>assert.fail('No geometry to accept')});
+    await new Promise(resolve=>setImmediate(resolve));
+    for(let i=0;i<5;i++)await ids.get('aiArgonSmokeRun').fire('click');
+    assert.equal(state.state,'running');
+    assert.match(ids.get('aiArgonSmokeRun').textContent,/Check running Argon diagnostic/);
+    await ids.get('aiArgonSmokeRun').fire('click');
+    assert.equal(state.state,'done');
+    assert.equal(confirms,5);
+    assert.equal(posted.filter(p=>p.action==='argon_diag_step').length,5);
+    assert.equal(posted.filter(p=>p.action==='argon_diag_poll').length,1);
+    assert.equal(videoObjects,0);
+    assert.match(ids.get('aiArgonSmokeSummary').textContent,/All five Argon API stages passed/);
+    assert.equal(ids.get('aiArgonSmokeRun').hidden,true);
+  }finally{
+    if(beforeDoc===undefined)delete globalThis.document;else globalThis.document=beforeDoc;
+    if(beforeFetch===undefined)delete globalThis.fetch;else globalThis.fetch=beforeFetch;
+    if(beforeConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=beforeConfirm;
+  }
+});

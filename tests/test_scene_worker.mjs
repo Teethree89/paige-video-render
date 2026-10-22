@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-model-check-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-staged-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-model-check-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-staged-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -180,6 +180,98 @@ test('Argon metadata check distinguishes not listed and unavailable without expo
     }
     assert.equal(index,responses.length);
   }finally{globalThis.fetch=before;console.warn=oldWarn;}
+});
+test('Five Argon diagnostic stages isolate model defaults, thinking, JPEG, JSON, and background',async()=>{
+  const previous=globalThis.fetch;
+  const expected=['text','thinking','image','json','background'];
+  const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+  let calls=0;
+  const id='v1_argon_smoke12345';
+  globalThis.fetch=async (url,opts)=>{
+    if(url.endsWith('/'+id)){
+      assert.equal(opts.body,undefined,'Background polling is GET only');
+      return new Response(JSON.stringify({id,status:'completed',
+        steps:[{type:'model_output',content:[{type:'text',text:'{"ok":true}'}]}]}),{status:200});
+    }
+    calls++;
+    assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
+    assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
+    const body=JSON.parse(opts.body);
+    assert.equal(body.model,'gemini-4-argon');
+    assert.equal(body.tools,undefined);
+    assert.equal(body.thinking_budget,undefined);
+    assert.equal(body.reasoning_effort,undefined);
+    const stage=expected[calls-1];
+    if(stage==='text'){
+      assert.deepEqual(Object.keys(body).sort(),['input','model']);
+      assert.equal(typeof body.input,'string');
+    }else{
+      assert.deepEqual(body.generation_config,{thinking_level:'low',max_output_tokens:4096});
+      if(stage==='thinking')assert.equal(typeof body.input,'string');
+      if(stage==='image'||stage==='background'){
+        const img=body.input[1];
+        assert.equal(img.type,'image');
+        assert.equal(img.mime_type,'image/jpeg');
+        assert.ok(img.data.startsWith('/9j/'));
+        assert.equal(Buffer.from(img.data,'base64').readUInt16BE(0),0xffd8);
+        assert.ok(!img.data.includes('PRIVATE_CLIENT_FOOTAGE'));
+      }
+      if(stage==='json'||stage==='background'){
+        assert.equal(body.response_format.mime_type,'application/json');
+        assert.deepEqual(body.response_format.schema.required,['ok']);
+      }
+      if(stage==='background'){
+        assert.equal(body.background,true);
+        assert.equal(body.store,false);
+      }else assert.equal(body.background,undefined);
+    }
+    return new Response(JSON.stringify(stage==='background'?{id,status:'queued'}:{
+      id:'v1_synccheck',status:'completed',
+      steps:[{type:'model_output',content:[{type:'text',text:
+        stage==='json'?'{"ok":true}':'OK'}]}]}),{status:200});
+  };
+  try{
+    for(const stage of expected){
+      const response=await worker.fetch(new Request(
+        'https://example.workers.dev/api/scene/argon/diagnostic',{
+          method:'POST',headers,body:JSON.stringify({stage})
+        }),env);
+      assert.equal(response.status,200,stage);
+      const result=await response.json();
+      if(stage==='background'){
+        assert.deepEqual(result,{ok:true,status:'in_progress',id,stage});
+        const poll=await worker.fetch(new Request(
+          'https://example.workers.dev/api/scene/argon/diagnostic-status',{
+            method:'POST',headers,body:JSON.stringify({id,stage})
+          }),env);
+        assert.deepEqual(await poll.json(),{ok:true,status:'completed',passed:true});
+      }else assert.deepEqual(result,{ok:true,stage,status:'completed',passed:true});
+    }
+    assert.equal(calls,5,'exactly one billable submission for each confirmed stage');
+  }finally{globalThis.fetch=previous;}
+});
+test('Argon diagnostic rejects unapproved stages, custom prompts and input footage without provider calls',async()=>{
+  const previous=globalThis.fetch;let upstream=0;
+  globalThis.fetch=async()=>{upstream++;throw Error('diagnostic must not reach provider');};
+  const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+  try{
+    for(const bad of [{stage:'previs'}, {stage:'text',prompt:'SECRET'},
+      {stage:'image',frame:sample.frames[0]}, {stage:'json',max_output_tokens:900000},
+      {stage:'thinking',thinking_budget:2048}, {stage:'background',input:'secret'}]){
+      const res=await worker.fetch(new Request(
+        'https://example.workers.dev/api/scene/argon/diagnostic',{
+          method:'POST',headers,body:JSON.stringify(bad)
+        }),env);
+      assert.equal(res.status,400,JSON.stringify(bad).slice(0,35));
+    }
+    const unauthorized=await worker.fetch(new Request(
+      'https://example.workers.dev/api/scene/argon/diagnostic',{
+        method:'POST',headers:{...headers,Authorization:'Bearer incorrect'},
+        body:JSON.stringify({stage:'text'})
+      }),env);
+    assert.equal(unauthorized.status,401);
+    assert.equal(upstream,0);
+  }finally{globalThis.fetch=previous;}
 });
 test('Argon 400 diagnostics use scoped field-path evidence and do not leak provider bodies',async()=>{
   const priorFetch=globalThis.fetch,priorWarn=console.warn;

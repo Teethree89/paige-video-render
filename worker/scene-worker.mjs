@@ -421,11 +421,103 @@ async function checkArgonModel(env){
     return fail(502,'Argon model metadata check unavailable');
   return reply({ok:true,available:true,check:'listed'});
 }
+// Opt-in low-cost diagnostic requests. Each stage is a separately confirmed
+// billable API call. No arbitrary model, prompt, token cap or URL from browser.
+const ARGON_DIAG_STAGES=Object.freeze(['text','thinking','image','json','background']);
+// A known-valid tiny blue 16x16 JPEG created offline, NOT a client's frame.
+// Isolates multimedia request compatibility without transmitting private footage.
+const ARGON_DIAG_JPEG='/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAQABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDFooor7w+LP//Z';
+const ARGON_DIAG_FORMAT=Object.freeze({
+  type:'text',mime_type:'application/json',
+  schema:{type:'object',properties:{ok:{type:'boolean'}},required:['ok']}
+});
+function diagnosticText(value){
+  return (value?.steps||[]).filter(s=>s?.type==='model_output')
+    .flatMap(s=>Array.isArray(s.content)?s.content:[])
+    .filter(p=>p?.type==='text'&&typeof p.text==='string')
+    .map(p=>p.text).join('');
+}
+function diagnosticPassed(interaction,stage){
+  if(interaction?.status!=='completed')return false;
+  const output=diagnosticText(interaction)||(typeof interaction.output_text==='string'?interaction.output_text:'');
+  if(!output||output.length>10000)return false;
+  if(['json','background'].includes(stage)){
+    try{return JSON.parse(output)?.ok===true;}catch{return false;}
+  }
+  return true;
+}
+function diagnosticFrame(){
+  return {type:'image',data:ARGON_DIAG_JPEG,mime_type:'image/jpeg'};
+}
+async function argonDiagnostic(requestPayload,env,path){
+  if(path==='/api/scene/argon/diagnostic-status'){
+    if(!requestPayload||typeof requestPayload!=='object'||Array.isArray(requestPayload)||
+      typeof requestPayload.id!=='string'||!ARGON_JOB_ID.test(requestPayload.id)||
+      requestPayload.stage!=='background'||
+      Object.keys(requestPayload).some(x=>!['id','stage'].includes(x)))
+      return fail(400,'Invalid Argon diagnostic request');
+    let response;
+    try{response=await fetch(ARGON_API+'/'+encodeURIComponent(requestPayload.id),{
+      headers:{'x-goog-api-key':env.GEMINI_API_KEY,'Api-Revision':ARGON_REVISION},
+      signal:AbortSignal.timeout(15000)
+    });}catch{return fail(502,'AI provider network connection failed');}
+    if(response.status===400||response.status===422)return argonBadRequest(response);
+    if(!response.ok)return safeProviderStatus(response.status);
+    let data;
+    try{data=await response.json();}catch{return fail(502,'Invalid provider response');}
+    if(data?.id!==requestPayload.id)return fail(502,'Invalid provider response');
+    if(data.status==='queued'||data.status==='in_progress')
+      return reply({ok:true,status:data.status});
+    if(data.status==='completed')
+      return reply({ok:true,status:'completed',passed:diagnosticPassed(data,'background')});
+    return reply({ok:true,status:'failed',passed:false});
+  }
+  const stage=requestPayload?.stage;
+  if(!ARGON_DIAG_STAGES.includes(stage)||!requestPayload||
+      typeof requestPayload!=='object'||Array.isArray(requestPayload)||
+      Object.keys(requestPayload).some(k=>k!=='stage'))
+    return fail(400,'Invalid Argon diagnostic request');
+  const input=stage==='text'||stage==='thinking'?'Reply with OK.'
+    :stage==='json'?'Return a JSON object with ok set to true.'
+    :[{type:'text',text:stage==='image'?'Is this JPEG an image? Reply YES.':
+        'Inspect this JPEG and return JSON with ok set to true.'},diagnosticFrame()];
+  const structured=stage==='json'||stage==='background';
+  // Stage 1 exactly matches Google's minimal REST example, with NO thinking
+  // or token-budget fields; stage 2 introduces thinking_level separately.
+  const body={
+    model:ARGON_MODEL,input,
+    ...(stage==='text'?{}:{generation_config:{thinking_level:'low',max_output_tokens:4096}}),
+    ...(structured?{response_format:ARGON_DIAG_FORMAT}:{}),
+    ...(stage==='background'?{background:true,store:false}:{})
+  };
+  let response;
+  try{response=await fetch(ARGON_API,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY,
+      'Api-Revision':ARGON_REVISION},
+    body:JSON.stringify(body),
+    signal:AbortSignal.timeout(30000)
+  });}catch{return fail(504,'Argon diagnostic request timed out');}
+  if(response.status===400||response.status===422)return argonBadRequest(response);
+  if(!response.ok)return safeProviderStatus(response.status);
+  let data;
+  try{data=await response.json();}catch{return fail(502,'Invalid provider response');}
+  if(stage==='background'&&(data?.status==='queued'||data?.status==='in_progress')){
+    if(typeof data.id!=='string'||!ARGON_JOB_ID.test(data.id))
+      return fail(502,'Invalid provider response');
+    return reply({ok:true,status:'in_progress',id:data.id,stage});
+  }
+  return reply({ok:true,stage,status:data?.status==='completed'?'completed':'failed',
+    passed:diagnosticPassed(data,stage)});
+}
+
 async function argonGateway(request,env,path){
   if(request.method!=='POST')return fail(405,'POST required');
   let payload;
   try{payload=await readLimitedBody(request);}
   catch(error){return fail(error?.message==='Request too large'?413:400,'Invalid image request');}
+  if(path==='/api/scene/argon/diagnostic'||path==='/api/scene/argon/diagnostic-status')
+    return argonDiagnostic(payload,env,path);
   if(path==='/api/scene/argon/check'){
     // Reject extra caller-supplied configuration: only the configured key/model
     // are consulted, and no frames or proprietary content are transmitted.
@@ -505,9 +597,9 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-model-check-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-staged-diagnostics-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
-    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status','/api/scene/argon/check'].includes(path))return fail(404,'Not found');
+    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
     if(!env.GEMINI_API_KEY || !env.SCENE_ACCESS_TOKEN)
       return fail(503,'AI backend is not configured');

@@ -187,7 +187,7 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("'argonJob' => $active === null ? null", php)
         self.assertIn("if ($action !== 'generate' && $action !== 'argon_start')", php)
         self.assertNotIn("$input['jobId']", php)
-        self.assertIn("CURLOPT_TIMEOUT => $action === 'start' ? 45 : 30", php)
+        self.assertIn("CURLOPT_TIMEOUT => in_array($action, ['start','diagnostic'], true) ? 45 : 30", php)
         self.assertIn("CURLOPT_SSL_VERIFYPEER => true", php)
 
     def test_argon_model_check_requires_same_session_and_no_generation_quota(self):
@@ -209,7 +209,7 @@ class GatewaySmokeTests(unittest.TestCase):
         )
         self.assertEqual(php_array.stdout, "[]")
         self.assertIn("'400:Invalid Argon check request'", php)
-        self.assertIn("['start', 'status', 'check']", php)
+        self.assertIn("['start', 'status', 'check', 'diagnostic', 'diagnostic-status']", php)
         self.assertIn("'available' => $check['available']", php)
         self.assertIn("'502:Argon model metadata check unavailable'", php)
         self.assertLess(php.index("if (empty($_SESSION['authenticated']))"),
@@ -218,6 +218,27 @@ class GatewaySmokeTests(unittest.TestCase):
                         php.index("if ($action === 'argon_check')"))
         self.assertLess(php.index("if ($action === 'argon_check')"),
                         php.index("$_SESSION['ai_calls'] = 0"))
+
+    def test_paid_argon_diagnostics_are_sequential_private_and_capped(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        for expression in (
+            "if ($action === 'argon_diag_reset')",
+            "if ($action === 'argon_diag_step')",
+            "if ($action === 'argon_diag_poll')",
+            "$argonSmokeStages = ['text','thinking','image','json','background'];",
+            "['step' => $step, 'state' => 'failed']",
+            "if ((int) ($_SESSION['argon_diag_calls'] ?? 0) >= 8)",
+            "argon_worker_call($workerEndpoint, $secret, 'diagnostic',",
+            "argon_worker_call($workerEndpoint, $secret, 'diagnostic-status',",
+            "'argonSmoke' => [",
+            "'400:Invalid Argon diagnostic request'",
+            "'504:Argon diagnostic request timed out'"
+        ):
+            self.assertIn(expression, php)
+        self.assertLess(php.index("if (empty($_SESSION['authenticated']))"),
+                        php.index("if ($action === 'argon_diag_step')"))
+        self.assertLess(php.index("if ($action === 'argon_diag_step')"),
+                        php.index("// Protect upstream quota;"))
 
     def test_php_only_maps_fixed_worker_failure_messages(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()

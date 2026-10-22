@@ -92,6 +92,25 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
   const resumeArgon=el('aiSceneResumeArgon');
   const checkArgon=el('aiSceneCheckArgon');
+  const smokeButton=el('aiArgonSmokeRun'),smokeReset=el('aiArgonSmokeReset'),
+    smokeSummary=el('aiArgonSmokeSummary');
+  const smokeNames=['Minimal text, model defaults','Explicit native thinking_level=low',
+    'Synthetic JPEG understanding','Structured JSON schema','Background JSON + JPEG'];
+  let smoke={step:0,state:'idle'};
+  const updateSmoke=()=>{
+    if(!smokeSummary)return;
+    if(smoke.state==='done')smokeSummary.textContent='All five Argon API stages passed. No client video was submitted.';
+    else if(smoke.state==='failed')smokeSummary.textContent='Stopped on stage '+(smoke.step+1)+
+      ': '+smokeNames[smoke.step]+'. Inspect the activity log before restarting.';
+    else smokeSummary.textContent='Stage '+(smoke.step+1)+'/5: '+smokeNames[smoke.step]+
+      (smoke.state==='running'?' (background job running)':'');
+    if(smokeButton){
+      smokeButton.hidden=smoke.state==='failed'||smoke.state==='done';
+      smokeButton.textContent=smoke.state==='running'?'Check running Argon diagnostic (no new charge)':
+        'Run stage '+(smoke.step+1)+' (paid)';
+    }
+    if(smokeReset)smokeReset.hidden=smoke.state==='running';
+  };
   const activity=el('aiSceneLog'),waitInfo=el('aiSceneWait');
   let csrf=null,authenticated=false,pending=null,pendingShot=null,busy=true,argonJob=null;
   let activityLines=[];
@@ -173,6 +192,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     scope.disabled=busy;
     if(modelSelect)modelSelect.disabled=busy;
     if(checkArgon)checkArgon.disabled=busy||!authenticated;
+    if(smokeButton)smokeButton.disabled=busy||!authenticated;
+    if(smokeReset)smokeReset.disabled=busy||!authenticated;
+    updateSmoke();
     if(resumeArgon){resumeArgon.hidden=!authenticated||!argonJob||!!pending;
       resumeArgon.disabled=busy||!authenticated;}
     inspect.hidden=!pending;inspect.disabled=busy||!pending;
@@ -190,6 +212,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       authenticated=session.authenticated;
       csrf=authenticated?session.csrf:null;
       argonJob=authenticated?session.argonJob:null;
+      smoke=authenticated&&session.argonSmoke?session.argonSmoke:{step:0,state:'idle'};
       status(authenticated?(argonJob?'Argon job available; use Resume previous Argon job.':
         'Private AI gateway ready.'):'Sign in with your editor passphrase to generate 3D scenes.');
     } catch(error){
@@ -212,6 +235,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         status('Sign-in was accepted, but PHP did not retain your session. Open the editor directly in Safari and try again. If it continues, check 50webs PHP session storage.');
       } else {
         csrf=verified.csrf;authenticated=true;argonJob=verified.argonJob||null;
+        smoke=verified.argonSmoke||{step:0,state:'idle'};
         status('Connected. Select a draft chapter and generate its 3D blockout.');
       }
     }catch(error){authenticated=false;csrf=null;status(error.message);}
@@ -317,6 +341,66 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       }
       onDiscard();pending=null;pendingShot=null;
     }finally{busy=false;ui();}
+  });
+  smokeButton?.addEventListener('click',async()=>{
+    if(busy||!authenticated||smoke.state==='failed'||smoke.state==='done')return;
+    const isPoll=smoke.state==='running';
+    const step=smoke.step;
+    if(!isPoll){
+      if(typeof confirm!=='function'||!confirm(
+        'Run paid Argon diagnostic '+(step+1)+'/5: '+smokeNames[step]+
+        '? This submits exactly one billable API request. No client footage is sent.'))return;
+    }
+    busy=true;ui();
+    try{
+      const session=await readServerSession();
+      if(!session.authenticated){sessionEnded();return;}
+      csrf=session.csrf;smoke=session.argonSmoke||{step:0,state:'idle'};
+      if(smoke.step!==step||(isPoll&&smoke.state!=='running')||
+         (!isPoll&&!['idle','passed'].includes(smoke.state)))
+        throw Error('Diagnostic state changed; refresh its status before submitting.');
+      log((isPoll?'Polling existing':'Submitting one paid')+
+        ' Argon diagnostic: '+smokeNames[step]+'…');
+      const result=await request(isPoll?'argon_diag_poll':'argon_diag_step',
+        isPoll?{csrf}:{csrf,step});
+      smoke={step:result.step,state:result.state};
+      if(result.state==='done'||result.state==='passed'){
+        log('Argon diagnostic '+(step+1)+'/5 passed.');
+        status('Argon diagnostic stage '+(step+1)+' passed. '+(smoke.state==='done'?
+          'All tests complete.':'Confirm the next stage when ready.'));
+      }else if(result.state==='running'){
+        log('Argon background diagnostic accepted. Use Check running diagnostic to poll without starting another request.');
+        status('Argon background diagnostic is running. Check again to retrieve its result.');
+      }else{
+        log('Argon diagnostic stage '+(step+1)+' did not pass. Sequence stopped.');
+        status('Argon diagnostic stage '+(step+1)+' failed or returned no usable answer. Do not continue; inspect the error.');
+      }
+    }catch(error){
+      log('Argon diagnostic error on stage '+(step+1)+': '+error.message);
+      status('Argon diagnostic failed: '+error.message+' (no automatic retry)');
+      // The PHP session is the authority, particularly if the worker timed out
+      // and has already consumed the one allowed attempt.
+      try{const session=await readServerSession();
+        smoke=session.argonSmoke||{step,state:'failed'};csrf=session.csrf;
+      }catch{smoke={step,state:'failed'};}
+    }finally{busy=false;ui();}
+  });
+  smokeReset?.addEventListener('click',async()=>{
+    if(busy||!authenticated||smoke.state==='running')return;
+    if(typeof confirm!=='function'||!confirm(
+      'Restart Argon diagnostics from stage 1? This resets progress; new submissions can incur charges.'))return;
+    busy=true;ui();
+    try{
+      const session=await readServerSession();
+      if(!session.authenticated){sessionEnded();return;}
+      csrf=session.csrf;
+      const result=await request('argon_diag_reset',{csrf});
+      smoke={step:result.step,state:result.state};
+      log('Argon diagnostic sequence reset. No paid request submitted.');
+      status('Diagnostics reset; stage 1 is ready. Each paid stage requires confirmation.');
+    }catch(error){log('Diagnostic reset failed: '+error.message);
+      status('Diagnostic reset failed: '+error.message);}
+    finally{busy=false;ui();}
   });
   checkArgon?.addEventListener('click',async()=>{
     if(busy||!authenticated)return;
