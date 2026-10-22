@@ -273,6 +273,63 @@ const ARGON_MAX_OUTPUT_TOKENS=32768; // Google-recommended cap; includes billed 
 const ARGON_REVISION='2026-05-20';
 const ARGON_API='https://generativelanguage.googleapis.com/v1beta/interactions';
 const ARGON_JOB_ID=/^[A-Za-z0-9_-]{8,160}$/;
+// Gemini Interactions structured JSON requires a schema accompanying
+// response_format.mime_type='application/json'. Keep the schema intentionally
+// small: nested array length constraints can trigger provider 400. The
+// existing validateOutput() remains the strict security/48-object gate.
+const ARGON_SCENE_SCHEMA=Object.freeze({
+  type:'object',
+  properties:{
+    schemaVersion:{type:'integer'},
+    scenes:{type:'array',items:{
+      type:'object',
+      properties:{
+        shotId:{type:'string'},
+        objects:{type:'array',items:{
+          type:'object',
+          properties:{
+            id:{type:'string'},
+            name:{type:'string'},
+            primitive:{type:'string',enum:['box','sphere','cylinder','plane','torus']},
+            position:{type:'array',items:{type:'number'}},
+            rotation:{type:'array',items:{type:'number'}},
+            scale:{type:'array',items:{type:'number'}},
+            material:{type:'object',properties:{
+              color:{type:'string'},metalness:{type:'number'},roughness:{type:'number'}
+            },required:['color','metalness','roughness']}
+          },
+          required:['id','name','primitive','position','rotation','scale','material']
+        }}
+      },
+      required:['shotId','objects']
+    }}
+  },
+  required:['schemaVersion','scenes']
+});
+async function argonBadRequest(response){
+  // Interpret only known *field names* from the provider. Never log/return
+  // arbitrary message content, customer imagery, prompts or billing details.
+  let category='unknown';
+  try{
+    const data=await response.json();
+    const message=typeof data?.error?.message==='string'?data.error.message.slice(0,2048):'';
+    if(/response_format|json.schema|structured.output/i.test(message))category='output_format';
+    else if(/generation_config|thinking_level|max_output_tokens/i.test(message))category='generation_config';
+    else if(/image|mime_type|inline.data/i.test(message))category='image_input';
+    else if(/background|store|interaction.mode/i.test(message))category='background';
+    else if(/model|not.supported/i.test(message))category='model';
+  }catch{}
+  console.warn('argon-request-400-category',category);
+  const messages={
+    output_format:'Argon rejected output format configuration',
+    generation_config:'Argon rejected generation configuration',
+    image_input:'Argon rejected image input configuration',
+    background:'Argon rejected background execution configuration',
+    model:'Argon rejected model configuration',
+    unknown:'Argon rejected Interactions request'
+  };
+  return fail(502,messages[category]);
+}
 // Paid job stays on Google's server; no Cloudflare storage/bindings required.
 function safeProviderStatus(status){
   if(status===429)return fail(429,'Provider rate limit reached');
@@ -328,7 +385,7 @@ async function argonGateway(request,env,path){
     }catch{return fail(400,'Invalid image request');}
     const body={model:ARGON_MODEL,background:true,store:true,
       generation_config:{thinking_level:'medium',max_output_tokens:ARGON_MAX_OUTPUT_TOKENS},
-      response_format:{type:'text',mime_type:'application/json'},
+      response_format:{type:'text',mime_type:'application/json',schema:ARGON_SCENE_SCHEMA},
       input:argonInput(validated)};
     let response;
     try{
@@ -337,6 +394,7 @@ async function argonGateway(request,env,path){
           'Api-Revision':ARGON_REVISION},
         body:JSON.stringify(body),signal:AbortSignal.timeout(35000)});
     }catch{return fail(502,'AI provider network connection failed');}
+    if(response.status===400||response.status===422)return argonBadRequest(response);
     if(!response.ok)return safeProviderStatus(response.status);
     let interaction;
     try{interaction=await response.json();}catch{return fail(502,'Invalid provider response');}
@@ -389,7 +447,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-background-previs-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-json-schema-validation-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
