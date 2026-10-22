@@ -11,14 +11,26 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
   id:'box_1',name:'Rack',primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[2,2,2],
   material:{color:'#123456',metalness:.2,roughness:.5}
 }]}]};
+const visualAnalysis={
+  subject:'Blue equipment rack',composition:'Primary frame: left of center, three-quarter front view',
+  palette:'Blue #123456 panels with silver trim',cameraMotion:'At 1.5s the side is visible; later views confirm depth',
+  uncertainties:'Back panel is hidden; absolute scale is unknown',
+  parts:[{name:'Rack',shape:'Upright box',placement:'On the ground at center',
+    proportions:'Width equals height and depth',appearance:'Blue #123456 metal, roughness about 0.5'}]
+};
+const analysisResult=(value=visualAnalysis)=>({status:'completed',steps:[
+  {type:'user_input',content:[{type:'image',data:'PRIVATE_IMAGE_BYTES'}]},
+  {type:'thought',content:[{type:'text',text:'PRIVATE_THOUGHT'}]},
+  {type:'model_output',content:[{type:'text',text:JSON.stringify(value)}]}
+]});
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-fileuri-diagnostic-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-visual-analysis-background-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-background-fileuri-diagnostic-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-visual-analysis-background-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -54,8 +66,10 @@ test('worker accepts only limited JPEG data and the correct shot ID',()=>{
   assert.throws(()=>validateInput({...sample,frames:Array(4).fill(sample.frames[0])}),/Invalid frame count/);
   assert.throws(()=>validateInput({...sample,frames:[{at:1,imageDataUrl:'https://evil.test/a.jpg'}]}),/JPEG/);
 });
-test('Argon Previs background accepts bounded primary frames and polls validated JSON',async()=>{
+test('Argon reconstructs via synchronous visual evidence and text-only background when background images return 400',async()=>{
   const prior=globalThis.fetch;let calls=0;
+  let outputBudget=0;
+  const frames=[{at:1.5,imageDataUrl:image},{at:0,imageDataUrl:image},{at:3,imageDataUrl:image}];
   const id='v1_C1234567890opaque';
   const provider={
     id,status:'completed',steps:[{type:'user_input',content:[{type:'text',text:'SECRET_INPUT'}]},
@@ -63,16 +77,38 @@ test('Argon Previs background accepts bounded primary frames and polls validated
   };
   globalThis.fetch=async (url,opts)=>{
     calls++;
-    if(calls===1){
+    if(calls<=2){
       assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
       assert.equal(opts.method,'POST');
       assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
       assert.equal(opts.headers['Api-Revision'],'2026-05-20');
       const data=JSON.parse(opts.body);
       assert.equal(data.model,'gemini-4-argon');
+      assert.equal(opts.redirect,'error');
+      outputBudget+=data.generation_config.max_output_tokens;
+      // Reproduce the observed provider restriction, rather than accepting
+      // the very payload that previously failed in the live service.
+      if(data.background&&Array.isArray(data.input)&&data.input.some(p=>p.type==='image'))
+        return new Response('{"error":{"message":"Provider rejected request"}}',{status:400});
+      if(calls===1){
+        assert.equal(data.background,false);
+        assert.equal(data.store,false);
+        assert.equal(data.generation_config.thinking_level,'low');
+        assert.equal(data.generation_config.max_output_tokens,4096);
+        assert.equal(data.response_format.mime_type,'application/json');
+        assert.ok(data.response_format.schema.required.includes('parts'));
+        assert.match(data.input[0].text,/FIRST supplied frame/);
+        assert.match(data.input[0].text,/silhouette/);
+        assert.deepEqual(data.input.slice(1),frames.flatMap(frame=>[
+          {type:'text',text:'Reference frame at '+frame.at.toFixed(3)+' seconds'},
+          {type:'image',data:frame.imageDataUrl.split(',')[1],mime_type:'image/jpeg'}
+        ]));
+        return new Response(JSON.stringify(analysisResult({...visualAnalysis,
+          privateMetadata:'PRIVATE_PROVIDER_METADATA'})),{status:200});
+      }
       assert.equal(data.background,true);
       assert.equal(data.store,true);
-      assert.equal(data.generation_config.max_output_tokens,32768);
+      assert.equal(data.generation_config.max_output_tokens,28672);
       assert.equal(data.generation_config.thinking_level,'medium');
       assert.equal(data.response_format.type,'text');
       assert.equal(data.response_format.mime_type,'application/json');
@@ -88,10 +124,15 @@ test('Argon Previs background accepts bounded primary frames and polls validated
       assert.ok(primitive.required.includes('scale'));
       assert.ok(!JSON.stringify(schema).includes('maxItems'),
         'Do not impose nested array limits in provider schema; local validator enforces 48 objects');
-      assert.ok(data.input.some(p=>p.type==='image'&&p.mime_type==='image/jpeg'));
-      assert.match(data.input[0].text,/PREVIS \/ RUNWAY PREP/);
-      assert.match(data.input[0].text,/PRIMARY SUBJECT/);
-      assert.ok(!data.input[0].text.includes('SECRET_INPUT'));
+      assert.equal(typeof data.input,'string');
+      assert.deepEqual(JSON.parse(data.input),visualAnalysis,'Preserve each bounded visual detail');
+      assert.equal(data.previous_interaction_id,undefined,'Do not reintroduce images through history');
+      assert.match(data.system_instruction,/PREVIS \/ RUNWAY PREP/);
+      assert.match(data.system_instruction,/PRIMARY SUBJECT/);
+      assert.match(data.system_instruction,/untrusted descriptive data/);
+      assert.match(data.system_instruction,/draft_001/);
+      assert.ok(!opts.body.includes('PRIVATE_'));
+      assert.ok(!opts.body.includes(image.split(',')[1]));
       return new Response(JSON.stringify({id,status:'queued'}),{status:200});
     }
     assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions/'+id);
@@ -104,15 +145,104 @@ test('Argon Previs background accepts bounded primary frames and polls validated
       body:JSON.stringify(body)
     }),env);
     const start=await post('/api/scene/argon/start',{
-      ...sample,profile:'argon_previs',mode:'primary_subject'
+      ...sample,frames,profile:'argon_previs',mode:'primary_subject'
     });
     assert.equal(start.status,200);
     assert.deepEqual(await start.json(),{ok:true,jobId:id,status:'queued'});
     const poll=await post('/api/scene/argon/status',{jobId:id,shotId:'draft_001'});
     assert.equal(poll.status,200);
     assert.deepEqual(await poll.json(),{ok:true,status:'completed',proposal:scene});
-    assert.equal(calls,2);
+    assert.equal(calls,3,'Two paid creates, then a GET-only poll');
+    assert.equal(outputBudget,32768,'Keep the previous combined thinking/output allowance');
   }finally{globalThis.fetch=prior;}
+});
+
+test('Argon rejects incomplete, malformed, oversized or unbounded analysis before paying for background generation',async()=>{
+  const prior=globalThis.fetch;let calls=0;
+  const invalid=[
+    {...analysisResult(),status:'in_progress'},
+    {...analysisResult(),status:'failed'},
+    {status:'completed',steps:{}},
+    {status:'completed',steps:[{type:'thought',content:[{type:'text',text:JSON.stringify(visualAnalysis)}]}]},
+    {status:'completed',steps:[{type:'model_output',content:[{type:'text',text:'x'.repeat(24001)}]}]},
+    {status:'completed',steps:[{type:'model_output',content:[{type:'text',text:'not JSON PRIVATE_INPUT'}]}]},
+    analysisResult(null),analysisResult('OK'),analysisResult({}),
+    analysisResult({...visualAnalysis,subject:' '}),
+    analysisResult({...visualAnalysis,composition:'x'.repeat(2001)}),
+    analysisResult({...visualAnalysis,parts:[]}),
+    analysisResult({...visualAnalysis,parts:Array(33).fill(visualAnalysis.parts[0])}),
+    analysisResult({...visualAnalysis,parts:[{...visualAnalysis.parts[0],placement:1}]}),
+    analysisResult({...visualAnalysis,parts:[{...visualAnalysis.parts[0],appearance:'x'.repeat(601)}]})
+  ];
+  try{
+    for(const result of invalid){
+      const before=calls;
+      globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify(result));};
+      const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/start',{
+        method:'POST',headers:{Authorization:'Bearer '+token},
+        body:JSON.stringify({...sample,profile:'argon_previs',mode:'primary_subject'})
+      }),env);
+      assert.equal(response.status,502);
+      assert.deepEqual(await response.json(),{ok:false,error:'Argon reference analysis invalid'});
+      assert.equal(calls,before+1,'Failed analysis must not create/retry a background job');
+    }
+  }finally{globalThis.fetch=prior;}
+});
+
+test('Argon never retries a failed paid call, never falls back, and keeps upstream errors private',async()=>{
+  const prior=globalThis.fetch,oldWarn=console.warn;const logs=[];
+  console.warn=(...args)=>logs.push(args);
+  try{
+    for(const stage of [1,2])for(const status of [400,401,403,404,422,429,500,503,'network','timeout','json']){
+      let calls=0;
+      globalThis.fetch=async(url,opts)=>{
+        calls++;
+        assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
+        assert.equal(JSON.parse(opts.body).model,'gemini-4-argon');
+        if(calls<stage)return new Response(JSON.stringify(analysisResult()));
+        if(status==='network'||status==='timeout')throw new DOMException('PRIVATE_PROVIDER_ERROR',
+          status==='timeout'?'TimeoutError':'NetworkError');
+        if(status==='json')return new Response('PRIVATE_PROVIDER_ERROR');
+        return new Response(JSON.stringify({error:{message:'PRIVATE_PROVIDER_ERROR'}}),{status});
+      };
+      const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/start',{
+        method:'POST',headers:{Authorization:'Bearer '+token},
+        body:JSON.stringify({...sample,profile:'argon_previs',mode:'primary_subject'})
+      }),env);
+      assert.equal(response.status,status===429?429:502);
+      const raw=await response.text();
+      assert.ok(!raw.includes('PRIVATE_'));
+      assert.ok(!raw.includes(env.GEMINI_API_KEY));
+      assert.equal(calls,stage,'No retry/probe/fallback on either paid stage');
+    }
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE_'));
+  }finally{globalThis.fetch=prior;console.warn=oldWarn;}
+});
+
+test('Argon analysis and submission deadlines stay below the PHP transport deadline',async()=>{
+  const prior=globalThis.fetch,oldTimeout=AbortSignal.timeout;const times=[];
+  const total=new AbortController(),analysis=new AbortController();
+  AbortSignal.timeout=ms=>{times.push(ms);return ms===40000?total.signal:analysis.signal;};
+  let calls=0;
+  globalThis.fetch=async(url,opts)=>{
+    calls++;
+    if(calls===1){
+      assert.equal(opts.signal.aborted,false);
+      // Simulate the deadline expiring while the successful response is read.
+      total.abort();
+      return new Response(JSON.stringify(analysisResult()));
+    }
+    throw Error('Must not start another paid call after the deadline');
+  };
+  try{
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/start',{
+      method:'POST',headers:{Authorization:'Bearer '+token},
+      body:JSON.stringify({...sample,profile:'argon_previs',mode:'primary_subject'})
+    }),env);
+    assert.deepEqual(await response.json(),{ok:false,error:'Argon reference analysis unavailable'});
+    assert.equal(calls,1);
+    assert.deepEqual(times,[40000,30000]);
+  }finally{globalThis.fetch=prior;AbortSignal.timeout=oldTimeout;}
 });
 test('Argon model check uses Google metadata GET, never submits paid content or frames',async()=>{
   const originalFetch=globalThis.fetch;let calls=0;
@@ -404,6 +534,23 @@ test('Argon 400 diagnostics use scoped field-path evidence and do not leak provi
       expected:'Argon rejected model configuration',category:'model'
     },
     {
+      message:'The model cannot process this image in a background request PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected Interactions request',category:'unknown'
+    },
+    {
+      message:'model_interaction request is invalid PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected Interactions request',category:'unknown'
+    },
+    {
+      message:'Unsupported model-specific option PRIVATE_KEY_DO_NOT_LOG',
+      expected:'Argon rejected Interactions request',category:'unknown'
+    },
+    {
+      message:'Invalid response_format.schema PRIVATE_KEY_DO_NOT_LOG',
+      details:[{fieldViolations:[{field:'model_interaction.input[1].mime_type'}]}],
+      expected:'Argon rejected image input configuration',category:'image_input'
+    },
+    {
       message:'Request contains an invalid argument PRIVATE_KEY_DO_NOT_LOG',
       expected:'Argon rejected Interactions request',category:'unknown'
     },
@@ -472,6 +619,14 @@ test('Argon stays strictly primary-only, with safe failures and no arbitrary job
       {...sample,mode:'primary_subject',profile:'argon_previs'},false)).status,401);
     const forged=await post('/api/scene/argon/status',{jobId:'https://evil.com/a',shotId:'draft_001'});
     assert.equal(forged.status,400);
+    for(const frames of [[],Array(4).fill(sample.frames[0]),
+      [{at:1,imageDataUrl:'https://untrusted.test/private.jpg'}],
+      [{at:-1,imageDataUrl:image}],
+      [{at:1,imageDataUrl:'data:image/jpeg;base64,'+'a'.repeat(500001)}]]){
+      assert.equal((await post('/api/scene/argon/start',{
+        ...sample,frames,mode:'primary_subject',profile:'argon_previs'
+      })).status,400);
+    }
     assert.equal(calls,0);
   }finally{globalThis.fetch=before;}
 });
@@ -490,6 +645,42 @@ test('Argon polling does not leak provider thoughts or malformed output',async()
     const raw=await result.text();
     assert.ok(!raw.includes('SENSITIVE_PRIVATE_THOUGHT'));
     assert.deepEqual(JSON.parse(raw),{ok:false,error:'Provider scene did not match the editor schema'});
+  }finally{globalThis.fetch=prior;}
+});
+
+test('Argon background results still enforce the editable primitive contract and shot binding',async()=>{
+  const prior=globalThis.fetch;const id='v1_validation_12345';
+  const object=scene.scenes[0].objects[0];
+  const rejected=[
+    {schemaVersion:1,scenes:[{shotId:'wrong_shot',objects:[object]}]},
+    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,primitive:'javascript'}]}]},
+    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,scale:[-1,2,3]}]}]},
+    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:Array.from({length:49},
+      (_,i)=>({...object,id:'part_'+i}))}]}
+  ];
+  try{
+    for(const proposal of rejected){
+      globalThis.fetch=async(url,opts)=>{
+        assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions/'+id);
+        assert.equal(opts.body,undefined,'Polling must not submit paid generation');
+        return new Response(JSON.stringify({id,status:'completed',steps:[
+          {type:'model_output',content:[{type:'text',text:JSON.stringify(proposal)}]}
+        ]}));
+      };
+      const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/status',{
+        method:'POST',headers:{Authorization:'Bearer '+token},
+        body:JSON.stringify({jobId:id,shotId:sample.shotId})
+      }),env);
+      assert.equal(response.status,502);
+      assert.deepEqual(await response.json(),{ok:false,error:'Provider scene did not match the editor schema'});
+    }
+    globalThis.fetch=async()=>new Response(JSON.stringify({id,status:'completed',steps:{private:'SECRET'}}));
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/status',{
+      method:'POST',headers:{Authorization:'Bearer '+token},
+      body:JSON.stringify({jobId:id,shotId:sample.shotId})
+    }),env);
+    assert.equal(response.status,502);
+    assert.deepEqual(await response.json(),{ok:false,error:'Provider produced no usable scene'});
   }finally{globalThis.fetch=prior;}
 });
 

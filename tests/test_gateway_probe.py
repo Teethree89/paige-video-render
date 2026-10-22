@@ -5,6 +5,8 @@ import io
 import json
 import pathlib
 import re
+import shutil
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -190,6 +192,60 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("CURLOPT_TIMEOUT => in_array($action, ['start','diagnostic'], true) ? 45 : 30", php)
         self.assertIn("CURLOPT_SSL_VERIFYPEER => true", php)
 
+    @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
+    def test_argon_reserves_two_slots_before_worker_call_and_preserves_running_job(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        start = php.index("if ($action === 'argon_start')")
+        end = php.index("if (($workerInput['profile'] ?? '') === 'argon_previs')", start)
+        # Exercise the actual production start route with transport/response
+        # stubs. No web server, private config, credentials or network is used.
+        route = php[start:end]
+        harness = '''<?php
+$case = json_decode(stream_get_contents(STDIN), true);
+$_SESSION = ['ai_calls' => $case['used']];
+if ($case['active']) $_SESSION['argon_job'] = [
+    'created' => time(), 'status' => 'in_progress', 'id' => 'existing_job_123'];
+$action = 'argon_start'; $workerEndpoint = 'unused'; $secret = 'unused';
+$workerInput = ['profile' => 'argon_previs', 'mode' => 'primary_subject'];
+$shotId = 'draft_001'; $calls = 0;
+function answer($status, $body) {
+    global $calls;
+    echo json_encode(['status' => $status, 'used' => $_SESSION['ai_calls'],
+        'calls' => $calls, 'job' => $_SESSION['argon_job'] ?? null]);
+    exit;
+}
+function reject($status, $message) { answer($status, []); }
+function argon_worker_call($endpoint, $secret, $action, $body) {
+    global $calls, $case;
+    $calls++;
+    if ($_SESSION['ai_calls'] !== $case['used'] + 2) reject(500, 'unreserved');
+    if ($case['fail']) reject(502, 'analysis failed');
+    return ['jobId' => 'new_job_123456', 'status' => 'queued'];
+}
+'''
+        cases = [
+            (0, False, False, 200, 2, 1),
+            (8, False, False, 200, 10, 1),
+            (9, False, False, 429, 9, 0),
+            (10, False, False, 429, 10, 0),
+            (0, True, False, 409, 0, 0),
+            (8, False, True, 502, 10, 1),
+        ]
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            script = pathlib.Path(folder) / "argon-route.php"
+            script.write_text(harness + route)
+            for used, active, fail, status, reserved, calls in cases:
+                with self.subTest(used=used, active=active, fail=fail):
+                    result = subprocess.run(["php", str(script)], input=json.dumps({
+                        'used': used, 'active': active, 'fail': fail}),
+                        text=True, capture_output=True, check=True)
+                    value = json.loads(result.stdout)
+                    self.assertEqual((value['status'], value['used'], value['calls']),
+                                     (status, reserved, calls))
+                    if active:
+                        self.assertEqual(value['job']['id'], 'existing_job_123')
+
     def test_argon_model_check_requires_same_session_and_no_generation_quota(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         self.assertIn("if ($action === 'argon_check')", php)
@@ -271,7 +327,9 @@ class GatewaySmokeTests(unittest.TestCase):
             "502:Argon rejected generation configuration": "thinking level or token budget",
             "502:Argon rejected image input configuration": "inline reference image format",
             "502:Argon rejected background execution configuration": "background job settings",
-            "502:Argon rejected model configuration": "paid-tier Argon access",
+            "502:Argon rejected model configuration": "does not establish a billing or entitlement problem",
+            "502:Argon reference analysis unavailable": "No background job was submitted",
+            "502:Argon reference analysis invalid": "usable visual description",
             "502:Argon rejected Interactions request": "No job was created",
 
             "502:AI provider capacity unavailable": "Gemini is overloaded (upstream 503)",

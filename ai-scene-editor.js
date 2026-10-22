@@ -272,7 +272,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(profile==='argon_previs'){
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
-        if(typeof confirm==='function'&&!confirm('Start paid Gemini 4 Argon Previs? This uses Google API credit and may run for several minutes.'))
+        if(typeof confirm==='function'&&!confirm('Start paid Gemini 4 Argon Previs? This makes up to two paid calls: reference image analysis, then background geometry generation. Google stores the visual description and generated scene. This uses two request slots and may run for several minutes.'))
           return;
       }
       log('Preparing reference frames from the selected chapter…');
@@ -303,7 +303,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       }else {
         status('Gemini is analyzing reference views and generating editable geometry…');
         if(profile==='argon_previs'){
-          log('Submitting paid Argon Previs request to Google background execution…');
+          log('Analyzing reference images, then starting text-only Argon background geometry (up to two paid calls)…');
           const start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,mode:'primary_subject'});
           argonJob={shotId:shot.id,status:start.status};
           if(waitInfo)waitInfo.textContent='Argon background job submitted';
