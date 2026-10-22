@@ -270,7 +270,9 @@ export {validateOutput,secretMatches};
 const ARGON_PROFILE='argon_previs';
 const ARGON_MODEL='gemini-4-argon';
 const ARGON_MAX_OUTPUT_TOKENS=32768; // Total billed thinking/output allowance across both calls
-const ARGON_ANALYSIS_TOKENS=4096; // Part of the same total budget, not an extra allowance
+const ARGON_ANALYSIS_TOKENS=4096; // Flash-Lite visual description budget
+const ARGON_VISUAL_MODEL=MODEL; // Existing fast multimodal profile, not paid Argon reasoning
+const ARGON_VISUAL_TIMEOUT_MS=35000; // Under PHP 45s timeout, background start uses remaining 5s
 const ARGON_REVISION='2026-05-20';
 const ARGON_API='https://generativelanguage.googleapis.com/v1beta/interactions';
 const ARGON_JOB_ID=/^[A-Za-z0-9_-]{8,160}$/;
@@ -664,34 +666,38 @@ async function argonGateway(request,env,path){
         throw Error('Argon requires paid primary-subject profile');
       validated=validateInput({...payload,profile:'g38_medium'});
     }catch{return fail(400,'Invalid image request');}
-    // At most TWO paid calls, with no probe/retry/fallback. The synchronous
-    // image pass is never stored or chained into the stored background job.
-    // Both calls and body reads share 40s, below the existing 45s PHP deadline.
+    // At most TWO paid provider calls, with no fallback/retry. Use the existing
+    // fast Flash-Lite multimodal endpoint to produce only bounded visual facts.
+    // Argon still performs all background 3D reconstruction, from text alone.
+    // Both calls share 40s, inside the PHP 45s request deadline.
     const deadline=AbortSignal.timeout(40000);
     const headers={'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY,
       'Api-Revision':ARGON_REVISION};
     let analysisResponse,analysis;
     try{
-      // workerd rejects redirect:'error' at fetch construction, before ANY
-      // request reaches Google. 'manual' is supported and never follows 3xx.
-      // Keep the 30s analysis ceiling and check the shared 40s deadline before
-      // submitting a separate paid background job. Avoid signal composition.
-      analysisResponse=await fetch(ARGON_API,{method:'POST',headers,redirect:'manual',
-        body:JSON.stringify({model:ARGON_MODEL,background:false,store:false,
-          generation_config:{thinking_level:'low',max_output_tokens:ARGON_ANALYSIS_TOKENS},
-          response_format:{type:'text',mime_type:'application/json',schema:ARGON_ANALYSIS_SCHEMA},
-          input:argonInput(validated)}),
-        signal:AbortSignal.timeout(30000)});
+      const parts=[{text:ARGON_ANALYSIS_PROMPT},...validated.content];
+      analysisResponse=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+ARGON_VISUAL_MODEL+':generateContent',{
+        method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},
+        redirect:'manual',
+        body:JSON.stringify({contents:[{role:'user',parts}],
+          generationConfig:{responseMimeType:'application/json',
+            responseSchema:ARGON_ANALYSIS_SCHEMA,maxOutputTokens:ARGON_ANALYSIS_TOKENS}}),
+        signal:AbortSignal.timeout(ARGON_VISUAL_TIMEOUT_MS)});
     }catch(error){
       console.warn('argon-provider-fetch','visual-analysis',argonFetchFailureCategory(error));
       return fail(502,'Argon reference analysis unavailable');
     }
     if(analysisResponse.status>=300&&analysisResponse.status<400)
       return fail(502,'Argon provider redirect blocked');
-    if(analysisResponse.status===400||analysisResponse.status===422)return argonBadRequest(analysisResponse);
     if(!analysisResponse.ok)return safeProviderStatus(analysisResponse.status);
-    try{analysis=validateArgonAnalysis(await analysisResponse.json());}
-    catch{return fail(502,'Argon reference analysis invalid');}
+    try{
+      const data=await analysisResponse.json();
+      const output=(Array.isArray(data?.candidates?.[0]?.content?.parts)?
+        data.candidates[0].content.parts:[]).filter(part=>typeof part?.text==='string')
+        .map(part=>part.text).join('');
+      analysis=validateArgonAnalysis({status:'completed',
+        steps:[{type:'model_output',content:[{type:'text',text:output}]}]});
+    }catch{return fail(502,'Argon reference analysis invalid');}
     if(deadline.aborted)return fail(502,'Argon reference analysis unavailable');
     const body={model:ARGON_MODEL,background:true,store:true,
       generation_config:{thinking_level:'medium',
@@ -765,7 +771,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-workerd-redirect-manual-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-flash-visual-analysis-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
