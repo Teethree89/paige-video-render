@@ -13,11 +13,11 @@ const scene={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-field-path-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-model-check-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-field-path-diagnostics-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-model-check-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs']});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -112,6 +112,64 @@ test('Argon Previs background accepts bounded primary frames and polls validated
     assert.deepEqual(await poll.json(),{ok:true,status:'completed',proposal:scene});
     assert.equal(calls,2);
   }finally{globalThis.fetch=prior;}
+});
+test('Argon model check uses Google metadata GET, never submits paid content or frames',async()=>{
+  const originalFetch=globalThis.fetch;let calls=0;
+  globalThis.fetch=async (url,options)=>{
+    calls++;
+    assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/models/gemini-4-argon');
+    assert.equal(options.method,'GET');
+    assert.equal(options.body,undefined);
+    assert.equal(options.headers['x-goog-api-key'],env.GEMINI_API_KEY);
+    return new Response(JSON.stringify({name:'models/gemini-4-argon',
+      displayName:'Gemini 4 Argon',supportedGenerationMethods:['generateContent']}),
+      {status:200});
+  };
+  const send=(body,authorization=token)=>worker.fetch(
+    new Request('https://example.workers.dev/api/scene/argon/check',{
+      method:'POST',headers:{Authorization:'Bearer '+authorization,'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    }),env);
+  try {
+    const result=await send({});
+    assert.equal(result.status,200);
+    assert.deepEqual(await result.json(),{ok:true,available:true,check:'listed'});
+    assert.equal(calls,1);
+    assert.equal((await send({frames:sample.frames})).status,400,
+      'The metadata check must not accept client frames');
+    assert.equal((await send({},'wrong-token')).status,401);
+    assert.equal(calls,1,'Invalid/authentication failures must not contact Google');
+  }finally{globalThis.fetch=originalFetch;}
+});
+test('Argon metadata check distinguishes not listed and unavailable without exposing provider errors',async()=>{
+  const before=globalThis.fetch,oldWarn=console.warn;
+  const responses=[
+    {status:404,body:{error:{message:'PRIVATE_PROVIDER_ACCOUNT_DETAILS'}}},
+    {status:403,body:{error:{message:'PRIVATE_PROVIDER_ACCOUNT_DETAILS'}}},
+    {status:503,body:{error:{message:'PRIVATE_PROVIDER_ACCOUNT_DETAILS'}}},
+    {status:200,body:{name:'models/other'}}
+  ];
+  let index=0;
+  globalThis.fetch=async()=>{const next=responses[index++];
+    return new Response(JSON.stringify(next.body),{status:next.status});};
+  try{
+    for(let i=0;i<responses.length;i++){
+      const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/check',{
+        method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+        body:'{}'
+      }),env);
+      const json=await response.json();
+      if(i<2){
+        assert.equal(response.status,200);
+        assert.deepEqual(json,{ok:true,available:false,check:'not_listed'});
+      }else{
+        assert.equal(response.status,502);
+        assert.deepEqual(json,{ok:false,error:'Argon model metadata check unavailable'});
+      }
+      assert.ok(!JSON.stringify(json).includes('PRIVATE_PROVIDER_ACCOUNT_DETAILS'));
+    }
+    assert.equal(index,responses.length);
+  }finally{globalThis.fetch=before;console.warn=oldWarn;}
 });
 test('Argon 400 diagnostics use scoped field-path evidence and do not leak provider bodies',async()=>{
   const priorFetch=globalThis.fetch,priorWarn=console.warn;
