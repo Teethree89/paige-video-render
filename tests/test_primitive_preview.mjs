@@ -52,6 +52,11 @@ test('preview is wired into Three.js viewport and does not persist camera key ch
   assert.match(app,/onDiscard:\(\)=>\{endGeometryReview\(\);/);
   assert.match(html,/id="returnTimelineCameraBtn"/);
   assert.match(html,/id="aiSceneInspect"/);
+  assert.match(html,/id="aiSceneCleanup"/);
+  assert.match(html,/id="aiSceneLog"/);
+  assert.match(html,/id="primitiveCleanupSaved"/);
+  assert.match(app,/cleanupPrimitiveDocument\(/);
+  assert.match(app,/primitiveCleanupSaved/);
   assert.doesNotMatch(app,/sequence\.camera\s*=/,
     'Proposal review must never replace authored camera arrays');
 });
