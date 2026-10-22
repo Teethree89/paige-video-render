@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import unittest
+import tomllib
 from unittest.mock import patch
 
 path = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "check_live_gateway.py"
@@ -17,6 +18,18 @@ spec.loader.exec_module(probe)
 
 
 class GatewaySmokeTests(unittest.TestCase):
+    def test_cloudflare_observability_persists_across_git_deploys(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        with (root / "wrangler.toml").open("rb") as config:
+            worker = tomllib.load(config)
+        self.assertEqual(worker["name"], "paige-video-render")
+        self.assertEqual(worker["main"], "worker/scene-worker.mjs")
+        self.assertEqual(worker["observability"]["logs"], {
+            "enabled": True,
+            "invocation_logs": True,
+            "persist": True,
+        })
+
     def test_private_url_rules_match_real_paths_and_keep_denial_mandatory(self):
         root = pathlib.Path(__file__).resolve().parents[1]
         editor_rules = (root / ".htaccess").read_text()

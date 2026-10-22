@@ -13,3 +13,10 @@ keep_vars = true
 # Cloudflare's connected GitHub preview builds run `npx wrangler preview`.
 # An explicit block is required, even when no preview overrides are needed.
 [previews]
+
+# Keep production logging configuration in Git so dashboard changes survive redeploys.
+# Collect invocation and existing sanitized console diagnostics; do not log secrets.
+[observability.logs]
+enabled = true
+invocation_logs = true
+persist = true
