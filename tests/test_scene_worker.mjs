@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import worker,{validateInput,validateOutput,secretMatches} from '../worker/scene-worker.mjs';
 
 const token='test-token-should-be-at-least-thirty-two-chars-private';
@@ -213,7 +214,17 @@ test('Five Argon diagnostic stages isolate model defaults, thinking, JPEG, JSON,
         assert.equal(img.type,'image');
         assert.equal(img.mime_type,'image/jpeg');
         assert.ok(img.data.startsWith('/9j/'));
-        assert.equal(Buffer.from(img.data,'base64').readUInt16BE(0),0xffd8);
+        const jpeg=Buffer.from(img.data,'base64');
+        assert.equal(jpeg.readUInt16BE(0),0xffd8,'JPEG must begin at SOI');
+        assert.equal(jpeg.readUInt16BE(jpeg.length-2),0xffd9,'JPEG must end at EOI');
+        assert.equal(jpeg.length,686,'Known-good 32x32 JPEG byte length');
+        assert.equal(createHash('sha256').update(jpeg).digest('hex'),
+          'f43da1db2122208f9d6aa129f9600be94f143f0bc2afc310e272dde6c5ef464f',
+          'Byte-for-byte fixture was created and decoded by Pillow; catch corrupt/truncated test media');
+        const frame=jpeg.indexOf(Buffer.from([0xff,0xc0]));
+        assert.ok(frame>0,'JPEG SOF0 segment must exist');
+        assert.equal(jpeg.readUInt16BE(frame+5),32,'Synthetic image height');
+        assert.equal(jpeg.readUInt16BE(frame+7),32,'Synthetic image width');
         assert.ok(!img.data.includes('PRIVATE_CLIENT_FOOTAGE'));
       }
       if(stage==='json'||stage==='background'){
