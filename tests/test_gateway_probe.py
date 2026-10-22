@@ -194,6 +194,21 @@ class GatewaySmokeTests(unittest.TestCase):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         self.assertIn("if ($action === 'argon_check')", php)
         self.assertIn("argon_worker_call($workerEndpoint, $secret, 'check', [])", php)
+        # PHP encodes [] as "[]", but the Worker intentionally accepts only
+        # a JSON object ("{}") for the zero-input metadata probe.
+        self.assertIn("$action === 'check' ? (object) [] : $body", php)
+        import subprocess
+        php_json = subprocess.run(
+            ["php", "-r", "echo json_encode((object) [], JSON_UNESCAPED_SLASHES);"],
+            capture_output=True, text=True, check=True
+        )
+        self.assertEqual(php_json.stdout, "{}")
+        php_array = subprocess.run(
+            ["php", "-r", "echo json_encode([], JSON_UNESCAPED_SLASHES);"],
+            capture_output=True, text=True, check=True
+        )
+        self.assertEqual(php_array.stdout, "[]")
+        self.assertIn("'400:Invalid Argon check request'", php)
         self.assertIn("['start', 'status', 'check']", php)
         self.assertIn("'available' => $check['available']", php)
         self.assertIn("'502:Argon model metadata check unavailable'", php)
