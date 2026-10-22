@@ -86,8 +86,9 @@ function safe_worker_error(int $status, string $body): string {
  * Re-validate the Worker's provider diagnostic against fixed vocabulary. It is
  * Google's error-type code plus recognized message classes, never provider
  * prose, prompts, file references, keys or image data. Anything else is dropped.
+ * Returns array|null. Production runs PHP 7.0, which has no nullable types.
  */
-function safe_worker_diagnostic($value): ?array {
+function safe_worker_diagnostic($value) {
     if (!is_array($value)) return null;
     $known = ['model', 'input', 'background', 'store', 'system_instruction',
         'generation_config', 'thinking_level', 'max_output_tokens', 'response_format',
@@ -120,7 +121,7 @@ function with_diagnostic(array $payload, $workerValue): array {
 
 /** Fixed-target Argon background job transport (only after session+CSRF). */
 function argon_worker_call(string $endpoint, string $secret, string $action, array $body,
-                           ?callable $onRejected = null): array {
+                           $onRejected = null): array {
     if (!in_array($action, ['start', 'status', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
     // The metadata-only check accepts an empty JSON OBJECT, not an array.
@@ -352,7 +353,7 @@ if ($action === 'argon_diag_poll') {
         reject(400, 'No background diagnostic is running');
     $result = argon_worker_call($workerEndpoint, $secret, 'diagnostic-status',
         ['id' => $smoke['id'], 'stage' => $argonSmokeStages[$smoke['step']]],
-        static function (string $error) use ($smoke): void {
+        static function (string $error) use ($smoke) {
             // Google rejected the GET itself. Without this the stage stays
             // "running" forever and blocks both retry and reset. Nothing is
             // resubmitted; a retry still needs explicit paid confirmation.

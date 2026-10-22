@@ -40,7 +40,10 @@ jobs:
           node --check --input-type=commonjs < AfterEffects/BUILD_EDITABLE_PROJECT.jsx
           node --test tests/test_aftereffects_builder.mjs
       - name: Lint public PHP proxy
-        run: php -l scene-proxy.php
+        run: |
+          php -l scene-proxy.php
+          # Never publish a proxy the production host (PHP/7.0.33) cannot parse.
+          docker run --rm -v "$PWD":/app -w /app php:7.0-cli php -l scene-proxy.php
       - name: Build versioned workspace export
         run: python scripts/build_workspace.py --output dist
       - uses: actions/upload-artifact@v4
