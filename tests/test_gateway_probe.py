@@ -206,6 +206,13 @@ class GatewaySmokeTests(unittest.TestCase):
             "502:AI provider authentication or permission failed": "Gemini rejected the provider API credentials",
             "502:Requested AI model is unavailable": "configured Gemini model is not available",
             "502:AI provider rejected request format": "Gemini rejected the submitted frame",
+            "502:Argon rejected output format configuration": "corrected response schema",
+            "502:Argon rejected generation configuration": "thinking level or token budget",
+            "502:Argon rejected image input configuration": "inline reference image format",
+            "502:Argon rejected background execution configuration": "background job settings",
+            "502:Argon rejected model configuration": "paid-tier Argon access",
+            "502:Argon rejected Interactions request": "No job was created",
+
             "502:AI provider capacity unavailable": "Gemini is overloaded (upstream 503)",
             "502:AI provider temporarily unavailable": "temporary server error (upstream 5xx)",
             "502:Provider scene did not match the editor schema": "failed scene validation"
