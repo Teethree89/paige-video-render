@@ -370,7 +370,8 @@ test('Primary-only mode samples detailed frames and forwards bounded mode to Gem
     assert.ok(encodes.some(x=>x.width===768&&x.quality<.78),'oversized JPEG must reduce quality');
     assert.ok(encodes.filter(x=>x.width===768&&x.quality===.78).length>=3,
       'each sampled reference frame starts in detailed mode');
-    assert.match(ids.get('aiSceneStatus').textContent,/Preview: 1 editable objects/);
+    assert.match(ids.get('aiSceneLog').textContent,/Preview ready: 1 editable objects/);
+    assert.match(ids.get('aiSceneStatus').textContent,/Preview updated; nothing saved until accepted/);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;
     else globalThis.document=oldDocument;
