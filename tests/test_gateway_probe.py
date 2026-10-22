@@ -180,7 +180,7 @@ class GatewaySmokeTests(unittest.TestCase):
     def test_gemini_thinking_profiles_are_whitelisted_and_medium_has_bounded_timeout(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         self.assertIn("if (array_key_exists('profile', $input))", php)
-        self.assertIn("['lite_default', 'g38_low', 'g38_medium', 'argon_previs']", php)
+        self.assertIn("['lite_default', 'g38_low', 'g38_medium', 'argon_previs', 'argon_direct']", php)
         self.assertIn("reject(400, 'Unsupported AI profile')", php)
         self.assertIn("array_key_exists('model', $input)", php)
         self.assertIn("$workerInput['profile'] = $input['profile'];", php)
@@ -196,7 +196,8 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("$_SESSION['argon_job']", php)
         self.assertIn("['jobId' => $job['id'], 'shotId' => $job['shotId']]", php)
         self.assertIn("if ($action === 'argon_start')", php)
-        self.assertIn("($workerInput['profile'] ?? '') !== 'argon_previs'", php)
+        self.assertIn("!in_array($workerInput['profile'] ?? '', $argonProfiles, true)", php)
+        self.assertIn("$argonProfiles = ['argon_previs', 'argon_direct'];", php)
         self.assertIn("$_SESSION['ai_calls']", php)
         self.assertIn("'created' => time()", php)
         self.assertIn("'argonJob' => $active === null ? null", php)
@@ -208,8 +209,8 @@ class GatewaySmokeTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
     def test_argon_reserves_two_slots_before_worker_call_and_preserves_running_job(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
-        start = php.index("if ($action === 'argon_start')")
-        end = php.index("if (($workerInput['profile'] ?? '') === 'argon_previs')", start)
+        start = php.index("$argonProfiles = ['argon_previs', 'argon_direct'];")
+        end = php.index("if (in_array($workerInput['profile'] ?? '', $argonProfiles, true))", start)
         # Exercise the actual production start route with transport/response
         # stubs. No web server, private config, credentials or network is used.
         route = php[start:end]
@@ -219,7 +220,7 @@ $_SESSION = ['ai_calls' => $case['used']];
 if ($case['active']) $_SESSION['argon_job'] = [
     'created' => time(), 'status' => 'in_progress', 'id' => 'existing_job_123'];
 $action = 'argon_start'; $workerEndpoint = 'unused'; $secret = 'unused';
-$workerInput = ['profile' => 'argon_previs', 'mode' => 'primary_subject'];
+$workerInput = ['profile' => $case['profile'], 'mode' => 'primary_subject'];
 $shotId = 'draft_001'; $calls = 0;
 function answer($status, $body) {
     global $calls;
@@ -231,33 +232,131 @@ function reject($status, $message) { answer($status, []); }
 function argon_worker_call($endpoint, $secret, $action, $body) {
     global $calls, $case;
     $calls++;
-    if ($_SESSION['ai_calls'] !== $case['used'] + 2) reject(500, 'unreserved');
+    $slots = $case['profile'] === 'argon_direct' ? 1 : 2;
+    if ($_SESSION['ai_calls'] !== $case['used'] + $slots) reject(500, 'unreserved');
     if ($case['fail']) reject(502, 'analysis failed');
     return ['jobId' => 'new_job_123456', 'status' => 'queued'];
 }
 '''
         cases = [
-            (0, False, False, 200, 2, 1),
-            (8, False, False, 200, 10, 1),
-            (9, False, False, 429, 9, 0),
-            (10, False, False, 429, 10, 0),
-            (0, True, False, 409, 0, 0),
-            (8, False, True, 502, 10, 1),
+            ('argon_previs', 0, False, False, 200, 2, 1),
+            ('argon_previs', 8, False, False, 200, 10, 1),
+            ('argon_previs', 9, False, False, 429, 9, 0),
+            ('argon_previs', 10, False, False, 429, 10, 0),
+            ('argon_previs', 0, True, False, 409, 0, 0),
+            ('argon_previs', 8, False, True, 502, 10, 1),
+            # Direct image makes one paid call, so it reserves one slot.
+            ('argon_direct', 0, False, False, 200, 1, 1),
+            ('argon_direct', 9, False, False, 200, 10, 1),
+            ('argon_direct', 10, False, False, 429, 10, 0),
+            ('argon_direct', 0, True, False, 409, 0, 0),
+            ('argon_direct', 9, False, True, 502, 10, 1),
         ]
         import tempfile
         with tempfile.TemporaryDirectory() as folder:
             script = pathlib.Path(folder) / "argon-route.php"
             script.write_text(harness + route)
-            for used, active, fail, status, reserved, calls in cases:
-                with self.subTest(used=used, active=active, fail=fail):
+            for profile, used, active, fail, status, reserved, calls in cases:
+                with self.subTest(profile=profile, used=used, active=active, fail=fail):
                     result = subprocess.run(["php", str(script)], input=json.dumps({
-                        'used': used, 'active': active, 'fail': fail}),
+                        'profile': profile, 'used': used, 'active': active, 'fail': fail}),
                         text=True, capture_output=True, check=True)
                     value = json.loads(result.stdout)
                     self.assertEqual((value['status'], value['used'], value['calls']),
                                      (status, reserved, calls))
                     if active:
                         self.assertEqual(value['job']['id'], 'existing_job_123')
+
+    @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
+    def test_php_forwards_only_revalidated_provider_diagnostics(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        helpers = php[php.index("function safe_worker_diagnostic("):
+                      php.index("/** Fixed-target Argon background job transport")]
+        # Worker rejections forward only re-validated tokens, after the hook.
+        transport = php[php.index("function argon_worker_call("):php.index("function is_https()")]
+        self.assertIn("if ($onRejected !== null) $onRejected($error);", transport)
+        self.assertIn("['ok' => false, 'error' => safe_worker_error($status, $response)], $value));",
+                      transport)
+        harness = "<?php\n" + helpers + '''
+$cases = json_decode(stream_get_contents(STDIN), true);
+echo json_encode(array_map(static function ($value) {
+    return with_diagnostic(['ok' => false], $value);
+}, $cases));
+'''
+        valid = {"phase": "create", "http": 400, "status": None, "reason": "media_input_rejected",
+                 "codes": ["invalid_request", "INVALID_ARGUMENT"], "fields": ["model", "background"]}
+        cases = [
+            {"diagnostic": valid},
+            {"diagnostic": {**valid, "message": "PRIVATE provider prose", "raw": "PRIVATE"}},
+            {"diagnostic": {**valid, "phase": "job", "http": None, "status": "incomplete"}},
+            {"diagnostic": {**valid, "codes": ["AIzaSyPRIVATEmixedCaseKey"]}},
+            {"diagnostic": {**valid, "codes": ["invalid_request"] * 5}},
+            {"diagnostic": {**valid, "fields": ["PRIVATE_FIELD"]}},
+            {"diagnostic": {**valid, "reason": "PRIVATE prose reason"}},
+            {"diagnostic": {**valid, "phase": "upload"}},
+            {"diagnostic": {**valid, "http": 500}},
+            {"diagnostic": {**valid, "status": "PRIVATE"}},
+            {"diagnostic": "PRIVATE string"},
+            {"error": "no diagnostic"},
+            "PRIVATE scalar",
+        ]
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            script = pathlib.Path(folder) / "diagnostic.php"
+            script.write_text(harness)
+            result = subprocess.run(["php", str(script)], input=json.dumps(cases),
+                                    text=True, capture_output=True, check=True)
+        output = json.loads(result.stdout)
+        self.assertEqual(output[0], {"ok": False, "diagnostic": valid})
+        self.assertEqual(output[1], {"ok": False, "diagnostic": valid}, "extra keys dropped")
+        self.assertEqual(output[2]["diagnostic"]["status"], "incomplete")
+        for rejected in output[3:]:
+            self.assertEqual(rejected, {"ok": False})
+        self.assertNotIn("PRIVATE", result.stdout)
+
+    @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
+    def test_rejected_diagnostic_poll_unlocks_explicit_retry_without_resubmitting(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        route = php[php.index("if ($action === 'argon_diag_poll')"):
+                    php.index("if ($action === 'argon_diag_step')")]
+        helpers = php[php.index("function safe_worker_diagnostic("):
+                      php.index("/** Fixed-target Argon background job transport")]
+        harness = "<?php\n" + helpers + '''
+$case = json_decode(stream_get_contents(STDIN), true);
+$argonSmokeStages = ['text','thinking','image','json','background','background_image','background_combo'];
+$_SESSION = ['argon_smoke' => ['step' => 5, 'state' => 'running', 'id' => 'v1_running_job']];
+$action = 'argon_diag_poll'; $workerEndpoint = 'unused'; $secret = 'unused'; $calls = 0;
+function answer($status, $body) {
+    global $calls;
+    echo json_encode(['status' => $status, 'body' => $body, 'calls' => $calls,
+        'smoke' => $_SESSION['argon_smoke']]);
+    exit;
+}
+function reject($status, $message) { answer($status, ['ok' => false, 'error' => $message]); }
+function argon_worker_call($endpoint, $secret, $action, $body, $onRejected = null) {
+    global $calls, $case;
+    $calls++;
+    if ($action !== 'diagnostic-status' || $body['id'] !== 'v1_running_job') reject(500, 'wrong call');
+    if ($onRejected !== null) $onRejected($case['error']);
+    answer(502, ['ok' => false, 'error' => 'mapped']);
+}
+'''
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            script = pathlib.Path(folder) / "poll.php"
+            script.write_text(harness + route)
+            for error, state in (("Argon rejected interaction status request", "failed"),
+                                 ("AI provider network connection failed", "running"),
+                                 ("AI provider temporarily unavailable", "running")):
+                with self.subTest(error=error):
+                    result = subprocess.run(["php", str(script)], input=json.dumps({"error": error}),
+                                            text=True, capture_output=True, check=True)
+                    value = json.loads(result.stdout)
+                    # Only Google's definitive GET rejection releases the lock;
+                    # transient failures keep the job resumable. Never resubmits.
+                    self.assertEqual((value["status"], value["calls"], value["smoke"]["state"]),
+                                     (502, 1, state))
+                    self.assertEqual(value["smoke"]["step"], 5)
 
     def test_argon_model_check_requires_same_session_and_no_generation_quota(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
@@ -309,10 +408,8 @@ function argon_worker_call($endpoint, $secret, $action, $body) {
             "'argonSmoke' => [",
             "'400:Invalid Argon diagnostic request'",
             "'504:Argon diagnostic request timed out'",
-            "'502:Argon diagnostic fixture validation failed'",
-            "'502:Argon diagnostic file upload failed'",
-            "'502:Argon diagnostic upload URL was not trusted'",
-            "'502:Argon diagnostic uploaded file metadata invalid'"
+            "with_diagnostic(\n        ['ok' => true, 'step' => $smoke['step'], 'state' => 'failed', 'passed' => false], $result)",
+            "with_diagnostic(\n        ['ok' => true, 'step' => $step, 'state' => 'failed', 'passed' => false], $result)"
         ):
             self.assertIn(expression, php)
         self.assertLess(php.index("if (empty($_SESSION['authenticated']))"),
@@ -345,6 +442,7 @@ function argon_worker_call($endpoint, $secret, $action, $body) {
             "502:Argon reference analysis invalid": "usable visual description",
             "502:Argon provider redirect blocked": "correctly refused to follow",
             "502:Argon rejected Interactions request": "No job was created",
+            "502:Argon rejected interaction status request": "after the job was created",
 
             "502:AI provider capacity unavailable": "Gemini is overloaded (upstream 503)",
             "502:AI provider temporarily unavailable": "temporary server error (upstream 5xx)",

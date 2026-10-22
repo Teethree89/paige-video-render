@@ -15,9 +15,17 @@ async function request(action,data={}) {
   if(!response.ok||!result.ok){
     const error=Error(result.error||'Scene request failed');
     error.status=response.status;
+    if(result.diagnostic&&typeof result.diagnostic==='object')error.diagnostic=result.diagnostic;
     throw error;
   }
   return result;
+}
+// Fixed provider tokens already validated by the Worker and PHP; never prose.
+export function describeDiagnostic(d) {
+  const list=value=>Array.isArray(value)?value.filter(x=>typeof x==='string').join(', '):'';
+  return 'Provider diagnostic: '+[d.phase,d.http?'HTTP '+d.http:d.status,
+    'reason '+d.reason,list(d.codes)&&'code '+list(d.codes),
+    list(d.fields)&&'fields '+list(d.fields)].filter(Boolean).join(' · ');
 }
 async function readServerSession() {
   const response=await fetch(api,{credentials:'same-origin',cache:'no-store'});
@@ -96,7 +104,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     smokeSummary=el('aiArgonSmokeSummary');
   const smokeNames=['Minimal text, model defaults','Explicit native thinking_level=low',
     'Synthetic JPEG understanding','Structured JSON schema','Background text only',
-    'Background with Google Files JPEG','Background with Files JPEG + JSON'];
+    'Background with inline JPEG','Background with inline JPEG + JSON'];
   let smoke={step:0,state:'idle'};
   const updateSmoke=()=>{
     if(!smokeSummary)return;
@@ -123,6 +131,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     activityLines=activityLines.slice(-50);
     if(activity)activity.textContent=activityLines.join('\n');
   };
+  const logDiagnostic=source=>{if(source?.diagnostic)log(describeDiagnostic(source.diagnostic));};
   const clearActivity=()=>{
     activityLines=[];
     if(activity)activity.textContent='';
@@ -159,11 +168,12 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         log('Argon model output received and validated by the Worker.');
         return result.proposal;
       }
-      if(result.status==='failed')throw Error('Argon job failed on the provider. No geometry was returned.');
+      if(result.status==='failed')throw Object.assign(
+        Error('Argon job failed on the provider. No geometry was returned.'),{diagnostic:result.diagnostic});
       if(!['queued','in_progress'].includes(result.status))throw Error('Unrecognized Argon status');
       if(waitInfo)waitInfo.textContent='Argon processing on Google: '+
         Math.floor((Date.now()-started)/1000)+'s elapsed';
-      status('Argon Previs '+result.status.replace('_',' ')+' — waiting for editable geometry…');
+      status('Argon '+result.status.replace('_',' ')+' — waiting for editable geometry…');
       await new Promise(resolve=>setTimeout(resolve,5000));
     }
     throw Error('Argon is still processing. Use Resume previous Argon job later; do not resubmit a paid request.');
@@ -265,14 +275,17 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const selected=modelSelect?.value||'lite_default';
       const profile=selected==='gemini-3.5-flash-lite'?'lite_default'
         :selected==='gemini-3.8-flash'?'g38_low':selected;
-      if(!['lite_default','g38_low','g38_medium','argon_previs'].includes(profile))
+      if(!['lite_default','g38_low','g38_medium','argon_previs','argon_direct'].includes(profile))
         throw Error('Unsupported AI profile selected');
-      if(fullEnvironment&&['g38_medium','argon_previs'].includes(profile))
+      const argon=profile==='argon_previs'||profile==='argon_direct';
+      if(fullEnvironment&&(argon||profile==='g38_medium'))
         throw Error('Medium and Argon require Primary subject only.');
-      if(profile==='argon_previs'){
+      if(argon){
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
-        if(typeof confirm==='function'&&!confirm('Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'))
+        if(typeof confirm==='function'&&!confirm(profile==='argon_direct'
+          ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon as a background job. Google stores the request, INCLUDING THE REFERENCE IMAGES, and the generated scene with the stored interaction (55 days by default on the paid tier, or your shorter AI Studio retention setting). Google has rejected this combination before; nothing falls back automatically. This uses one request slot and may run for several minutes.'
+          :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'))
           return;
       }
       log('Preparing reference frames from the selected chapter…');
@@ -282,7 +295,8 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       log(frames.length+' reference JPEG frames sampled.');
       log('Generation profile: '+({lite_default:'Gemini 3.5 Flash-Lite',
         g38_low:'Gemini 3.8 Low',g38_medium:'Gemini 3.8 Medium',
-        argon_previs:'Gemini 4 Argon Previs (paid background)'}[profile])+'.');
+        argon_previs:'Gemini 4 Argon Previs (paid background)',
+        argon_direct:'Gemini 4 Argon direct image (experimental paid background)'}[profile])+'.');
       let doc;
       if(fullEnvironment){
         let assembled=[];
@@ -302,8 +316,10 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           scenes:[{shotId:shot.id,objects:assembled}]},getSequence().shots.map(s=>s.id));
       }else {
         status('Gemini is analyzing reference views and generating editable geometry…');
-        if(profile==='argon_previs'){
-          log('Analyzing 3 reference frames with Gemini 3.5 Flash-Lite, then starting text-only Argon background geometry (up to two potentially billable calls)…');
+        if(argon){
+          log(profile==='argon_direct'
+            ?'Sending '+frames.length+' reference frames directly to Gemini 4 Argon as one background job (one potentially billable call)…'
+            :'Analyzing 3 reference frames with Gemini 3.5 Flash-Lite, then starting text-only Argon background geometry (up to two potentially billable calls)…');
           const start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,mode:'primary_subject'});
           argonJob={shotId:shot.id,status:start.status};
           if(waitInfo)waitInfo.textContent='Argon background job submitted';
@@ -321,6 +337,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       showProposal(doc,shot,fullEnvironment);
     }catch(error){
       log('Generation failed: '+error.message);
+      logDiagnostic(error);
       if(error.status===401){
         // PHP rejected generation because its session was lost between
         // preflight and the POST. Never leave the Generate button unlocked.
@@ -377,10 +394,12 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         status('Argon background diagnostic is running. Check again to retrieve its result.');
       }else{
         log('Argon diagnostic stage '+(step+1)+' did not pass. Sequence stopped.');
+        logDiagnostic(result);
         status('Argon diagnostic stage '+(step+1)+' failed or returned no usable answer. Do not continue; inspect the error.');
       }
     }catch(error){
       log('Argon diagnostic error on stage '+(step+1)+': '+error.message);
+      logDiagnostic(error);
       status('Argon diagnostic failed: '+error.message+' (no automatic retry)');
       // The PHP session is the authority, particularly if the worker timed out
       // and has already consumed the one allowed attempt.
@@ -447,6 +466,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       showProposal(proposal,shot);
     }catch(error){
       log('Argon resume: '+error.message);
+      logDiagnostic(error);
       status('Argon resume: '+error.message);
     }finally{busy=false;if(waitInfo)waitInfo.textContent='';ui();}
   });

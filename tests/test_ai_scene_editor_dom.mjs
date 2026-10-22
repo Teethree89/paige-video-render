@@ -498,6 +498,113 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
   }
 });
 
+function argonDomHarness(ids,jpeg){
+  return {
+    getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
+    createElement(tag){
+      if(tag==='video')return new FakeVideo();
+      if(tag==='canvas')return {width:0,height:0,getContext:()=>({drawImage:()=>{}}),
+        toDataURL:()=>jpeg};
+      return new Element();
+    }
+  };
+}
+test('Experimental direct-image Argon discloses stored images, submits once and previews',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
+  const ids=new Map(),actions=[];
+  const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  let preview=null,saved=0;
+  globalThis.confirm=message=>{
+    assert.match(message,/EXPERIMENTAL/);
+    assert.match(message,/ONE potentially billable call/);
+    assert.match(message,/INCLUDING THE REFERENCE IMAGES/);
+    assert.match(message,/one request slot/);
+    assert.match(message,/nothing falls back automatically/);
+    return true;
+  };
+  globalThis.document=argonDomHarness(ids,jpeg);
+  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
+    id:'direct_facade',name:'Facade observed directly',primitive:'box',
+    position:[0,2,0],rotation:[0,0,0],scale:[8,4,1],
+    material:{color:'#334455',metalness:0,roughness:.6}
+  }]}]};
+  globalThis.fetch=async(url,options={})=>{
+    if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',
+      argonJob:null}),{status:200});
+    const payload=JSON.parse(options.body);
+    actions.push(payload.action);
+    if(payload.action==='argon_start'){
+      assert.equal(payload.profile,'argon_direct');
+      assert.equal(payload.mode,'primary_subject');
+      assert.equal(payload.frames.length,3);
+      return new Response(JSON.stringify({ok:true,status:'in_progress',shotId:'shot_a'}),{status:200});
+    }
+    assert.equal(payload.action,'argon_status');
+    return new Response(JSON.stringify({ok:true,status:'completed',shotId:'shot_a',proposal:scene}),{status:200});
+  };
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:entry=>{preview=entry;},onDiscard:()=>{preview=null;},onAccept:()=>{saved++;}});
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='subject';
+    ids.get('aiSceneModel').value='argon_direct';
+    await ids.get('aiSceneGenerate').fire('click');
+    assert.deepEqual(actions,['argon_start','argon_status']);
+    assert.equal(preview?.objects[0]?.id,'direct_facade');
+    assert.equal(saved,0);
+    assert.match(ids.get('aiSceneLog').textContent,/directly to Gemini 4 Argon as one background job/);
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+    if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
+    globalThis.fetch=oldFetch;
+  }
+});
+test('Argon rejections and failed jobs show the sanitized provider diagnostic without fallback',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
+  const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  globalThis.confirm=()=>true;
+  const run=async(profile,respond)=>{
+    const ids=new Map(),actions=[];
+    globalThis.document=argonDomHarness(ids,jpeg);
+    globalThis.fetch=async(url,options={})=>{
+      if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,
+        csrf:'test-csrf',argonJob:null}),{status:200});
+      const payload=JSON.parse(options.body);
+      actions.push(payload.action);
+      return respond(payload);
+    };
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:()=>assert.fail('No preview after a rejection'),onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='subject';
+    ids.get('aiSceneModel').value=profile;
+    await ids.get('aiSceneGenerate').fire('click');
+    return {log:ids.get('aiSceneLog').textContent,actions};
+  };
+  try{
+    const rejected=await run('argon_direct',()=>new Response(JSON.stringify({ok:false,
+      error:'Google rejected the Argon request (HTTP 400). No job was created and nothing was retried; see the provider diagnostic in the activity log.',
+      diagnostic:{phase:'create',http:400,status:null,reason:'media_input_rejected',
+        codes:['invalid_request'],fields:['model','background']}}),{status:502}));
+    assert.deepEqual(rejected.actions,['argon_start'],'No retry, Previs or Flash-Lite fallback');
+    assert.match(rejected.log,/Provider diagnostic: create · HTTP 400 · reason media_input_rejected · code invalid_request · fields model, background/);
+    const failed=await run('argon_previs',payload=>new Response(JSON.stringify(
+      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
+      {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,
+        status:'incomplete',reason:'incomplete_output',codes:[],fields:[]}}),{status:200}));
+    assert.deepEqual(failed.actions,['argon_start','argon_status']);
+    assert.match(failed.log,/Argon job failed on the provider/);
+    assert.match(failed.log,/Provider diagnostic: job · incomplete · reason incomplete_output/);
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+    if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
+    globalThis.fetch=oldFetch;
+  }
+});
 test('Paid Argon disallows layered environment before spending or sampling video',async()=>{
   const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
   const ids=new Map();let posts=0,sampled=0;

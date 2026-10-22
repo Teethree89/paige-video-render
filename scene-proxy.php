@@ -39,10 +39,6 @@ function safe_worker_error(int $status, string $body): string {
         '400:Invalid Argon check request' => 'The Argon model check was rejected before reaching Google. Verify that PHP sends an empty JSON object to the Worker.',
         '400:Invalid Argon diagnostic request' => 'The Argon diagnostic payload was rejected before Google was called.',
         '504:Argon diagnostic request timed out' => 'Argon did not answer the small synchronous test within 30 seconds. This is inconclusive; no automatic retry was made.',
-        '502:Argon diagnostic fixture validation failed' => 'The synthetic diagnostic JPEG did not pass integrity checks; no inference request was submitted.',
-        '502:Argon diagnostic file upload failed' => 'The diagnostic image could not be uploaded to Google Files API; no Argon generation was submitted.',
-        '502:Argon diagnostic upload URL was not trusted' => 'Google returned an unexpected upload destination. File transfer was blocked before inference.',
-        '502:Argon diagnostic uploaded file metadata invalid' => 'The uploaded image metadata was not usable; no Argon generation was submitted.',
         '502:Argon reference analysis unavailable' => 'Argon reference analysis did not complete. No background job was submitted and no automatic retry was made.',
         '502:Argon reference analysis invalid' => 'Argon did not return a usable visual description. No background job was submitted and no automatic retry was made.',
         '502:Argon provider redirect blocked' => 'Google returned a redirect that the Worker correctly refused to follow. No redirected request was sent.',
@@ -66,7 +62,8 @@ function safe_worker_error(int $status, string $body): string {
         '502:Argon rejected model configuration' => 'Argon identified the model field as invalid. This alone does not establish a billing or entitlement problem.',
         '502:Argon model metadata check unavailable' => 'Google model metadata could not be checked right now. No generation request was made.',
 
-        '502:Argon rejected Interactions request' => 'Argon returned HTTP 400 without a supported field diagnostic. No job was created; review sanitized Worker logs before retrying.',
+        '502:Argon rejected Interactions request' => 'Google rejected the Argon request (HTTP 400). No job was created and nothing was retried; see the provider diagnostic in the activity log.',
+        '502:Argon rejected interaction status request' => 'Google rejected the Argon status request (HTTP 400) after the job was created. No new paid request was made; see the provider diagnostic in the activity log.',
 
         '502:AI provider capacity unavailable' => 'Gemini is overloaded (upstream 503). Automatic retries were exhausted. Try again later or select 3.8 Low.',
         '404:No resumable Argon job' => 'Argon job is no longer available. Start another generation if needed.',
@@ -85,8 +82,45 @@ function safe_worker_error(int $status, string $body): string {
                ? (string) $status : 'other') . ').';
 }
 
+/**
+ * Re-validate the Worker's provider diagnostic against fixed vocabulary. It is
+ * Google's error-type code plus recognized message classes, never provider
+ * prose, prompts, file references, keys or image data. Anything else is dropped.
+ */
+function safe_worker_diagnostic($value): ?array {
+    if (!is_array($value)) return null;
+    $known = ['model', 'input', 'background', 'store', 'system_instruction',
+        'generation_config', 'thinking_level', 'max_output_tokens', 'response_format',
+        'mime_type', 'schema', 'data', 'uri', 'resolution', 'previous_interaction_id',
+        'service_tier', 'user_input'];
+    $codes = $value['codes'] ?? null;
+    $fields = $value['fields'] ?? null;
+    $reason = $value['reason'] ?? null;
+    if (!in_array($value['phase'] ?? null, ['create', 'poll', 'job'], true) ||
+        !in_array($value['http'] ?? null, [null, 400, 422], true) ||
+        !in_array($value['status'] ?? null, [null, 'failed', 'cancelled', 'incomplete',
+            'requires_action', 'budget_exceeded'], true) ||
+        !is_string($reason) || !preg_match('/^[a-z][a-z_]{0,47}$/D', $reason) ||
+        !is_array($codes) || count($codes) > 4 ||
+        !is_array($fields) || count($fields) > count($known))
+        return null;
+    foreach ($codes as $code)
+        if (!is_string($code) ||
+            !preg_match('/^(?:[a-z][a-z0-9_]{0,47}|[A-Z][A-Z0-9_]{0,47})$/D', $code)) return null;
+    foreach ($fields as $field)
+        if (!in_array($field, $known, true)) return null;
+    return ['phase' => $value['phase'], 'http' => $value['http'] ?? null,
+        'status' => $value['status'] ?? null, 'reason' => $reason,
+        'codes' => array_values($codes), 'fields' => array_values($fields)];
+}
+function with_diagnostic(array $payload, $workerValue): array {
+    $diagnostic = safe_worker_diagnostic(is_array($workerValue) ? ($workerValue['diagnostic'] ?? null) : null);
+    return $diagnostic === null ? $payload : $payload + ['diagnostic' => $diagnostic];
+}
+
 /** Fixed-target Argon background job transport (only after session+CSRF). */
-function argon_worker_call(string $endpoint, string $secret, string $action, array $body): array {
+function argon_worker_call(string $endpoint, string $secret, string $action, array $body,
+                           ?callable $onRejected = null): array {
     if (!in_array($action, ['start', 'status', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
     // The metadata-only check accepts an empty JSON OBJECT, not an array.
@@ -115,8 +149,12 @@ function argon_worker_call(string $endpoint, string $secret, string $action, arr
     if (!is_string($response) || strlen($response) > 1500000)
         reject(502, 'Could not retrieve Argon Worker response');
     $value = json_decode($response, true);
-    if ($status < 200 || $status >= 300)
-        reject($status === 429 ? 429 : 502, safe_worker_error($status, $response));
+    if ($status < 200 || $status >= 300) {
+        $error = is_array($value) && is_string($value['error'] ?? null) ? $value['error'] : '';
+        if ($onRejected !== null) $onRejected($error);
+        answer($status === 429 ? 429 : 502, with_diagnostic(
+            ['ok' => false, 'error' => safe_worker_error($status, $response)], $value));
+    }
     if (!is_array($value) || ($value['ok'] ?? false) !== true)
         reject(502, 'Invalid Argon Worker response');
     return $value;
@@ -313,7 +351,14 @@ if ($action === 'argon_diag_poll') {
         !preg_match('/^[A-Za-z0-9_-]{8,160}$/', $smoke['id']))
         reject(400, 'No background diagnostic is running');
     $result = argon_worker_call($workerEndpoint, $secret, 'diagnostic-status',
-        ['id' => $smoke['id'], 'stage' => $argonSmokeStages[$smoke['step']]]);
+        ['id' => $smoke['id'], 'stage' => $argonSmokeStages[$smoke['step']]],
+        static function (string $error) use ($smoke): void {
+            // Google rejected the GET itself. Without this the stage stays
+            // "running" forever and blocks both retry and reset. Nothing is
+            // resubmitted; a retry still needs explicit paid confirmation.
+            if ($error === 'Argon rejected interaction status request')
+                $_SESSION['argon_smoke'] = ['step' => $smoke['step'], 'state' => 'failed'];
+        });
     $state = $result['status'] ?? '';
     if (in_array($state, ['queued','in_progress'], true))
         answer(200, ['ok' => true, 'step' => $smoke['step'], 'state' => 'running']);
@@ -327,7 +372,8 @@ if ($action === 'argon_diag_poll') {
             'state' => $_SESSION['argon_smoke']['state'], 'passed' => true]);
     }
     $_SESSION['argon_smoke'] = ['step' => $smoke['step'], 'state' => 'failed'];
-    answer(200, ['ok' => true, 'step' => $smoke['step'], 'state' => 'failed', 'passed' => false]);
+    answer(200, with_diagnostic(
+        ['ok' => true, 'step' => $smoke['step'], 'state' => 'failed', 'passed' => false], $result));
 }
 if ($action === 'argon_diag_step') {
     $step = $_SESSION['argon_smoke']['step'] ?? 0;
@@ -364,7 +410,8 @@ if ($action === 'argon_diag_step') {
         answer(200, ['ok' => true, 'step' => $step + 1,
             'state' => $_SESSION['argon_smoke']['state'], 'passed' => true]);
     }
-    answer(200, ['ok' => true, 'step' => $step, 'state' => 'failed', 'passed' => false]);
+    answer(200, with_diagnostic(
+        ['ok' => true, 'step' => $step, 'state' => 'failed', 'passed' => false], $result));
 }
 // Model metadata check is authenticated, no-generation, and does not consume
 // the hourly proposal budget. No video frame or client content leaves PHP.
@@ -389,10 +436,10 @@ if ($action === 'argon_status') {
     if (!in_array($value['status'] ?? '', ['queued','in_progress','completed','failed'], true))
         reject(502, 'Invalid Argon job status');
     $_SESSION['argon_job']['status'] = $value['status'];
-    answer(200, ['ok' => true, 'status' => $value['status'],
+    answer(200, with_diagnostic(['ok' => true, 'status' => $value['status'],
         'shotId' => $job['shotId']] +
         (($value['status'] === 'completed' && isset($value['proposal'])) ?
-          ['proposal' => $value['proposal']] : []));
+          ['proposal' => $value['proposal']] : []), $value));
 }
 if ($action !== 'generate' && $action !== 'argon_start')
     reject(400, 'Unsupported action');
@@ -435,7 +482,7 @@ $workerInput = ['shotId' => $shotId, 'frames' => $validated];
 if (array_key_exists('profile', $input)) {
     if (array_key_exists('model', $input) ||
         !is_string($input['profile']) ||
-        !in_array($input['profile'], ['lite_default', 'g38_low', 'g38_medium', 'argon_previs'], true)) {
+        !in_array($input['profile'], ['lite_default', 'g38_low', 'g38_medium', 'argon_previs', 'argon_direct'], true)) {
         reject(400, 'Unsupported AI profile');
     }
     $workerInput['profile'] = $input['profile'];
@@ -471,8 +518,9 @@ if (array_key_exists('layer', $input)) {
     $workerInput['existing'] = $prior;
 }
 // Paid Argon background generation is opt-in and primary-subject only.
+$argonProfiles = ['argon_previs', 'argon_direct'];
 if ($action === 'argon_start') {
-    if (($workerInput['profile'] ?? '') !== 'argon_previs' ||
+    if (!in_array($workerInput['profile'] ?? '', $argonProfiles, true) ||
         ($workerInput['mode'] ?? '') !== 'primary_subject' ||
         array_key_exists('layer', $workerInput))
         reject(400, 'Argon Previs requires Primary subject only');
@@ -480,11 +528,13 @@ if ($action === 'argon_start') {
     if (is_array($active) && (int) ($active['created'] ?? 0) >= time() - 86400 &&
         in_array($active['status'] ?? '', ['queued','in_progress'], true))
         reject(409, 'An Argon job is already running. Resume it instead.');
-    // The analysis and background generation each consume a request slot.
-    // Reserve both even if analysis fails; uncertain paid calls are not refunded.
-    if ((int) ($_SESSION['ai_calls'] ?? 0) + 2 > 10)
+    // Previs: the analysis and background generation each consume a slot.
+    // Direct image: one background call, one slot. Reserve before any call;
+    // uncertain paid calls are not refunded.
+    $slots = $workerInput['profile'] === 'argon_direct' ? 1 : 2;
+    if ((int) ($_SESSION['ai_calls'] ?? 0) + $slots > 10)
         reject(429, 'Session AI limit reached');
-    $_SESSION['ai_calls'] = (int) ($_SESSION['ai_calls'] ?? 0) + 2;
+    $_SESSION['ai_calls'] = (int) ($_SESSION['ai_calls'] ?? 0) + $slots;
     $job = argon_worker_call($workerEndpoint, $secret, 'start', $workerInput);
     if (!is_string($job['jobId'] ?? null) ||
         !preg_match('/^[A-Za-z0-9_-]{8,160}$/', $job['jobId']) ||
@@ -496,7 +546,7 @@ if ($action === 'argon_start') {
     ];
     answer(200, ['ok' => true, 'status' => $job['status'], 'shotId' => $shotId]);
 }
-if (($workerInput['profile'] ?? '') === 'argon_previs')
+if (in_array($workerInput['profile'] ?? '', $argonProfiles, true))
     reject(400, 'Use the Argon background job endpoint');
 // Medium may take longer; it is deliberately disallowed in the 4-pass mode.
 if (($workerInput['profile'] ?? '') === 'g38_medium' &&
