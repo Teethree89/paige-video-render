@@ -29,6 +29,24 @@ export function setupAnimationGraph({getSequence,getSelected,onCommit}){
      aria-label="Camera position X Y Z and field-of-view animation curves"></canvas>
    <p id="curveGraphStatus" class="field-help" role="status">Choose a camera key to edit its outgoing curve.</p>`;
  panel.append(section);
+ const textPanel=document.getElementById('textPanel');
+ if(textPanel){
+   const holder=document.createElement('label');holder.className='field';
+   holder.textContent='Text fade interpolation';
+   const fade=document.createElement('select');fade.id='textFadeMode';
+   for(const [value,label] of [['linear','Linear (original)'],['smooth','Smooth'],
+     ['ease-in','Ease in'],['ease-out','Ease out'],['hold','Hold / step']]){
+     const option=document.createElement('option');option.value=value;option.textContent=label;fade.append(option);
+   }
+   holder.append(fade);textPanel.append(holder);
+   fade.addEventListener('change',()=>{
+     const selected=getSelected(),seq=structuredClone(getSequence());
+     const item=seq.text?.find(x=>x.id===selected?.id);
+     if(!item)return;
+     item.textFade=fade.value;
+     onCommit(seq);
+   });
+ }
  const el=id=>document.getElementById(id);
  const mode=el('cameraCurveMode'),ease=el('cameraEaseGraph'),graph=el('cameraValueGraph');
  const status=el('curveGraphStatus'),inputs=['curveInX','curveInY','curveOutX','curveOutY'].map(el);
