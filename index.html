@@ -174,6 +174,10 @@
                   </select>
                 </label>
                 <p class="field-help">Direct image only. Choosing High or Maximum detail selects 65,536 automatically, and Standard selects 32,768; you can still change it. 65,536 is Google's largest allowance for a synchronous call: the same request, with only the thinking + output ceiling doubled. You are billed only for the tokens Argon generates. Larger budgets need a stored background job, which rejects images (HTTP 400, 2026-10-23).</p>
+                <label id="aiArgonAddDetailField" class="field" hidden>
+                  <span><input id="aiArgonAddDetail" type="checkbox" checked> Add two detail passes automatically</span>
+                </label>
+                <p class="field-help">Direct image · Full environment only. After a successful base scene, run two more paid Argon requests using the current geometry as a placement guide. Append only new objects; keep all existing objects, lights and camera. Each pass consumes a request slot and may take minutes. The editor must remain open; incomplete passes do not erase successful geometry.</p>
                 <label id="aiArgonRetryField" class="field" hidden>
                   <span><input id="aiArgonRetry" type="checkbox" checked> Automatically retry up to three times (15 seconds apart) after cheap failures</span>
                 </label>
@@ -181,7 +185,7 @@
                 <p class="field-help">Thinking is how much Argon reasons before answering: higher can place parts more accurately but bills more output tokens. Detail is how many objects Argon aims for: Standard 48–96 (subject) or 80–120 (full scene), High up to 150, Maximum targets 180–230 full-scene objects, up to 240. Every detail level uses the selected token budget (32,768 by default); an answer cut off at it keeps every object it finished. High and Maximum need the 65,536 budget: at 32,768 every run came back empty, while at 65,536 they returned 106 to 153 objects (2026-10-23). Argon Previs has no budget choice, so use Standard detail there.</p>
               </div>
               <p class="field-help">All options use your existing server-side Gemini API key. Argon Previs uses Gemini 3.5 Flash-Lite to analyze the reference JPEGs quickly, then Gemini 4 Argon generates editable geometry from the visual description using text-only background execution for AE/GLB export and eventual Runway video-to-video. It uses up to two potentially billable calls and two request slots. Google stores the visual description and generated scene in the Argon background interaction, not the original images. It may take several minutes; Google bills input and thinking/output tokens. No geometry saves until you accept.</p>
-              <p class="field-help">Argon Direct image (experimental) sends the same reference JPEGs straight to Gemini 4 Argon, so Argon observes the frames itself. Each attempt is one synchronous request held by Cloudflare for up to 12 minutes while the editor polls, at either token budget. One potentially billable call and one request slot per attempt; enabling automatic retries permits at most four attempts (one initial plus three retries). The Cloudflare job keeps the images only until Argon answers and the result for 24 hours; Google is asked not to store either. Nothing falls back automatically; Argon Previs remains the proven path. With Full environment selected, the same single call rebuilds the whole frame (background buildings, ground, roads, vegetation, street furniture and lighting) instead of the main subject; it never runs the four Flash passes. Argon sorts objects into the layers below and may add scene lights that shine only during that chapter.</p>
+              <p class="field-help">Argon Direct image (experimental) sends the same reference JPEGs straight to Gemini 4 Argon, so Argon observes the frames itself. Each attempt is one synchronous request held by Cloudflare for up to 12 minutes while the editor polls, at either token budget. One potentially billable base call and one request slot per attempt; enabling automatic retries permits at most four base attempts (one initial plus three retries), plus two separately billable Add Detail calls when enabled. The Cloudflare job keeps the images only until Argon answers and the result for 24 hours; Google is asked not to store either. Nothing falls back automatically; Argon Previs remains the proven path. With Full environment selected, the same single call rebuilds the whole frame (background buildings, ground, roads, vegetation, street furniture and lighting) instead of the main subject; it never runs the four Flash passes. Argon sorts objects into the layers below and may add scene lights that shine only during that chapter.</p>
               <p class="field-help">Uses the current reference frame first, plus two views from this chapter. Full environment makes four sequential Gemini requests and uses four of your 10 per-session hourly requests. Only visible evidence is modeled; absent layers can be empty. Nothing is saved until you accept.</p>
               <button id="aiSceneCheckArgon" type="button" class="wide secondary">Check Argon model visibility (no generation)</button>
               <p class="field-help">This checks model metadata using your existing API key. It sends no reference frames and does not generate tokens. A successful check does not guarantee generation permissions, quota, or a valid request format.</p>
@@ -297,6 +301,19 @@
       </div>
     </form>
   </dialog>
+  <section id="argonParticleOverlay" class="argon-particle-overlay" role="status" aria-label="Argon generation activity" hidden>
+    <canvas id="argonParticleCanvas" aria-hidden="true"></canvas>
+    <div class="argon-particle-top"><span class="argon-particle-brand">✧ PAIGE / AI</span><button id="argonParticleMinimize" type="button">Minimize ↗</button></div>
+    <div class="argon-particle-info">
+      <span class="argon-particle-eyebrow">RECONSTRUCTING IN 3D</span>
+      <h2 id="argonParticleStage">Generating base scene</h2>
+      <p id="argonParticleDetail">Waiting for Cloudflare job</p>
+      <div class="argon-particle-track" role="progressbar" aria-label="Argon operation in progress; completion percentage unknown"><div id="argonParticleMeter"></div></div>
+      <p id="argonParticleElapsed">0:00 elapsed · finish time unknown</p>
+      <p class="argon-particle-tip">Move your cursor through the particle cloud · generation continues while you view the editor</p>
+    </div>
+  </section>
+  <button id="argonParticleReopen" class="argon-particle-reopen" type="button" hidden>Generation running · Show overlay</button>
   <script type="module" src="app.js"></script>
 </body>
 </html>
