@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {syncChapterCameraMotion} from '../camera-motion-sync.js';
+import {syncChapterCameraMotion,clipPlanesForScene} from '../camera-motion-sync.js';
 import {shotAnchorMap} from '../primitive-preview.js';
 import {evaluateCamera} from '../animation-curves.js';
 const round=n=>Math.round(n*1e4)/1e4;
@@ -93,4 +93,14 @@ test('resync remains stable when regenerated bounds and anchor do not change',()
    assert.ok(Math.hypot(...current.p.map((n,i)=>n-next.p[i]))<.01);
    assert.ok(Math.hypot(...current.t.map((n,i)=>n-next.t[i]))<.01);
  }
+});
+
+test('cinematic clip planes expand for gigantic regenerated geometry without reusing 500m far limit',()=>{
+ const result=clipPlanesForScene([80,30,800],[0,0,0],
+   {center:[0,0,0],radius:1300});
+ assert.ok(result.far>4000);
+ assert.ok(result.near>=.05&&result.near<=.35);
+ assert.equal(clipPlanesForScene([0,0,10],[0,0,0],
+   {center:[0,0,0],radius:3}).far,500);
+ assert.deepEqual(clipPlanesForScene(null,null,null),{near:.35,far:500});
 });
