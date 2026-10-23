@@ -44,7 +44,7 @@ export function setupAnimationGraph({getSequence,getSelected,onCommit}){
      const item=seq.text?.find(x=>x.id===selected?.id);
      if(!item)return;
      item.textFade=fade.value;
-     onCommit(seq);
+     try{onCommit(seq);}catch(error){const node=document.getElementById('curveGraphStatus');if(node)node.textContent=error.message;}
    });
  }
  const el=id=>document.getElementById(id);
