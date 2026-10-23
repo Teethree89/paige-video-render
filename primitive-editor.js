@@ -9,6 +9,20 @@ function download(content,filename,mime='application/json'){
   setTimeout(()=>URL.revokeObjectURL(url),15000);
 }
 const safeFile=id=>id.replace(/[^a-zA-Z0-9_-]/g,'-');
+// Fields without their own inputs (copies, footprint, glow, glass) are shown
+// read-only; they stay intact through every edit and are changed in JSON.
+export function shapeSummary(item){
+  const parts=[item.primitive];
+  if(item.points)parts.push(item.points.length+'-point footprint');
+  if(item.repeat){
+    const [x,y,z]=item.repeat.count;
+    parts.push(x*y*z+' copies ('+x+'×'+y+'×'+z+')');
+  }
+  if(item.material.emissive)parts.push('glow '+item.material.emissive+' ×'+item.material.emissiveIntensity);
+  if(item.material.opacity!==undefined&&item.material.opacity<1)
+    parts.push(Math.round(item.material.opacity*100)+'% opacity');
+  return parts.join(' · ');
+}
 export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world}) {
   let selectedId=null,previousShot=null;
   const editor=el('primitiveEditor'),objectSelect=el('primitiveObjectSelect');
@@ -60,7 +74,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveColor').value=selected.material.color;
       el('primitiveMetalness').value=selected.material.metalness;
       el('primitiveRoughness').value=selected.material.roughness;
-      el('primitiveShapeReadOnly').textContent=selected.primitive;
+      el('primitiveShapeReadOnly').textContent=shapeSummary(selected);
       for(const input of editor.querySelectorAll('[data-prim]')){
         const [field,index]=input.dataset.prim.split('.');
         input.value=selected[field][Number(index)];

@@ -1,16 +1,44 @@
 import * as THREE from 'three';
-import {validatePrimitiveDocument} from './primitive-schema.js';
+import {validatePrimitiveDocument,repeatOffsets} from './primitive-schema.js';
 
-const geometry = type => {
-  switch(type) {
+// A unit-depth prism along local Z from a profile in the XY plane; like every
+// primitive it fills the unit cube centered on the origin, scaled by `scale`.
+const prism = profile => {
+  const geometry=new THREE.ExtrudeGeometry(new THREE.Shape(profile.map(([x,y])=>new THREE.Vector2(x,y))),
+    {depth:1,bevelEnabled:false});
+  geometry.translate(0,0,-.5);
+  return geometry;
+};
+const geometry = item => {
+  switch(item.primitive) {
     case 'box': return new THREE.BoxGeometry(1,1,1);
     case 'sphere': return new THREE.SphereGeometry(.5,24,16);
     case 'cylinder': return new THREE.CylinderGeometry(.5,.5,1,24);
     case 'plane': return new THREE.PlaneGeometry(1,1);
     case 'torus': return new THREE.TorusGeometry(.42,.12,12,32);
-    default: throw Error('Unsupported primitive: '+type);
+    case 'cone': return new THREE.CylinderGeometry(0,.5,1,24); // apex up (+Y)
+    // Ramp or shed roof: high edge at -X, sloping down to +X.
+    case 'wedge': return prism([[-.5,-.5],[.5,-.5],[-.5,.5]]);
+    // Pitched roof: ridge along local Z.
+    case 'gable': return prism([[-.5,-.5],[.5,-.5],[0,.5]]);
+    case 'extrude': {
+      // Footprint [x,z] in the ground plane, extruded up from Y=-0.5 to 0.5.
+      const shape=new THREE.Shape(item.points.map(([x,z])=>new THREE.Vector2(x,z)));
+      const extruded=new THREE.ExtrudeGeometry(shape,{depth:1,bevelEnabled:false});
+      extruded.rotateX(Math.PI/2); // shape Y becomes +Z, extrusion becomes -Y
+      extruded.translate(0,.5,0);
+      return extruded;
+    }
+    default: throw Error('Unsupported primitive: '+item.primitive);
   }
 };
+const surface = material => new THREE.MeshStandardMaterial({
+  color:material.color,metalness:material.metalness,roughness:material.roughness,
+  side:THREE.DoubleSide,
+  ...(material.emissive?{emissive:material.emissive,emissiveIntensity:material.emissiveIntensity}:{}),
+  // Glass: blended and not written to depth, so geometry behind stays visible.
+  ...(material.opacity<1?{transparent:true,opacity:material.opacity,depthWrite:false}:{})
+});
 
 export function createPrimitiveWorld(scene) {
   const groups=new Map();
@@ -45,18 +73,32 @@ export function createPrimitiveWorld(scene) {
           layerRoot.userData.layer=key;
           layerGroups.set(key,layerRoot);root.add(layerRoot);
         }
-        const mesh=new THREE.Mesh(geometry(item.primitive),new THREE.MeshStandardMaterial({
-          color:item.material.color,metalness:item.material.metalness,
-          roughness:item.material.roughness,side:THREE.DoubleSide
-        }));
-        mesh.name=item.name;
-        mesh.userData.primitiveId=item.id;
-        mesh.userData.primitiveType=item.primitive;
-        mesh.userData.layer=item.layer||'manual';
-        mesh.position.set(...item.position);
-        mesh.rotation.set(...item.rotation);
-        mesh.scale.set(...item.scale);
-        layerGroups.get(key).add(mesh);
+        const shape=geometry(item),material=surface(item.material);
+        const tag=node=>{
+          node.userData.primitiveId=item.id;
+          node.userData.primitiveType=item.primitive;
+          node.userData.layer=item.layer||'manual';
+          return node;
+        };
+        const offsets=repeatOffsets(item.repeat);
+        // One copy is the object itself. An array is a group at the object's
+        // transform holding one plain mesh per copy (shared geometry and
+        // material), so GLB/After Effects see ordinary nodes, not instancing.
+        const holder=offsets.length===1?null:tag(new THREE.Group());
+        offsets.forEach((offset,index)=>{
+          const mesh=tag(new THREE.Mesh(shape,material));
+          mesh.name=holder?item.name+' '+(index+1):item.name;
+          mesh.scale.set(...item.scale);
+          if(holder)mesh.position.set(...offset);
+          else{mesh.position.set(...item.position);mesh.rotation.set(...item.rotation);}
+          (holder||layerGroups.get(key)).add(mesh);
+        });
+        if(holder){
+          holder.name=item.name;
+          holder.position.set(...item.position);
+          holder.rotation.set(...item.rotation);
+          layerGroups.get(key).add(holder);
+        }
       }
       root.visible=false;
       groups.set(entry.shotId,root);
@@ -86,7 +128,16 @@ export function createPrimitiveWorld(scene) {
     copy.name='Editable_primitives_'+shotId;
     return copy;
   }
+  // The model's estimate of the reference camera, in world space (the shot
+  // anchor applied). Used to frame previews; never written to camera keys.
+  function getCamera(shotId){
+    const entry=document.scenes.find(scene=>scene.shotId===shotId);
+    const root=groups.get(shotId);
+    if(!entry?.camera||!root)return null;
+    const at=point=>point.map((n,i)=>n+root.position.getComponent(i));
+    return {position:at(entry.camera.position),target:at(entry.camera.target),fov:entry.camera.fov};
+  }
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
-  return {setDocument,showShot,hasObjects,getBounds,getSceneForExport,getDocument,dispose};
+  return {setDocument,showShot,hasObjects,getBounds,getCamera,getSceneForExport,getDocument,dispose};
 }

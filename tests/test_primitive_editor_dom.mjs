@@ -80,6 +80,31 @@ test('primitive inspector initializes and adds editable scene geometry without c
     assert.equal(sequence.primitiveScenes.scenes[0].objects[0].position[0],6.5);
     editor.refresh();
     assert.equal(dom.getElementById('primitiveObjectSelect').children.length,2);
+    // New shapes come from the same dropdown, with a usable default footprint.
+    dom.getElementById('primitiveType').value='extrude';
+    await dom.getElementById('primitiveAdd').fire('click');
+    assert.equal(sequence.primitiveScenes.scenes[0].objects[1].points.length,6);
+    assert.equal(dom.getElementById('primitiveShapeReadOnly').textContent,'extrude · 6-point footprint');
+    // Fields without inputs survive transform edits and duplication.
+    sequence.primitiveScenes.scenes[0].objects.push({id:'windows',name:'Windows',primitive:'box',
+      position:[0,4,0],rotation:[0,0,0],scale:[1,1.4,.1],repeat:{count:[5,2,1],spacing:[2,3,0]},
+      material:{color:'#223344',metalness:0,roughness:.3,emissive:'#ffcc66',emissiveIntensity:1.5,opacity:.6}});
+    sequence.primitiveScenes.scenes[0].camera={position:[0,3,20],target:[0,2,0],fov:40};
+    const select=dom.getElementById('primitiveObjectSelect');
+    select.value='windows';await select.fire('change');
+    assert.equal(dom.getElementById('primitiveShapeReadOnly').textContent,
+      'box · 10 copies (5×2×1) · glow #ffcc66 ×1.5 · 60% opacity');
+    const y=fields.find(x=>x.dataset.prim==='position.1');
+    y.value='5';await y.fire('change');
+    await dom.getElementById('primitiveDuplicate').fire('click');
+    const scene=sequence.primitiveScenes.scenes[0];
+    const [windows,copy]=scene.objects.slice(2);
+    assert.equal(windows.position[1],5);
+    for(const item of [windows,copy]){
+      assert.deepEqual(item.repeat,{count:[5,2,1],spacing:[2,3,0]});
+      assert.equal(item.material.emissive,'#ffcc66');assert.equal(item.material.opacity,.6);
+    }
+    assert.deepEqual(scene.camera,{position:[0,3,20],target:[0,2,0],fov:40});
   } finally {
     if(previousDocument===undefined)delete globalThis.document;
     else globalThis.document=previousDocument;

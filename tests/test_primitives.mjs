@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PRIMITIVE_TYPES,LIMITS,blankPrimitiveDocument,
-  validatePrimitiveDocument,makePrimitive,makeExampleBlockout
+  validatePrimitiveDocument,makePrimitive,makeExampleBlockout,repeatOffsets
 } from '../primitive-schema.js';
 
 const doc=(shotId='draft_001')=>({schemaVersion:1,scenes:[{
@@ -66,4 +66,69 @@ test('primitive scene document can be stored alongside a timeline and exported a
   const roundTrip=JSON.parse(JSON.stringify({shots:[{id:'draft_001'}],primitiveScenes:original}));
   const normalized=validatePrimitiveDocument(roundTrip.primitiveScenes,roundTrip.shots.map(s=>s.id));
   assert.deepEqual(normalized,original);
+});
+const richDoc=(objects,camera)=>({schemaVersion:1,scenes:[{shotId:'shot_a',objects,
+  ...(camera===undefined?{}:{camera})}]});
+const base=(id,primitive,extra={})=>({id,name:id,primitive,position:[0,1,0],rotation:[0,0,0],
+  scale:[2,2,2],material:{color:'#334455',metalness:.1,roughness:.6},...extra});
+test('richer vocabulary: new shapes, footprints, repeat arrays, glow, glass and camera',()=>{
+  const doc=validatePrimitiveDocument(richDoc([
+    base('spire','cone'),base('ramp','wedge'),base('roof','gable'),
+    base('hall','extrude',{points:[[-.5,-.5],[.5,-.5],[.5,0],[0,0],[0,.5],[-.5,.5]]}),
+    base('windows','box',{repeat:{count:[12,3,1],spacing:[1.5,2,0]},
+      material:{color:'#223344',metalness:.2,roughness:.3,emissive:'#FFCC88',emissiveIntensity:2.5,opacity:.6}}),
+    base('lamp','sphere',{material:{color:'#ffffff',metalness:0,roughness:.5,emissive:'#ffeecc'}})
+  ],{position:[18,6,30],target:[0,3,0],fov:42}),['shot_a']);
+  const [spire,ramp,roof,hall,windows,lamp]=doc.scenes[0].objects;
+  assert.deepEqual([spire.primitive,ramp.primitive,roof.primitive,hall.primitive],['cone','wedge','gable','extrude']);
+  assert.equal(hall.points.length,6);
+  assert.deepEqual(windows.repeat,{count:[12,3,1],spacing:[1.5,2,0]});
+  assert.deepEqual(windows.material,{color:'#223344',metalness:.2,roughness:.3,
+    emissive:'#ffcc88',emissiveIntensity:2.5,opacity:.6});
+  assert.equal(lamp.material.emissiveIntensity,1,'Glow defaults to intensity 1');
+  assert.deepEqual(doc.scenes[0].camera,{position:[18,6,30],target:[0,3,0],fov:42});
+  // Copies are centered on the object's position along its own axes.
+  assert.deepEqual(repeatOffsets({count:[3,1,2],spacing:[2,0,4]}),
+    [[-2,0,-2],[-2,0,2],[0,0,-2],[0,0,2],[2,0,-2],[2,0,2]]);
+  assert.deepEqual(repeatOffsets(undefined),[[0,0,0]]);
+});
+test('v1 objects validate to exactly the original output, and empty extras are dropped',()=>{
+  const v1=base('plain','box');
+  assert.deepEqual(validatePrimitiveDocument(richDoc([v1])).scenes[0],
+    {shotId:'shot_a',objects:[{id:'plain',name:'plain',primitive:'box',position:[0,1,0],
+      rotation:[0,0,0],scale:[2,2,2],material:{color:'#334455',metalness:.1,roughness:.6}}]});
+  // null extras and a 1x1x1 repeat mean "not set"; points only belong to extrude.
+  const cleaned=validatePrimitiveDocument(richDoc([base('plain','box',{repeat:{count:[1,1,1],spacing:[5,5,5]},
+    points:[[0,0],[1,0],[0,1]],material:{color:'#334455',metalness:.1,roughness:.6,emissive:null,opacity:null}})],
+    null)).scenes[0];
+  assert.deepEqual(Object.keys(cleaned),['shotId','objects']);
+  assert.deepEqual(Object.keys(cleaned.objects[0]).sort(),['id','material','name','position','primitive','rotation','scale']);
+  assert.deepEqual(cleaned.objects[0].material,{color:'#334455',metalness:.1,roughness:.6});
+});
+test('richer vocabulary is still strictly bounded data',()=>{
+  const bad=(objects,camera,pattern)=>assert.throws(()=>validatePrimitiveDocument(richDoc(objects,camera)),pattern);
+  bad([base('x','pyramid')],undefined,/unsupported primitive/);
+  bad([base('x','extrude')],undefined,/footprint points/);
+  bad([base('x','extrude',{points:[[0,0],[1,0]]})],undefined,/footprint points/);
+  bad([base('x','extrude',{points:Array(33).fill([0,0])})],undefined,/footprint points/);
+  bad([base('x','extrude',{points:[[0,0],[.5,0],[1,0]]})],undefined,/no area/);
+  bad([base('x','extrude',{points:[[0,0],[1.5,0],[0,1]]})],undefined,/between -1 and 1/);
+  bad([base('x','extrude',{points:[[0,0],['1',0],[0,1]]})],undefined,/finite/);
+  bad([base('x','box',{repeat:{count:[2,2],spacing:[1,1,1]}})],undefined,/3 integers/);
+  bad([base('x','box',{repeat:{count:[2.5,1,1],spacing:[1,1,1]}})],undefined,/integer/);
+  bad([base('x','box',{repeat:{count:[51,1,1],spacing:[1,1,1]}})],undefined,/integer from 1 to 50/);
+  bad([base('x','box',{repeat:{count:[20,21,1],spacing:[1,1,1]}})],undefined,/more than 400 copies/);
+  bad([base('x','box',{repeat:{count:[2,1,1],spacing:[1,NaN,1]}})],undefined,/finite/);
+  bad([base('x','box',{repeat:'12 windows'})],undefined,/repeat must be/);
+  bad([base('x','box',{material:{color:'#334455',metalness:.1,roughness:.6,emissive:'orange'}})],undefined,/emissive/);
+  bad([base('x','box',{material:{color:'#334455',metalness:.1,roughness:.6,emissive:'#ffffff',emissiveIntensity:11}})],undefined,/emissiveIntensity/);
+  bad([base('x','box',{material:{color:'#334455',metalness:.1,roughness:.6,opacity:0}})],undefined,/opacity/);
+  bad([base('x','box')],{position:[0,0,0],target:[0,0,0],fov:40},/distinct target/);
+  bad([base('x','box')],{position:[0,0,5],target:[0,0,0],fov:5},/fov/);
+  bad([base('x','box')],{position:[0,0,5],fov:40},/camera target/);
+  bad([base('x','box')],'front',/camera must be/);
+  // 2000 rendered copies per scene, however they are split across objects.
+  const arrays=n=>Array.from({length:n},(_,i)=>base('a'+i,'box',{repeat:{count:[20,20,1],spacing:[1,1,0]}}));
+  assert.equal(validatePrimitiveDocument(richDoc(arrays(5))).scenes[0].objects.length,5);
+  bad(arrays(5).concat([base('one_more','box')]),undefined,/more than 2000 rendered copies/);
 });

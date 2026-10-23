@@ -136,9 +136,22 @@ function safe_worker_diagnostic($value) {
         'codes' => array_values($codes), 'fields' => array_values($fields),
         'terms' => array_values($terms)];
 }
+/** Adds the Worker's sanitized diagnostic and token usage, when it sent them. */
 function with_diagnostic(array $payload, $workerValue): array {
     $diagnostic = safe_worker_diagnostic(is_array($workerValue) ? ($workerValue['diagnostic'] ?? null) : null);
-    return $diagnostic === null ? $payload : $payload + ['diagnostic' => $diagnostic];
+    $usage = safe_worker_usage(is_array($workerValue) ? ($workerValue['usage'] ?? null) : null);
+    if ($diagnostic !== null) $payload += ['diagnostic' => $diagnostic];
+    return $usage === null ? $payload : $payload + ['usage' => $usage];
+}
+/** Token counts only: these keys, non-negative integers. Must match the Worker's USAGE_KEYS (tested). */
+function safe_worker_usage($value) {
+    if (!is_array($value)) return null;
+    $usage = [];
+    foreach (['input', 'inputImage', 'cached', 'thinking', 'output', 'total', 'cap'] as $key) {
+        if (isset($value[$key]) && is_int($value[$key]) && $value[$key] >= 0 && $value[$key] <= 100000000)
+            $usage[$key] = $value[$key];
+    }
+    return $usage ? $usage : null;
 }
 
 /** Fixed-target Argon background job transport (only after session+CSRF). */
@@ -570,7 +583,7 @@ if ($action === 'argon_start') {
         'id' => $job['jobId'], 'shotId' => $shotId, 'created' => time(),
         'status' => $job['status']
     ];
-    answer(200, ['ok' => true, 'status' => $job['status'], 'shotId' => $shotId]);
+    answer(200, with_diagnostic(['ok' => true, 'status' => $job['status'], 'shotId' => $shotId], $job));
 }
 if (in_array($workerInput['profile'] ?? '', $argonProfiles, true))
     reject(400, 'Use the Argon background job endpoint');

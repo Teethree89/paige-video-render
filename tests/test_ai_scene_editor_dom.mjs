@@ -525,11 +525,13 @@ test('Experimental direct-image Argon discloses image handling, submits once and
     return true;
   };
   globalThis.document=argonDomHarness(ids,jpeg);
-  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
+  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',camera:{position:[0,3,18],target:[0,2,0],fov:42},objects:[{
     id:'direct_facade',name:'Facade observed directly',primitive:'box',
     position:[0,2,0],rotation:[0,0,0],scale:[8,4,1],
     material:{color:'#334455',metalness:0,roughness:.6}
-  }]}]};
+  },{id:'window_grid',name:'Window grid',primitive:'box',position:[0,2,.55],rotation:[0,0,0],
+    scale:[1,1.2,.05],repeat:{count:[6,2,1],spacing:[1.3,1.8,0]},
+    material:{color:'#112233',metalness:.4,roughness:.2,emissive:'#ffdd99',emissiveIntensity:1}}]}]};
   globalThis.fetch=async(url,options={})=>{
     if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',
       argonJob:null}),{status:200});
@@ -555,8 +557,13 @@ test('Experimental direct-image Argon discloses image handling, submits once and
     await ids.get('aiSceneGenerate').fire('click');
     assert.deepEqual(actions,['argon_start','argon_status']);
     assert.equal(preview?.objects[0]?.id,'direct_facade');
+    // The rich result survives cleanup into the preview, camera included.
+    assert.deepEqual(preview.camera,{position:[0,3,18],target:[0,2,0],fov:42});
+    assert.deepEqual(preview.objects[1].repeat,{count:[6,2,1],spacing:[1.3,1.8,0]});
     assert.equal(saved,0);
     assert.match(ids.get('aiSceneLog').textContent,/directly to Gemini 4 Argon through a Cloudflare job/);
+    assert.match(ids.get('aiSceneLog').textContent,/Preview ready: 2 editable objects \(13 rendered parts\)/);
+    assert.match(ids.get('aiSceneLog').textContent,/estimate of the reference camera; timeline cameras are unchanged/);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
@@ -595,12 +602,25 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     assert.deepEqual(rejected.actions,['argon_start'],'No retry, Previs or Flash-Lite fallback');
     assert.match(rejected.log,/Provider diagnostic: create · HTTP 400 · reason media_input_rejected · code invalid_request · fields input · terms image, only, one, supported/);
     const failed=await run('argon_previs',payload=>new Response(JSON.stringify(
-      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
+      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a',
+        usage:{input:5210,inputImage:4644,thinking:0,output:812,total:6022,cap:4096}}:
       {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,
-        status:'incomplete',reason:'incomplete_output',codes:[],fields:[]}}),{status:200}));
+        status:'incomplete',reason:'incomplete_output',codes:[],fields:[]},
+        usage:{input:1800,thinking:20000,output:8672,total:30472,cap:28672}}),{status:200}));
     assert.deepEqual(failed.actions,['argon_start','argon_status']);
     assert.match(failed.log,/Argon job failed on the provider/);
     assert.match(failed.log,/Provider diagnostic: job · incomplete · reason incomplete_output/);
+    // Token counts are logged for both paid stages, including a job cut off at its cap.
+    assert.match(failed.log,/Flash-Lite analysis tokens: 5,210 input \(4,644 image\) · 0 thinking · 812 output · 6,022 total\. Thinking \+ output used 812 of 4,096 \(20%\)\./);
+    assert.match(failed.log,/Argon tokens: 1,800 input · 20,000 thinking · 8,672 output · 30,472 total\. Thinking \+ output used 28,672 of 28,672 \(100%\)\./);
+    // Argon rejecting the job after the analysis still shows the billed analysis.
+    const analysisBilled=await run('argon_previs',()=>new Response(JSON.stringify({ok:false,
+      error:'Google rejected the Argon request (HTTP 400).',
+      diagnostic:{phase:'create',http:400,status:null,reason:'output_schema',codes:['invalid_request'],fields:['response_format']},
+      usage:{input:5210,output:812,total:6022,cap:4096}}),{status:502}));
+    assert.deepEqual(analysisBilled.actions,['argon_start']);
+    assert.match(analysisBilled.log,/Flash-Lite analysis tokens: 5,210 input · 812 output · 6,022 total/);
+    assert.match(analysisBilled.log,/reason output_schema/);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
@@ -658,6 +678,12 @@ test('Argon polling survives a backgrounded phone and never resubmits the paid j
     assert.equal(broken.actions.length,3);
     assert.deepEqual(broken.delays,[10000,15000]);
     assert.match(broken.log,/Argon resume: The AI Worker could not complete the request/);
+    // A paid result the Worker could not use reports its tokens once, not per check.
+    const unusable=reply(502,{ok:false,error:'Provider scene did not match the editor schema',
+      usage:{input:1800,thinking:9120,output:11204,total:22124,cap:32768}});
+    const wasted=await run([unusable,unusable,unusable]);
+    assert.equal(wasted.log.split('Argon tokens: 1,800 input · 9,120 thinking').length-1,1);
+    assert.match(wasted.log,/used 20,324 of 32,768 \(62%\)/);
     // A lost session is never retried.
     const signedOut=await run([reply(401,{ok:false,error:'Sign in before generating a scene'}),done]);
     assert.equal(signedOut.actions.length,1);

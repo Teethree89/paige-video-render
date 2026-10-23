@@ -16,6 +16,7 @@ async function request(action,data={}) {
     const error=Error(result.error||'Scene request failed');
     error.status=response.status;
     if(result.diagnostic&&typeof result.diagnostic==='object')error.diagnostic=result.diagnostic;
+    if(result.usage&&typeof result.usage==='object')error.usage=result.usage;
     throw error;
   }
   return result;
@@ -38,6 +39,21 @@ export function describeDiagnostic(d) {
     'reason '+d.reason,list(d.codes)&&'code '+list(d.codes),
     list(d.fields)&&'fields '+list(d.fields),
     list(d.terms)&&'terms '+list(d.terms)].filter(Boolean).join(' · ');
+}
+// Token counts from Google, already reduced to fixed numeric fields by the
+// Worker and PHP. The cap covers thinking plus output, so its share shows how
+// close a job came to being cut off.
+export function describeUsage(label,u) {
+  const n=key=>Number.isInteger(u?.[key])?u[key].toLocaleString('en-US'):null;
+  const parts=[n('input')&&n('input')+' input'+(n('inputImage')?' ('+n('inputImage')+' image)':''),
+    n('cached')&&n('cached')+' cached',n('thinking')&&n('thinking')+' thinking',
+    n('output')&&n('output')+' output',n('total')&&n('total')+' total'].filter(Boolean);
+  let line=label+' tokens: '+(parts.join(' · ')||'not reported')+'.';
+  const used=(u?.thinking||0)+(u?.output||0);
+  if(Number.isInteger(u?.cap)&&u.cap>0&&used>0)
+    line+=' Thinking + output used '+used.toLocaleString('en-US')+' of '+n('cap')+
+      ' ('+Math.round(used/u.cap*100)+'%).';
+  return line;
 }
 async function readServerSession() {
   const response=await fetch(api,{credentials:'same-origin',cache:'no-store'});
@@ -171,11 +187,14 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   async function pollArgon(shotId){
     log('Argon job accepted. Polling for completion (status checks are free and never resubmit)…');
     const started=Date.now();
-    let prior='',httpErrors=0,interrupted=false;
+    let prior='',httpErrors=0,interrupted=false,counted=false;
+    // A finished job reports its usage on every check; log it once.
+    const count=usage=>{if(usage&&!counted){counted=true;log(describeUsage('Argon',usage));}};
     while(true){
       let result=null;
       try{result=await request('argon_status',{csrf});httpErrors=0;}
       catch(error){
+        count(error.usage); // a paid result the Worker could not use
         if([401,403,404].includes(error.status))throw error;
         if(error.status&&++httpErrors>=3)throw error;
         if(!interrupted)log('Status check interrupted ('+error.message+'). Retrying without a new paid request…');
@@ -188,6 +207,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           prior=result.status;
           log('Argon job status: '+result.status+'.');
         }
+        count(result.usage);
         if(result.status==='completed'){
           if(!result.proposal)throw Error('Argon completed without valid geometry');
           log('Argon model output received and validated by the Worker.');
@@ -218,7 +238,12 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(pending){onDiscard();pending=null;pendingShot=null;}
     pending=result.document.scenes[0];pendingShot=shot.id;
     onPreview(pending);
-    log('Preview ready: '+pending.objects.length+' editable objects. No scene saved.');
+    // Repeat arrays render many copies per editable object.
+    const rendered=pending.objects.reduce((sum,item)=>sum+(item.repeat?
+      item.repeat.count[0]*item.repeat.count[1]*item.repeat.count[2]:1),0);
+    log('Preview ready: '+pending.objects.length+' editable objects'+
+      (rendered>pending.objects.length?' ('+rendered+' rendered parts)':'')+'. No scene saved.');
+    if(pending.camera)log('Preview starts from the model\'s estimate of the reference camera; timeline cameras are unchanged.');
     const counts=fullEnvironment?ENVIRONMENT_PASSES.map(p=>
       p.label+': '+pending.objects.filter(o=>o.layer===p.id).length).join(' · '):'';
     status('Preview: '+pending.objects.length+' editable objects. '+counts+
@@ -348,7 +373,13 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           log(profile==='argon_direct'
             ?'Sending '+frames.length+' reference frames directly to Gemini 4 Argon through a Cloudflare job (one potentially billable call)…'
             :'Analyzing 3 reference frames with Gemini 3.5 Flash-Lite, then starting text-only Argon background geometry (up to two potentially billable calls)…');
-          const start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,mode:'primary_subject'});
+          let start;
+          try{start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,mode:'primary_subject'});}
+          catch(error){ // the analysis is billed even when Argon then rejects the job
+            if(error.usage)log(describeUsage('Flash-Lite analysis',error.usage));
+            throw error;
+          }
+          if(start.usage)log(describeUsage('Flash-Lite analysis',start.usage));
           argonJob={shotId:shot.id,status:start.status};
           if(waitInfo)waitInfo.textContent='Argon background job submitted';
           log('Paid Argon job started. You may resume it after a page refresh.');

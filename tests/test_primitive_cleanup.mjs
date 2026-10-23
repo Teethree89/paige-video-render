@@ -77,3 +77,24 @@ test('cleanup cannot move geometry across shots or break validator',()=>{
   assert.deepEqual(document.scenes[1].objects,[other]);
   assert.throws(()=>cleanupPrimitiveDocument(value,['shot_b']),/unknown shotId/);
 });
+
+test('cleanup keeps the scene camera and rich fields, and never moves arrays',()=>{
+  const ground=obj('ground','box',[0,-.2,0],[20,.4,20]);
+  // A repeated path would sit flush on the ground and be nudged if it were single.
+  const tiles={...obj('tiles','plane',[0,0,1],[2,2,1],[-Math.PI/2,0,0]),repeat:{count:[3,1,1],spacing:[3,0,0]}};
+  const glow=obj('lamp','box',[0,3,0],[1,1,1],[0,0,0],
+    {color:'#ffeeaa',metalness:0,roughness:.6,emissive:'#ffcc66',emissiveIntensity:3});
+  const plainLamp={...obj('lamp_plain','box',[0,3,0],[1,1,1],[0,0,0],{color:'#ffeeaa',metalness:0,roughness:.6})};
+  const ell={...obj('ell','extrude',[5,1,5],[4,2,4]),points:[[-.5,-.5],[.5,-.5],[.5,0],[0,0],[0,.5],[-.5,.5]]};
+  const square={...obj('square','extrude',[5,1,5],[4,2,4]),points:[[-.5,-.5],[.5,-.5],[.5,.5],[-.5,.5]]};
+  const copy={...structuredClone(tiles),id:'tiles_copy'};
+  const camera={position:[0,4,18],target:[0,1,0],fov:45};
+  const value={schemaVersion:1,scenes:[{shotId:'shot_a',camera,objects:[ground,tiles,glow,plainLamp,ell,square,copy]}]};
+  const {document,report}=cleanupPrimitiveDocument(value,['shot_a']);
+  assert.deepEqual(document.scenes[0].camera,camera);
+  // Only the identical array is a duplicate: glow, footprint and repeat all count.
+  assert.equal(report.removedDuplicates,1);
+  assert.deepEqual(document.scenes[0].objects.map(item=>item.id),['ground','tiles','lamp','lamp_plain','ell','square']);
+  assert.equal(report.nudgedOverlaps,0);
+  assert.deepEqual(document.scenes[0].objects[1].position,[0,0,1]);
+});
