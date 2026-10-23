@@ -569,6 +569,32 @@ Older failed direct-image output cannot be reconstructed by this change.
 The new behavior is verified with offline fixtures and workerd; no new paid
 provider reproduction is submitted for it.
 
+### Interrupted on Cloudflare, not at Google (`argon-deploy-interrupt-v1`)
+
+A full-scene, high-thinking, Maximum-detail direct-image run started at
+11:21:50 EDT and reported `job_interrupted` at 11:23:43. No original
+output was saved. That reason is set in only two places: the 16-minute
+status check (not reached here) and a re-run alarm that finds the job
+already `submitted`. So the first alarm's isolate stopped during the paid
+call, and Cloudflare ran the alarm again, which did not call Google. The
+settings did not cause this: no provider error or answer was recorded,
+and an earlier high/Maximum run (10:08) completed after 164 seconds.
+
+PR #86 merged at 11:19:34, and a merge to `main` deploys the Worker. A
+deploy resets Durable Objects ("Durable Object reset because its code was
+updated"). This is the likeliest cause, but it is not confirmed: preview
+builds of #85 and #86 finished 41 and 80 seconds after their pushes. A
+production build that fast would have deployed before the run started.
+Cloudflare's Deployments page and the alarm's invocation log hold the
+answer.
+
+Reproduced in workerd: restarting Miniflare with new options during a
+mocked call yields exactly `job_interrupted` on the previous Worker, with
+one Google call. The job now stores the `CF_VERSION_METADATA` version with
+its `submitted` marker. The re-run alarm reports `job_interrupted_deploy`
+when the version changed, so the next occurrence names its cause. The
+editor no longer calls either reason a provider failure.
+
 ### Status wall-time observation
 
 A supplied log records a `/status` Durable Object fetch with 555,593 ms

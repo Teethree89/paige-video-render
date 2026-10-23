@@ -734,6 +734,21 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     assert.deepEqual(unusable.actions,['argon_start','argon_status'],'No retry of a finished paid job');
     assert.match(unusable.log,/No part of the returned scene was usable\. Rule: size out of range, repeat over its limits\./);
     assert.match(unusable.log,/reason scene_schema_mismatch · code scale, repeat/);
+    // A job cut off by a Worker deploy is Cloudflare's stop, not a provider failure.
+    const redeployed=await run('argon_direct',payload=>new Response(JSON.stringify(
+      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
+      {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,status:'failed',
+        reason:'job_interrupted_deploy',codes:[],fields:[],terms:[]}}),{status:200}));
+    assert.deepEqual(redeployed.actions,['argon_start','argon_status'],'Never resubmitted');
+    assert.match(redeployed.log,/Argon job stopped on Cloudflare, not at Google\. The Worker was redeployed during the paid call/);
+    assert.doesNotMatch(redeployed.log,/failed on the provider/);
+    assert.match(redeployed.log,/The cut-off call was not resubmitted\. Its billing is not confirmed/);
+    const stopped=await run('argon_direct',payload=>new Response(JSON.stringify(
+      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
+      {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,status:'failed',
+        reason:'job_interrupted',codes:[],fields:[],terms:[]}}),{status:200}));
+    assert.match(stopped.log,/stopped on Cloudflare, not at Google\. The job stopped during the paid call \(a Worker deploy is the usual cause\)/);
+    assert.doesNotMatch(failed.log,/cut-off call/,'not for provider failures');
     // Argon rejecting the job after the analysis still shows the billed analysis.
     const analysisBilled=await run('argon_previs',()=>new Response(JSON.stringify({ok:false,
       error:'Google rejected the Argon request (HTTP 400).',
