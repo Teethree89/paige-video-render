@@ -31,7 +31,7 @@ export function setupTimelineEditing({
  const snap=btn('Snap ON','Toggle frame and boundary snapping','timelineSnap');
  const status=mk('span','Select a chapter to copy, paste, resize or move.',{id:'timelineEditStatus',role:'status'});
  bar.append(status);
- toolbar.insertAdjacentElement('afterend',bar);
+ toolbar.closest('.timeline-header').insertAdjacentElement('afterend',bar);
  const locks=new Map();
  for(const [kind,label] of [['scenes','SCENES'],['camera','CAMERA'],['text','TEXT']]){
    const row=Array.from(document.querySelectorAll('.track-label')).find(e=>e.textContent.includes(label));
