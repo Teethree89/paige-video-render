@@ -274,6 +274,16 @@
   </section>
   <script>setTimeout(() => { if (!window.__atomsEditorStarted) { const b=document.getElementById("errorBanner"); if (!b.hidden) return; b.hidden=false; b.textContent="Three.js could not initialize. Start this folder with an HTTP server and ensure your browser can access the jsDelivr CDN."; } }, 9000);</script>
   <script>document.getElementById("renderVideoBtn").addEventListener("click",()=>window.open("render.html","_blank","noopener"));</script>
+  <dialog id="aiConfirm" class="confirm-dialog" aria-labelledby="aiConfirmTitle">
+    <form method="dialog">
+      <div id="aiConfirmTitle" class="section-label">CONFIRM PAID REQUEST</div>
+      <p id="aiConfirmText"></p>
+      <div class="confirm-actions">
+        <button type="submit" value="cancel" class="ghost">Cancel</button>
+        <button id="aiConfirmOk" type="submit" value="ok" class="primary">Start paid run</button>
+      </div>
+    </form>
+  </dialog>
   <script type="module" src="app.js"></script>
 </body>
 </html>

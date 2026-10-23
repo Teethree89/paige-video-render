@@ -947,3 +947,52 @@ test('every Worker repair code has a plain-words label in the activity log',()=>
   assert.equal(describeRepairs(null),'');
   assert.equal(describeRepairs({scale:0,repeat:'2'}),'');
 });
+
+test('paid Argon starts ask in the page, so a background tab cannot dismiss the question',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
+  const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  // Chrome would suppress window.confirm(); the editor must never rely on it.
+  globalThis.confirm=()=>{throw Error('window.confirm must not be used when the page dialog exists');};
+  class FakeDialog extends Element{
+    constructor(answer){super();this.answer=answer;this.returnValue='x';this.shown=0;}
+    showModal(){this.shown++;setTimeout(()=>{this.returnValue=this.answer;this.handlers.get('close')?.();},0);}
+  }
+  const run=async answer=>{
+    const ids=new Map(),actions=[];
+    globalThis.document=argonDomHarness(ids,jpeg);
+    const dialog=new FakeDialog(answer);ids.set('aiConfirm',dialog);
+    globalThis.fetch=async(url,options={})=>{
+      if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'c',argonJob:null}),{status:200});
+      const payload=JSON.parse(options.body);actions.push(payload.action);
+      return new Response(JSON.stringify(payload.action==='argon_start'
+        ?{ok:true,status:'in_progress',shotId:'shot_a'}
+        :{ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,status:'failed',
+          reason:'provider_internal',codes:[],fields:[],terms:[]}}),{status:200});
+    };
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:()=>{},onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='environment';ids.get('aiSceneModel').value='argon_direct';
+    await ids.get('aiSceneGenerate').fire('click');
+    return {ids,actions,dialog};
+  };
+  try{
+    const cancelled=await run('cancel');
+    assert.equal(cancelled.dialog.shown,1);
+    assert.match(cancelled.ids.get('aiConfirmText').textContent,/^Settings: medium thinking, Standard detail\. Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation of the FULL SCENE\?/);
+    assert.equal(cancelled.ids.get('aiConfirmOk').textContent,'Start paid Argon run');
+    assert.deepEqual(cancelled.actions,[],'nothing is sent unless confirmed');
+    assert.match(cancelled.ids.get('aiSceneLog').textContent,/Paid request not started: the confirmation was cancelled or dismissed\. Nothing was sent\./);
+    // Escape or a dismissed dialog leaves no answer: also not started.
+    assert.deepEqual((await run('')).actions,[]);
+    const confirmed=await run('ok');
+    assert.deepEqual(confirmed.actions,['argon_start','argon_status']);
+    assert.doesNotMatch(confirmed.ids.get('aiSceneLog').textContent,/not started/);
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+    if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
+    globalThis.fetch=oldFetch;
+  }
+});

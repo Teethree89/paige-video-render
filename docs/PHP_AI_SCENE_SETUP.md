@@ -405,7 +405,11 @@ With an Argon model selected, the editor shows two selectors:
   for a full scene, cap 120), High (cap 150) or Maximum (cap 180). Every level
   shares the same 32,768-token output budget.
 
-PHP accepts `thinking` and `detail` only on `argon_start`, only from these
+The confirmation is an in-page dialog, not the browser's `confirm()`, which
+Chrome dismisses without asking when the tab is not in front (seen live
+2026-10-23); only its explicit button starts the paid call, and Cancel,
+Escape or a dismissed dialog logs "Paid request not started … Nothing was
+sent." PHP accepts `thinking` and `detail` only on `argon_start`, only from these
 lists, and forwards them; the Worker checks them again and the Durable Object
 stores them with the job. The confirmation names both settings and, for high
 thinking or Maximum detail, warns that a cut-off answer keeps only finished
