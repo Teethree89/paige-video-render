@@ -368,6 +368,12 @@ Unverified until the first live run of each profile:
 - **Whether the result is closer to the hand-built scenes.** Nothing has been
   measured yet.
 
+Each finished job now reports its token counts (`argon-rich-usage-v1`; see
+*Argon token usage* in [PHP_AI_SCENE_SETUP.md](PHP_AI_SCENE_SETUP.md)). The
+first live runs will therefore answer the budget question directly
+(thinking + output against the cap), and `inputImage` gives the real image
+token count, replacing the tiling estimate listed under remaining blockers.
+
 ### Remaining blockers
 
 These need the live steps above or action from Google:
@@ -378,7 +384,8 @@ These need the live steps above or action from Google:
 - Whether direct observation by Argon actually improves reconstruction
   fidelity compared with Previs.
 - How Google counts Gemini 3+ image tokens for these frames (the cost
-  estimates above assume the documented tiling).
+  estimates above assume the documented tiling). The next live run's
+  `inputImage` count answers this.
 
 ### Sources (read 2026-10-22)
 

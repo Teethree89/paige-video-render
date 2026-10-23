@@ -529,6 +529,42 @@ function argonFetchFailureCategory(error){
   if(error?.name==='TypeError')return 'runtime-type-or-network';
   return 'other-fetch-failure';
 }
+// Token counts only: fixed keys, non-negative integers, plus our own output
+// cap (thinking and output share it). Nothing else from Google's usage object
+// is copied, logged or returned. Shown to the editor so cost and near-cutoff
+// jobs are visible, and logged as Cloudflare's persisted history.
+const USAGE_KEYS=Object.freeze(['input','inputImage','cached','thinking','output','total','cap']);
+function usageSummary(counts){
+  const usage={};
+  for(const key of USAGE_KEYS){
+    const n=counts[key];
+    if(Number.isInteger(n)&&n>=0&&n<=1e8)usage[key]=n;
+  }
+  return Object.keys(usage).some(key=>key!=='cap')?usage:null;
+}
+// Interactions Usage (OpenAPI): total_*_tokens and input_tokens_by_modality.
+function argonUsage(usage,cap){
+  if(!usage||typeof usage!=='object')return null;
+  const byModality=Array.isArray(usage.input_tokens_by_modality)?usage.input_tokens_by_modality:[];
+  return usageSummary({input:usage.total_input_tokens,
+    inputImage:byModality.find(entry=>entry?.modality==='image')?.tokens,
+    cached:usage.total_cached_tokens,thinking:usage.total_thought_tokens,
+    output:usage.total_output_tokens,total:usage.total_tokens,cap});
+}
+// generateContent usageMetadata, for the Previs Flash-Lite analysis.
+function flashUsage(meta,cap){
+  if(!meta||typeof meta!=='object')return null;
+  const details=Array.isArray(meta.promptTokensDetails)?meta.promptTokensDetails:[];
+  return usageSummary({input:meta.promptTokenCount,
+    inputImage:details.find(entry=>entry?.modality==='IMAGE')?.tokenCount,
+    cached:meta.cachedContentTokenCount,thinking:meta.thoughtsTokenCount,
+    output:meta.candidatesTokenCount,total:meta.totalTokenCount,cap});
+}
+function logUsage(profile,stage,usage){
+  if(usage)console.log('argon-usage',JSON.stringify({profile,stage,...usage}));
+  return usage;
+}
+const withUsage=(value,usage)=>usage?{...value,usage}:value;
 async function argonBadRequest(response,phase='create'){
   // Only fixed vocabulary leaves the Worker; raw provider errors may contain
   // account metadata, prompts, image payload fragments or other private data.
@@ -825,7 +861,7 @@ async function argonGateway(request,env,path){
     // Argon still performs all background 3D reconstruction, from text alone.
     // Both calls share 40s, inside the PHP 45s request deadline.
     const deadline=AbortSignal.timeout(40000);
-    let analysisResponse,analysis;
+    let analysisResponse,analysis,analysisUsage=null;
     try{
       const parts=[{text:ARGON_ANALYSIS_PROMPT},...validated.content];
       analysisResponse=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+ARGON_VISUAL_MODEL+':generateContent',{
@@ -844,6 +880,8 @@ async function argonGateway(request,env,path){
     if(!analysisResponse.ok)return safeProviderStatus(analysisResponse.status);
     try{
       const data=await analysisResponse.json();
+      // Counted before validation: an unusable analysis is still billed.
+      analysisUsage=logUsage(ARGON_PROFILE,'analysis',flashUsage(data?.usageMetadata,ARGON_ANALYSIS_TOKENS));
       const output=(Array.isArray(data?.candidates?.[0]?.content?.parts)?
         data.candidates[0].content.parts:[]).filter(part=>typeof part?.text==='string')
         .map(part=>part.text).join('');
@@ -863,7 +901,10 @@ Use uncertainties to omit unsupported detail. Return only the scene JSON.`,
       // Use the same string input shape as the passing background-text test.
       // No image content, file URI, or previous_interaction_id reaches this call.
       input:JSON.stringify(analysis)};
-    return startArgonInteraction(env,deadline,'background-geometry',body);
+    const started=await startArgonInteraction(env,deadline,'background-geometry',body);
+    if(!analysisUsage)return started;
+    // The analysis is billed even when Argon then rejects the job.
+    return reply(withUsage(await started.json(),analysisUsage),started.status);
   }
   if(path==='/api/scene/argon/status'){
     const id=payload?.jobId,shotId=payload?.shotId;
@@ -885,16 +926,22 @@ Use uncertainties to omit unsupported detail. Return only the scene JSON.`,
     if(interaction?.id!==id)return fail(502,'Invalid provider response');
     const status=argonSafeStatus(interaction.status);
     if(!status)return fail(502,'Invalid provider response');
-    if(status==='failed')return reply({ok:true,status,diagnostic:argonJobDiagnostic(interaction)});
-    if(status!=='completed')return reply({ok:true,status});
+    if(status!=='completed'&&status!=='failed')return reply({ok:true,status});
+    // A finished job is billed whatever its outcome, so every terminal reply
+    // carries its token counts.
+    const usage=logUsage(ARGON_PROFILE,'geometry',
+      argonUsage(interaction.usage,ARGON_MAX_OUTPUT_TOKENS-ARGON_ANALYSIS_TOKENS));
+    if(status==='failed')
+      return reply(withUsage({ok:true,status,diagnostic:argonJobDiagnostic(interaction)},usage));
     // Only terminal model_output text is accepted; never expose thought steps,
     // provider messages, input frames or arbitrary account metadata.
     const output=argonOutputText(interaction);
-    if(!output||output.length>ARGON_MAX_OUTPUT_CHARS)return fail(502,'Provider produced no usable scene');
+    if(!output||output.length>ARGON_MAX_OUTPUT_CHARS)
+      return reply(withUsage({ok:false,error:'Provider produced no usable scene'},usage),502);
     try{
       const proposal=validateArgonOutput(JSON.parse(output),shotId);
-      return reply({ok:true,status:'completed',proposal});
-    }catch{return fail(502,'Provider scene did not match the editor schema');}
+      return reply(withUsage({ok:true,status:'completed',proposal},usage));
+    }catch{return reply(withUsage({ok:false,error:'Provider scene did not match the editor schema'},usage),502);}
   }
   return fail(404,'Not found');
 }
@@ -964,11 +1011,14 @@ Return only the scene JSON.`,
   if(!response.ok)return directFailure(providerStatusReason(response.status));
   let interaction;
   try{interaction=await response.json();}catch{return directFailure('invalid_provider_response');}
-  if(interaction?.status!=='completed')return {state:'failed',diagnostic:argonJobDiagnostic(interaction)};
+  // Logged once: the alarm reaches this point at most once per job.
+  const usage=logUsage(ARGON_DIRECT_PROFILE,'geometry',argonUsage(interaction?.usage,ARGON_MAX_OUTPUT_TOKENS));
+  if(interaction?.status!=='completed')
+    return withUsage({state:'failed',diagnostic:argonJobDiagnostic(interaction)},usage);
   const output=argonOutputText(interaction);
-  if(!output||output.length>ARGON_MAX_OUTPUT_CHARS)return directFailure('no_usable_scene');
-  try{return {state:'completed',proposal:validateArgonOutput(JSON.parse(output),shotId)};}
-  catch{return directFailure('scene_schema_mismatch');}
+  if(!output||output.length>ARGON_MAX_OUTPUT_CHARS)return withUsage(directFailure('no_usable_scene'),usage);
+  try{return withUsage({state:'completed',proposal:validateArgonOutput(JSON.parse(output),shotId)},usage);}
+  catch{return withUsage(directFailure('scene_schema_mismatch'),usage);}
 }
 async function startDirectArgonJob(request,env){
   if(!env.ARGON_JOBS)return fail(503,'Argon direct job storage is not configured');
@@ -1028,13 +1078,14 @@ export class ArgonJob {
       job=await this.finish(job,directFailure(job.state==='queued'?'job_not_started':'job_interrupted'));
     if(job.state==='queued')return reply({ok:true,status:'queued'});
     if(job.state==='submitted')return reply({ok:true,status:'in_progress'});
-    if(job.state==='completed')return reply({ok:true,status:'completed',proposal:job.proposal});
-    return reply({ok:true,status:'failed',diagnostic:job.diagnostic});
+    if(job.state==='completed')return reply(withUsage({ok:true,status:'completed',proposal:job.proposal},job.usage));
+    return reply(withUsage({ok:true,status:'failed',diagnostic:job.diagnostic},job.usage));
   }
   async finish(job,outcome){
     const done={state:outcome.state,shotId:job.shotId,created:job.created,finished:Date.now(),
       ...(outcome.proposal?{proposal:outcome.proposal}:{}),
-      ...(outcome.diagnostic?{diagnostic:outcome.diagnostic}:{})};
+      ...(outcome.diagnostic?{diagnostic:outcome.diagnostic}:{}),
+      ...(outcome.usage?{usage:outcome.usage}:{})};
     await this.ctx.storage.put('job',done);
     await this.ctx.storage.delete('request');
     await this.ctx.storage.setAlarm(done.finished+ARGON_DIRECT_RETENTION_MS);
@@ -1075,7 +1126,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-rich-scene-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-rich-usage-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');

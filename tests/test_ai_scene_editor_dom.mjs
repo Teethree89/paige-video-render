@@ -602,12 +602,25 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     assert.deepEqual(rejected.actions,['argon_start'],'No retry, Previs or Flash-Lite fallback');
     assert.match(rejected.log,/Provider diagnostic: create · HTTP 400 · reason media_input_rejected · code invalid_request · fields input · terms image, only, one, supported/);
     const failed=await run('argon_previs',payload=>new Response(JSON.stringify(
-      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
+      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a',
+        usage:{input:5210,inputImage:4644,thinking:0,output:812,total:6022,cap:4096}}:
       {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,
-        status:'incomplete',reason:'incomplete_output',codes:[],fields:[]}}),{status:200}));
+        status:'incomplete',reason:'incomplete_output',codes:[],fields:[]},
+        usage:{input:1800,thinking:20000,output:8672,total:30472,cap:28672}}),{status:200}));
     assert.deepEqual(failed.actions,['argon_start','argon_status']);
     assert.match(failed.log,/Argon job failed on the provider/);
     assert.match(failed.log,/Provider diagnostic: job · incomplete · reason incomplete_output/);
+    // Token counts are logged for both paid stages, including a job cut off at its cap.
+    assert.match(failed.log,/Flash-Lite analysis tokens: 5,210 input \(4,644 image\) · 0 thinking · 812 output · 6,022 total\. Thinking \+ output used 812 of 4,096 \(20%\)\./);
+    assert.match(failed.log,/Argon tokens: 1,800 input · 20,000 thinking · 8,672 output · 30,472 total\. Thinking \+ output used 28,672 of 28,672 \(100%\)\./);
+    // Argon rejecting the job after the analysis still shows the billed analysis.
+    const analysisBilled=await run('argon_previs',()=>new Response(JSON.stringify({ok:false,
+      error:'Google rejected the Argon request (HTTP 400).',
+      diagnostic:{phase:'create',http:400,status:null,reason:'output_schema',codes:['invalid_request'],fields:['response_format']},
+      usage:{input:5210,output:812,total:6022,cap:4096}}),{status:502}));
+    assert.deepEqual(analysisBilled.actions,['argon_start']);
+    assert.match(analysisBilled.log,/Flash-Lite analysis tokens: 5,210 input · 812 output · 6,022 total/);
+    assert.match(analysisBilled.log,/reason output_schema/);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
@@ -665,6 +678,12 @@ test('Argon polling survives a backgrounded phone and never resubmits the paid j
     assert.equal(broken.actions.length,3);
     assert.deepEqual(broken.delays,[10000,15000]);
     assert.match(broken.log,/Argon resume: The AI Worker could not complete the request/);
+    // A paid result the Worker could not use reports its tokens once, not per check.
+    const unusable=reply(502,{ok:false,error:'Provider scene did not match the editor schema',
+      usage:{input:1800,thinking:9120,output:11204,total:22124,cap:32768}});
+    const wasted=await run([unusable,unusable,unusable]);
+    assert.equal(wasted.log.split('Argon tokens: 1,800 input · 9,120 thinking').length-1,1);
+    assert.match(wasted.log,/used 20,324 of 32,768 \(62%\)/);
     // A lost session is never retried.
     const signedOut=await run([reply(401,{ok:false,error:'Sign in before generating a scene'}),done]);
     assert.equal(signedOut.actions.length,1);

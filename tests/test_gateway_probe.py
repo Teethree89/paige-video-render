@@ -244,7 +244,10 @@ class GatewaySmokeTests(unittest.TestCase):
         # Exercise the actual production start route with transport/response
         # stubs. No web server, private config, credentials or network is used.
         route = php[start:end]
-        harness = '''<?php
+        # The real reply helpers, so forwarded token usage is checked too.
+        helpers = php[php.index("function safe_worker_diagnostic("):
+                      php.index("/** Fixed-target Argon background job transport")]
+        harness = "<?php\n" + helpers + '''
 $case = json_decode(stream_get_contents(STDIN), true);
 $_SESSION = ['ai_calls' => $case['used']];
 if ($case['active']) $_SESSION['argon_job'] = [
@@ -255,7 +258,7 @@ $shotId = 'draft_001'; $calls = 0;
 function answer($status, $body) {
     global $calls;
     echo json_encode(['status' => $status, 'used' => $_SESSION['ai_calls'],
-        'calls' => $calls, 'job' => $_SESSION['argon_job'] ?? null]);
+        'calls' => $calls, 'job' => $_SESSION['argon_job'] ?? null, 'body' => $body]);
     exit;
 }
 function reject($status, $message) { answer($status, []); }
@@ -268,7 +271,8 @@ function argon_worker_call($endpoint, $secret, $action, $body) {
     if ($action !== ($case['profile'] === 'argon_direct' ? 'direct-start' : 'start'))
         reject(500, 'wrong worker route');
     if ($case['fail']) reject(502, 'analysis failed');
-    return ['jobId' => 'new_job_123456', 'status' => 'queued'];
+    return ['jobId' => 'new_job_123456', 'status' => 'queued',
+        'usage' => ['input' => 5210, 'output' => 812, 'private' => 'PRIVATE']];
 }
 '''
         cases = [
@@ -299,6 +303,9 @@ function argon_worker_call($endpoint, $secret, $action, $body) {
                                      (status, reserved, calls))
                     if active:
                         self.assertEqual(value['job']['id'], 'existing_job_123')
+                    if status == 200:
+                        self.assertEqual(value['body'], {'ok': True, 'status': 'queued',
+                            'shotId': 'draft_001', 'usage': {'input': 5210, 'output': 812}})
 
     @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
     def test_php_forwards_only_revalidated_provider_diagnostics(self):
@@ -352,6 +359,50 @@ echo json_encode(array_map(static function ($value) {
         self.assertEqual(output[3], {"ok": False, "diagnostic": {**legacy, "terms": []}})
         for rejected in output[4:]:
             self.assertEqual(rejected, {"ok": False})
+        self.assertNotIn("PRIVATE", result.stdout)
+
+    @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
+    def test_php_forwards_only_numeric_token_usage(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        php = (root / "scene-proxy.php").read_text()
+        worker = (root / "worker" / "scene-worker.mjs").read_text()
+        helpers = php[php.index("function safe_worker_diagnostic("):
+                      php.index("/** Fixed-target Argon background job transport")]
+        keys = lambda pattern, text: re.findall(r"'([A-Za-z]+)'", re.search(pattern, text, re.S).group(1))
+        self.assertEqual(keys(r"foreach \(\[(.*?)\] as \$key\)", helpers),
+                         keys(r"const USAGE_KEYS=Object\.freeze\(\[(.*?)\]\);", worker))
+        # Start, status and Worker rejections all pass usage through the allowlist.
+        start = php[php.index("if ($action === 'argon_start')"):]
+        status = php[php.index("if ($action === 'argon_status')"):php.index("if ($action !== 'generate'")]
+        self.assertIn("'shotId' => $shotId], $job));", start)
+        self.assertIn("with_diagnostic(['ok' => true, 'status' => $value['status'],", status)
+        harness = "<?php\n" + helpers + '''
+$cases = json_decode(stream_get_contents(STDIN), true);
+echo json_encode(array_map(static function ($value) {
+    return with_diagnostic(['ok' => true], $value);
+}, $cases));
+'''
+        counts = {"input": 1800, "inputImage": 1200, "cached": 0, "thinking": 9120,
+                  "output": 11204, "total": 22124, "cap": 32768}
+        cases = [
+            {"usage": counts},
+            {"usage": {**counts, "private": "PRIVATE", "modalities": [{"PRIVATE": 1}]}},
+            {"usage": {"input": "1800", "output": -1, "total": 1.5, "thinking": 100000001, "cached": True}},
+            {"usage": "PRIVATE string"},
+            {"usage": {}},
+            {"status": "in_progress"},
+        ]
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            script = pathlib.Path(folder) / "usage.php"
+            script.write_text(harness)
+            result = subprocess.run(["php", str(script)], input=json.dumps(cases),
+                                    text=True, capture_output=True, check=True)
+        output = json.loads(result.stdout)
+        self.assertEqual(output[0], {"ok": True, "usage": counts})
+        self.assertEqual(output[1], {"ok": True, "usage": counts}, "extra keys dropped")
+        for rejected in output[2:]:
+            self.assertEqual(rejected, {"ok": True})
         self.assertNotIn("PRIVATE", result.stdout)
 
     def test_php_and_worker_diagnostic_vocabularies_match(self):

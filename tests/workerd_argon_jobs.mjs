@@ -33,7 +33,9 @@ const mf=new Miniflare({
     await new Promise(r=>setTimeout(r,1500)); // a slow model: longer than the start request
     if(mode==='reject')return new Response(JSON.stringify({error:{code:'invalid_request',
       message:'The agent does not support image input modality. PRIVATE_DETAIL'}}),{status:400});
-    return new Response(JSON.stringify({id:'v1_sync',status:'completed',steps:[
+    return new Response(JSON.stringify({id:'v1_sync',status:'completed',
+      usage:{total_input_tokens:1800,total_thought_tokens:9120,total_output_tokens:11204,total_tokens:22124,
+        input_tokens_by_modality:[{modality:'image',tokens:1200}],private_metadata:'PRIVATE_USAGE'},steps:[
       {type:'model_output',content:[{type:'text',text:JSON.stringify(scene)}]}]}));
   }
 });
@@ -57,12 +59,13 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-rich-scene-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-rich-usage-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
   assert.ok(ok.startMs<1500,'start must not wait for Google');
-  assert.deepEqual(ok.result,{ok:true,status:'completed',proposal:scene});
+  assert.deepEqual(ok.result,{ok:true,status:'completed',proposal:scene,
+    usage:{input:1800,inputImage:1200,thinking:9120,output:11204,total:22124,cap:32768}});
   assert.equal(calls.length,1,'exactly one provider call');
   const sent=JSON.parse(calls[0].body);
   assert.equal(calls[0].url,'https://generativelanguage.googleapis.com/v1beta/interactions');
