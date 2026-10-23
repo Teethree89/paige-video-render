@@ -831,10 +831,11 @@ function argon_worker_call($endpoint, $secret, $action, $body) { global $case, $
         response = {"ok": True, "output": raw, "partial": False, "privateMetadata": "DO_NOT_FORWARD"}
         base = {"input": {"action": "argon_output", "csrf": "verified"}, "response": response}
         cases = [(base, 200, 1),
+                 ({**base, "response": {**response, "output": "x" * 1120000}}, 200, 1),
                  ({**base, "input": {**base["input"], "jobId": "other-user"}}, 400, 0),
                  ({**base, "age": 86401}, 404, 0),
                  ({**base, "response": {**response, "partial": "yes"}}, 502, 1),
-                 ({**base, "response": {**response, "output": "x" * 640001}}, 502, 1)]
+                 ({**base, "response": {**response, "output": "x" * 1120001}}, 502, 1)]
         with tempfile.TemporaryDirectory() as folder:
             path = pathlib.Path(folder) / "output.php"
             path.write_text(harness + route)
@@ -845,7 +846,7 @@ function argon_worker_call($endpoint, $secret, $action, $body) { global $case, $
                 self.assertEqual((value["status"], value["calls"]), (status, calls))
                 self.assertNotIn("DO_NOT_FORWARD", result.stdout)
                 if status == 200:
-                    self.assertEqual(value["body"], {"ok": True, "shotId": "shot_a", "output": raw, "partial": False})
+                    self.assertEqual(value["body"], {"ok": True, "shotId": "shot_a", "output": case["response"]["output"], "partial": False})
 
 
 if __name__ == "__main__":

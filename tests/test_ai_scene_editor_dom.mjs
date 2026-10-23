@@ -2,7 +2,7 @@
 // This test does not contact 50webs, Cloudflare or the model provider.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {setupAiSceneEditor,describeRepairs,describeUsage} from '../ai-scene-editor.js';
+import {setupAiSceneEditor,describeRepairs,describeUsage,argonRetryReason} from '../ai-scene-editor.js';
 import sceneWorker,{ARGON_REPAIR_CODES} from '../worker/scene-worker.mjs';
 import {validatePrimitiveDocument} from '../primitive-schema.js';
 
@@ -560,7 +560,7 @@ test('Experimental direct-image Argon discloses image handling, submits once and
   let preview=null,saved=0;
   globalThis.confirm=message=>{
     assert.match(message,/EXPERIMENTAL/);
-    assert.match(message,/ONE potentially billable call/);
+    assert.match(message,/ONE potentially billable initial call/);
     assert.match(message,/Cloudflare job holds the request for up to 12 minutes/);
     assert.match(message,/THE REFERENCE IMAGES only until Argon answers/);
     assert.match(message,/Google is asked not to store/);
@@ -664,7 +664,7 @@ test('Argon Direct image rebuilds a full scene in ONE call, with layers and ligh
     assert.equal(payloads[0].mode,'full_scene');assert.equal(payloads[0].layer,undefined);
     assert.equal(payloads[0].frames.length,3);
     assert.ok(canvases.length>0&&canvases.every(canvas=>canvas.width===768),'Argon gets the detailed frames');
-    assert.match(confirmed,/direct-image generation of the FULL SCENE\? This makes ONE potentially billable call/);
+    assert.match(confirmed,/direct-image generation of the FULL SCENE\? This makes ONE potentially billable initial call/);
     const log=ids.get('aiSceneLog').textContent;
     assert.match(log,/directly to Gemini 4 Argon for the full scene through a Cloudflare job/);
     assert.match(log,/Preview ready: 3 editable objects \(10 rendered parts\)/);
@@ -700,6 +700,7 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='subject';
     ids.get('aiSceneModel').value=profile;
+    ids.get('aiArgonRetry').checked=false;
     await ids.get('aiSceneGenerate').fire('click');
     return {log:ids.get('aiSceneLog').textContent,actions};
   };
@@ -747,7 +748,7 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
         usage:{input:6664,inputImage:3300,cached:0,thinking:6999,output:39,total:13702,cap:32768}}),{status:200}));
     assert.deepEqual(empty.actions,['argon_start','argon_status'],'No retry of a finished paid job');
     assert.match(empty.log,/Rule: no objects in the answer\./);
-    assert.match(empty.log,/Argon answered with an empty scene \(0 objects\), so there is nothing to import\. Nothing was retried\./);
+    assert.match(empty.log,/Argon answered with an empty scene \(0 objects\), so there is nothing to import\./);
     assert.doesNotMatch(empty.log,/no scene passed validation/);
     // A job cut off by a Worker deploy is Cloudflare's stop, not a provider failure.
     const redeployed=await run('argon_direct',payload=>new Response(JSON.stringify(
@@ -1081,6 +1082,7 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='environment';ids.get('aiSceneModel').value='argon_direct';
     ids.get('aiArgonBudget').value=budget;
+    ids.get('aiArgonRetry').checked=false;
     await ids.get('aiSceneModel').fire('change');
     assert.equal(ids.get('aiArgonBudgetField').hidden,false);
     await ids.get('aiSceneGenerate').fire('click');
@@ -1149,4 +1151,59 @@ test('missing thinking usage is unknown, not a zero-token budget measurement',()
   assert.match(describeUsage('Argon',{thinking:0,output:38,cap:65536}),/0 thinking/);
   assert.match(describeUsage('Argon',{thinking:40000,output:12000,cap:65536}),/52,000 of 65,536 \(79%\)/);
   assert.equal(describeUsage('Argon',undefined),'Argon tokens: not reported.');
+});
+
+test('paid retry requires terminal validation failure and complete usage below 10k',()=>{
+  const error={argonTerminal:true,diagnostic:{reason:'scene_schema_mismatch'},usage:{thinking:0,output:9999}};
+  assert.equal(argonRetryReason(error),'scene');
+  for(const usage of [{thinking:1,output:9999},{output:1},{thinking:0},null,
+    {thinking:-1,output:1},{thinking:NaN,output:1},{thinking:0,output:1.5}])
+    assert.equal(argonRetryReason({...error,usage}),null);
+  assert.equal(argonRetryReason({...error,argonTerminal:false}),null);
+  for(const reason of ['provider_stream_interrupted','provider_stream_error','provider_deadline',
+    'job_interrupted_deploy','job_interrupted','no_usable_scene'])
+    assert.equal(argonRetryReason({...error,diagnostic:{reason}}),null);
+  assert.equal(argonRetryReason({argonTerminal:true,diagnostic:{reason:'start_not_received'}}),'start');
+});
+
+test('authorized cheap retry sends the identical request once, never loops or imports a failed scene',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
+  const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  const run=async({enabled=true,confirm=true,success=false,reason='scene_schema_mismatch',usage={thinking:0,output:39}}={})=>{
+    const ids=new Map(),payloads=[];let previews=0,message='';
+    globalThis.document=argonDomHarness(ids,jpeg);
+    globalThis.confirm=text=>{message=text;return confirm;};
+    globalThis.fetch=async(url,options={})=>{
+      if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',argonJob:null}));
+      const payload=JSON.parse(options.body);payloads.push(payload);
+      const starts=payloads.filter(p=>p.action==='argon_start').length;
+      return new Response(JSON.stringify(payload.action==='argon_start'
+        ?{ok:true,status:'in_progress',shotId:'shot_a'}
+        :success&&starts===2?{ok:true,status:'completed',shotId:'shot_a',proposal:{schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
+          id:'building',name:'Building',primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[2,2,2],
+          material:{color:'#334455',metalness:0,roughness:.6}}]}]}}
+        :{ok:true,status:'failed',shotId:'shot_a',diagnostic:{reason,codes:['empty']},usage}));
+    };
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:()=>{previews++;},onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='environment';ids.get('aiSceneModel').value='argon_direct';
+    ids.get('aiArgonRetry').checked=enabled;
+    await ids.get('aiSceneGenerate').fire('click');
+    return {starts:payloads.filter(p=>p.action==='argon_start'),previews,message};
+  };
+  try{
+    const ok=await run({success:true});assert.equal(ok.starts.length,2);assert.equal(ok.previews,1);
+    assert.deepEqual(ok.starts[0],ok.starts[1]);assert.equal(ok.starts[0].frames.length,3);
+    assert.match(ok.message,/authorize ONE automatic paid retry/);
+    const failed=await run();assert.equal(failed.starts.length,2);assert.equal(failed.previews,0);
+    assert.equal((await run({enabled:false})).starts.length,1);
+    assert.equal((await run({confirm:false})).starts.length,0);
+    assert.equal((await run({usage:{thinking:1,output:9999}})).starts.length,1);
+    assert.equal((await run({usage:{output:39}})).starts.length,1);
+    assert.equal((await run({reason:'provider_stream_interrupted'})).starts.length,1);
+    assert.equal((await run({reason:'start_not_received',usage:null})).starts.length,2);
+  }finally{globalThis.document=oldDocument;globalThis.fetch=oldFetch;globalThis.confirm=oldConfirm;}
 });

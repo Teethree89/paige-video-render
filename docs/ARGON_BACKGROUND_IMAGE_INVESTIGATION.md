@@ -1251,3 +1251,36 @@ pass above recommends a single, explicitly approved re-run of stage 6 only.
 Deployment requires both the PHP/frontend and Worker changes. Check the safe
 Worker revision `argon-flash-visual-analysis-v1` (now superseded by
 `argon-direct-image-diagnostics-v1`). No deployment, key, billing, retention-setting, or private-media changes are part of this PR.
+
+
+## Larger Maximum scenes and one consented retry (2026-10-23)
+
+The user requested a larger Maximum full-scene target and an automatic retry
+for failures below 10,000 generated tokens. Maximum now targets 180–230 objects
+with a prompt cap of 240. The shared validator permits 240 objects per scene;
+2,000 total objects and 2,000 rendered copies per scene remain enforced. High
+and Standard targets are unchanged, and both Standard prompts remain byte-identical.
+The raw model-output guard is 280,000 characters; PHP's UTF-8 download guard is
+1,120,000 bytes. No bounds were added to the provider response schema.
+
+Direct image exposes a checked retry option, disclosed in the paid confirmation.
+That confirmation authorizes at most two attempts. The browser may start ONE new
+identical job after a terminal `scene_schema_mismatch` failure only when both
+thinking and output usage are nonnegative integers whose sum is strictly below
+10,000. Input tokens are excluded from that threshold but billed on each attempt.
+A sealed `start_not_received` also permits one new job. Unknown or partial usage,
+provider errors, stream interruptions and deploy interruptions never trigger a
+paid retry. Each Durable Object still submits at most once; no alarm, poll or
+resume action retries generation. Unchecking the option preserves one attempt.
+The latest-job download will refer to the second attempt after a retry.
+
+The synchronous budgets remain 32,768/65,536, with `stream:true,store:false` and
+no background image path. High/Maximum select 65,536; Standard selects 32,768.
+The observed 153-object result used the earlier Maximum prompt: the larger
+180–230 target and retry recovery remain unverified live. They cannot guarantee
+that every visible feature will be reconstructed. After review and deployment,
+start one Maximum full-scene run in the editor with retry OFF to isolate the new
+target. It costs roughly 6.7k input tokens plus actual thinking/output (ceiling
+65,536 generated tokens). If retry is enabled for a later run, its confirmation
+allows a second attempt at that same per-attempt cost; there is no third attempt.
+Do not merge/deploy during a paid run. No paid test is part of offline validation.

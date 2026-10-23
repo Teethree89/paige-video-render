@@ -275,13 +275,13 @@ const MAX_ARGON_OBJECTS = LIMITS.objectsPerScene;
 const ARGON_DIRECT_MODES = Object.freeze(['primary_subject','full_scene']);
 // Editor-selectable Argon settings: Google's thinking levels (ThinkingLevel
 // in the Interactions spec) and object budgets per detail level. Targets
-// stay inside the fixed 32,768-token budget at about 160 output tokens per
+// originally fit the 32,768-token budget at about 160 output tokens per
 // object (live runs); a cut-off answer keeps its complete objects.
 const ARGON_THINKING = Object.freeze(['minimal','low','medium','high']);
 const ARGON_DETAIL = Object.freeze({
   standard:Object.freeze({cap:120,primary_subject:[48,96],full_scene:[80,120]}),
   high:Object.freeze({cap:150,primary_subject:[80,130],full_scene:[110,150]}),
-  max:Object.freeze({cap:180,primary_subject:[110,160],full_scene:[140,180]})});
+  max:Object.freeze({cap:240,primary_subject:[110,160],full_scene:[180,230]})});
 // Missing settings mean the defaults, so older editors keep working.
 function argonSettings(payload){
   const thinking=payload?.thinking===undefined?'medium':payload.thinking;
@@ -452,7 +452,7 @@ function argonTokenBudget(payload){
 }
 // The token budget already bounds the text (~4 characters per token); this
 // only rejects a malformed reply, and leaves room for 120 rich objects.
-const ARGON_MAX_OUTPUT_CHARS=160000;
+const ARGON_MAX_OUTPUT_CHARS=280000;
 const ARGON_ANALYSIS_TOKENS=4096; // Flash-Lite visual description budget
 const ARGON_VISUAL_MODEL=MODEL; // Existing fast multimodal profile, not paid Argon reasoning
 const ARGON_VISUAL_TIMEOUT_MS=35000; // Under PHP 45s timeout, background start uses remaining 5s
@@ -1582,7 +1582,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-65k-budget-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-max-scene-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');

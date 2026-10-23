@@ -9,7 +9,7 @@ export const ENVIRONMENT_LAYERS = Object.freeze(['structures','ground','vegetati
 export const LIGHT_TYPES = Object.freeze(['directional','point','spot']);
 // A repeat array renders every copy as its own mesh, so copies are capped per
 // object and per scene to keep mobile WebGL, GLB and After Effects responsive.
-export const LIMITS = Object.freeze({scenes:120, objectsPerScene:200, totalObjects:2000,
+export const LIMITS = Object.freeze({scenes:120, objectsPerScene:240, totalObjects:2000,
   instancesPerScene:2000, copiesPerObject:400, repeatPerAxis:100, footprintPoints:32,
   // Each light adds shading cost to every material, so keep mobile WebGL fast.
   lightsPerScene:8});
