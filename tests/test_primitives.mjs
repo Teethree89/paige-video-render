@@ -116,7 +116,15 @@ test('richer vocabulary is still strictly bounded data',()=>{
   bad([base('x','extrude',{points:[[0,0],['1',0],[0,1]]})],undefined,/finite/);
   bad([base('x','box',{repeat:{count:[2,2],spacing:[1,1,1]}})],undefined,/3 integers/);
   bad([base('x','box',{repeat:{count:[2.5,1,1],spacing:[1,1,1]}})],undefined,/integer/);
-  bad([base('x','box',{repeat:{count:[51,1,1],spacing:[1,1,1]}})],undefined,/integer from 1 to 50/);
+  bad([base('x','box',{repeat:{count:[101,1,1],spacing:[1,1,1]}})],undefined,/integer from 1 to 100/);
+  // A long row may use 100 along one axis, within 400 copies per object.
+  assert.deepEqual(validatePrimitiveDocument({schemaVersion:1,scenes:[{shotId:'draft_001',
+    objects:[base('row','box',{repeat:{count:[100,4,1],spacing:[1,1,0]}})]}]}).scenes[0].objects[0].repeat.count,[100,4,1]);
+  bad([base('x','box',{repeat:{count:[100,5,1],spacing:[1,1,0]}})],undefined,/more than 400 copies/);
+  // Scale reaches 2 km, for a full scene's ground, and no further.
+  assert.equal(validatePrimitiveDocument({schemaVersion:1,scenes:[{shotId:'draft_001',
+    objects:[base('ground','plane',{scale:[2000,1500,1]})]}]}).scenes[0].objects[0].scale[0],2000);
+  bad([base('x','plane',{scale:[2001,10,1]})],undefined,/scale\[0\] must be finite between 0.01 and 2000/);
   bad([base('x','box',{repeat:{count:[20,21,1],spacing:[1,1,1]}})],undefined,/more than 400 copies/);
   bad([base('x','box',{repeat:{count:[2,1,1],spacing:[1,NaN,1]}})],undefined,/finite/);
   bad([base('x','box',{repeat:'12 windows'})],undefined,/repeat must be/);

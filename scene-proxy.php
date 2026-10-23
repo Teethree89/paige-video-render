@@ -136,12 +136,26 @@ function safe_worker_diagnostic($value) {
         'codes' => array_values($codes), 'fields' => array_values($fields),
         'terms' => array_values($terms)];
 }
-/** Adds the Worker's sanitized diagnostic and token usage, when it sent them. */
+/** Adds the Worker's sanitized diagnostic, token usage and repair counts, when it sent them. */
 function with_diagnostic(array $payload, $workerValue): array {
     $diagnostic = safe_worker_diagnostic(is_array($workerValue) ? ($workerValue['diagnostic'] ?? null) : null);
     $usage = safe_worker_usage(is_array($workerValue) ? ($workerValue['usage'] ?? null) : null);
+    $repairs = safe_worker_repairs(is_array($workerValue) ? ($workerValue['repairs'] ?? null) : null);
     if ($diagnostic !== null) $payload += ['diagnostic' => $diagnostic];
+    if ($repairs !== null) $payload += ['repairs' => $repairs];
     return $usage === null ? $payload : $payload + ['usage' => $usage];
+}
+/** Counts of Argon output parts the Worker dropped or fixed. Must match ARGON_REPAIR_CODES (tested). */
+function safe_worker_repairs($value) {
+    if (!is_array($value)) return null;
+    $repairs = [];
+    foreach (['json', 'scene', 'shot_id', 'scenes_merged', 'object_cap', 'object', 'id',
+        'duplicate_id', 'primitive', 'transform', 'scale', 'material', 'repeat', 'footprint',
+        'name', 'scene_copies', 'light', 'light_cap', 'camera', 'other'] as $code) {
+        if (isset($value[$code]) && is_int($value[$code]) && $value[$code] > 0 && $value[$code] <= 100000)
+            $repairs[$code] = $value[$code];
+    }
+    return $repairs ? $repairs : null;
 }
 /** Token counts only: these keys, non-negative integers. Must match the Worker's USAGE_KEYS (tested). */
 function safe_worker_usage($value) {

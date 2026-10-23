@@ -10,7 +10,7 @@ export const LIGHT_TYPES = Object.freeze(['directional','point','spot']);
 // A repeat array renders every copy as its own mesh, so copies are capped per
 // object and per scene to keep mobile WebGL, GLB and After Effects responsive.
 export const LIMITS = Object.freeze({scenes:120, objectsPerScene:200, totalObjects:2000,
-  instancesPerScene:2000, copiesPerObject:400, repeatPerAxis:50, footprintPoints:32,
+  instancesPerScene:2000, copiesPerObject:400, repeatPerAxis:100, footprintPoints:32,
   // Each light adds shading cost to every material, so keep mobile WebGL fast.
   lightsPerScene:8});
 const fail = message => {throw Error('Primitive scene: '+message);};
@@ -138,7 +138,8 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       if(!PRIMITIVE_TYPES.includes(item.primitive))fail(id+' has unsupported primitive type');
       const position=vec(item.position,'position',-10000,10000);
       const rotation=vec(item.rotation,'rotation',-1000,1000);
-      const scale=vec(item.scale,'scale',.01,500);
+      // Up to 2 km: a full scene's ground or road can exceed 500 m.
+      const scale=vec(item.scale,'scale',.01,2000);
       const m=item.material;
       if(!m||typeof m!=='object'||Array.isArray(m))fail(id+' is missing material');
       const material={color:hexColor(m.color,id+' color'),metalness:finite(m.metalness,'metalness',0,1),

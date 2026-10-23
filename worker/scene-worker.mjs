@@ -6,7 +6,7 @@
  */
 // The same validator the editor runs, so Argon can use the full scene format
 // (Wrangler bundles this import). Flash profiles keep their own validator.
-import {validatePrimitiveDocument,ENVIRONMENT_LAYERS,LIGHT_TYPES} from '../primitive-schema.js';
+import {validatePrimitiveDocument,ENVIRONMENT_LAYERS,LIGHT_TYPES,LIMITS} from '../primitive-schema.js';
 // Google now restricts Gemini 2.5 Flash-Lite for projects without prior use.
 // 3.5 Flash-Lite is a stable, low-cost multimodal replacement with free-tier
 // availability. Default to the known-working model; never silently switch
@@ -272,20 +272,90 @@ function layerPrompt(layer,existing) {
 const MAX_ARGON_OBJECTS = 120;
 // Direct image runs either scope in its one call; Previs is primary only.
 const ARGON_DIRECT_MODES = Object.freeze(['primary_subject','full_scene']);
+// One out-of-range field used to discard a whole paid scene (live full-scene
+// run 2026-10-23). Argon output is now validated part by part with the same
+// shared rules: an invalid object, light or camera is dropped, and the scene
+// keeps everything else. What was repaired is counted under fixed codes,
+// named after our own rules, never model text.
+export const ARGON_REPAIR_CODES=Object.freeze(['json','scene','shot_id','scenes_merged',
+  'object_cap','object','id','duplicate_id','primitive','transform','scale','material',
+  'repeat','footprint','name','scene_copies','light','light_cap','camera','other']);
+class ArgonSceneError extends Error{
+  constructor(codes){super('Unusable Argon scene');this.codes=codes;}
+}
+// Maps the shared validator's own messages (primitive-schema.js) to a code.
+// A message may start with the object's id, which is removed first so the
+// model's id text can never pick the code.
+function argonFaultCode(message,id){
+  let text=String(message).replace(/^Primitive scene: /,'');
+  if(typeof id==='string'&&text.startsWith(id+' '))text=text.slice(id.length+1);
+  const rules=[['repeat',/^repeat/],['footprint',/^(?:extrude|footprint)/],
+    ['transform',/^(?:position|rotation)/],['scale',/^scale/],
+    ['material',/^(?:color|metalness|roughness|emissive|opacity|is missing material)/],
+    ['primitive',/^has unsupported primitive/],['id',/^object id/],['name',/^name must/]];
+  return rules.find(([,pattern])=>pattern.test(text))?.[0]??'other';
+}
+const argonCopies=item=>item.repeat?item.repeat.count[0]*item.repeat.count[1]*item.repeat.count[2]:1;
 function validateArgonOutput(value,shotId) {
-  const scene=Array.isArray(value?.scenes)&&value.scenes.length===1?value.scenes[0]:null;
-  if(!scene||scene.shotId!==shotId||!Array.isArray(scene.objects)||scene.objects.length>MAX_ARGON_OBJECTS)
-    throw Error('Incorrect shot or object budget');
-  // Argon sorts objects into the editor's layers; an unknown layer is
-  // dropped (the object stays, as a manual shape) rather than failing a
-  // paid result.
-  const objects=scene.objects.map(item=>{
-    if(!item||typeof item!=='object'||Array.isArray(item))return item;
+  const repairs={},note=(code,n=1)=>{repairs[code]=(repairs[code]||0)+n;};
+  const scenes=(Array.isArray(value?.scenes)?value.scenes:[])
+    .filter(scene=>scene&&typeof scene==='object'&&!Array.isArray(scene));
+  if(!scenes.length)throw new ArgonSceneError(['scene']);
+  // The job is bound to its shot: geometry is always filed under it.
+  if(scenes.length>1)note('scenes_merged');
+  if(scenes.some(scene=>scene.shotId!==shotId))note('shot_id');
+  const one=(objects,extra={})=>validatePrimitiveDocument({schemaVersion:1,
+    scenes:[{shotId,objects,...extra}]},[shotId]).scenes[0];
+  const ids=new Set(),objects=[];
+  for(const item of scenes.flatMap(scene=>Array.isArray(scene.objects)?scene.objects:[])){
+    if(!item||typeof item!=='object'||Array.isArray(item)){note('object');continue;}
+    // An unknown layer is dropped; the object stays as a manual shape.
     const {layer,...rest}=item;
-    return ENVIRONMENT_LAYERS.includes(layer)?{...rest,layer}:rest;
-  });
-  return validatePrimitiveDocument({schemaVersion:value.schemaVersion,
-    scenes:[{shotId,objects,camera:scene.camera,lights:scene.lights}]},[shotId]);
+    const candidate=ENVIRONMENT_LAYERS.includes(layer)?{...rest,layer}:rest;
+    if(typeof candidate.id==='string'&&ids.has(candidate.id)){
+      const base=candidate.id.slice(0,58);let n=2;
+      while(ids.has(base+'_'+n))n++;
+      candidate.id=base+'_'+n;note('duplicate_id');
+    }
+    try{objects.push(one([candidate]).objects[0]);ids.add(candidate.id);}
+    catch(error){note(argonFaultCode(error?.message,candidate.id));}
+  }
+  if(objects.length>MAX_ARGON_OBJECTS){note('object_cap',objects.length-MAX_ARGON_OBJECTS);objects.length=MAX_ARGON_OBJECTS;}
+  // Over the scene's copy budget: drop the largest arrays until it fits.
+  let copies=objects.reduce((sum,item)=>sum+argonCopies(item),0);
+  while(copies>LIMITS.instancesPerScene){
+    const index=objects.reduce((best,item,i)=>argonCopies(item)>argonCopies(objects[best])?i:best,0);
+    copies-=argonCopies(objects[index]);objects.splice(index,1);note('scene_copies');
+  }
+  if(!objects.length){
+    const codes=Object.entries(repairs).sort((a,b)=>b[1]-a[1]).map(([code])=>code)
+      .filter(code=>!['shot_id','scenes_merged','duplicate_id'].includes(code)).slice(0,4);
+    throw new ArgonSceneError(codes.length?codes:['scene']);
+  }
+  const lights=[];
+  for(const light of scenes.flatMap(scene=>Array.isArray(scene.lights)?scene.lights:[])){
+    if(lights.length===LIMITS.lightsPerScene){note('light_cap');continue;}
+    // Validated one at a time, so default names keep their scene position.
+    const named=light&&typeof light==='object'&&light.name==null?{...light,name:light.type+' light '+(lights.length+1)}:light;
+    try{lights.push(one([],{lights:[named]}).lights[0]);}catch{note('light');}
+  }
+  const raw=scenes.find(scene=>scene.camera!=null)?.camera;
+  let camera;
+  if(raw!=null){try{camera=one([],{camera:raw}).camera;}catch{note('camera');}}
+  const document=validatePrimitiveDocument({schemaVersion:1,scenes:[{shotId,objects,
+    ...(camera?{camera}:{}),...(lights.length?{lights}:{})}]},[shotId]);
+  return {document,repairs:Object.keys(repairs).length?repairs:null};
+}
+// Fixed-vocabulary result of an Argon scene the Worker could not use at all.
+function argonSceneFailure(error){
+  const codes=error instanceof ArgonSceneError?error.codes:error instanceof SyntaxError?['json']:['other'];
+  const diagnostic={phase:'job',http:null,status:'failed',codes,reason:'scene_schema_mismatch',fields:[],terms:[]};
+  console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
+  return diagnostic;
+}
+function logRepairs(profile,repairs){
+  if(repairs)console.warn('argon-output-repairs',JSON.stringify({profile,...repairs}));
+  return repairs;
 }
 export {validateOutput,validateArgonOutput,secretMatches};
 
@@ -675,7 +745,7 @@ PRIMITIVES:
 OPTIONAL FIELDS, omitted when not needed:
 - "repeat":{"count":[nx,ny,nz],"spacing":[dx,dy,dz]} renders a grid of
   copies centered on the object's position, stepping along its own rotated
-  axes (at most 50 per axis, 400 copies per object). Use it for every regular
+  axes (at most 100 per axis, 400 copies per object). Use it for every regular
   rhythm: window grids, mullions, columns, rack rows, fence posts, parking
   lines, stair treads, light fixtures. One repeated object replaces dozens.
 - material "emissive":"#RRGGBB" with "emissiveIntensity" 0 to 10, only for
@@ -699,8 +769,18 @@ WORLD: Y up, ground at Y=0, meters where size can be judged (a door is about
 2.1 tall, a storey about 3.5). Center the subject near the X/Z origin; the
 camera is usually on the +Z side looking toward -Z.
 
-BUDGET: at most 120 objects and 2000 rendered copies after repeat; simple
-scenes need fewer. Keep the JSON compact (at most 3 decimals, names of 2 to 5 words, no extra
+HARD LIMITS (a part outside them is dropped, so stay inside):
+- at most 120 objects, 8 lights and 2000 rendered copies after repeat;
+- scale 0.01 to 2000 on every axis; position within +-10000;
+- repeat counts 1 to 100 per axis and at most 400 copies per object;
+- extrude points: 3 to 32, each within -1..1;
+- metalness, roughness 0 to 1; opacity 0.05 to 1; emissiveIntensity 0 to 10;
+- colors exactly #RRGGBB; ids unique; names at most 100 characters;
+- lights: directional intensity 0 to 10, point and spot 0 to 500, distance 0
+  to 1000, spot angle 0.05 to 1.5 RADIANS, penumbra 0 to 1, and a target that
+  differs from the position; camera fov 10 to 120 DEGREES.
+
+BUDGET: simple scenes need fewer objects than the limit. Keep the JSON compact (at most 3 decimals, names of 2 to 5 words, no extra
 fields) and complete: an unfinished answer is discarded.
 
 QUALITY:
@@ -972,10 +1052,15 @@ Use uncertainties to omit unsupported detail. Return only the scene JSON.`,
     const output=argonOutputText(interaction);
     if(!output||output.length>ARGON_MAX_OUTPUT_CHARS)
       return reply(withUsage({ok:false,error:'Provider produced no usable scene'},usage),502);
+    // A finished job is final: an unusable scene is reported as a failed job
+    // with its codes, so the editor stops at once instead of re-polling it.
     try{
-      const proposal=validateArgonOutput(JSON.parse(output),shotId);
-      return reply(withUsage({ok:true,status:'completed',proposal},usage));
-    }catch{return reply(withUsage({ok:false,error:'Provider scene did not match the editor schema'},usage),502);}
+      const {document,repairs}=validateArgonOutput(JSON.parse(output),shotId);
+      logRepairs(ARGON_PROFILE,repairs);
+      return reply(withUsage({ok:true,status:'completed',proposal:document,...(repairs?{repairs}:{})},usage));
+    }catch(error){
+      return reply(withUsage({ok:true,status:'failed',diagnostic:argonSceneFailure(error)},usage));
+    }
   }
   return fail(404,'Not found');
 }
@@ -1052,8 +1137,11 @@ Return only the scene JSON.`,
     return withUsage({state:'failed',diagnostic:argonJobDiagnostic(interaction)},usage);
   const output=argonOutputText(interaction);
   if(!output||output.length>ARGON_MAX_OUTPUT_CHARS)return withUsage(directFailure('no_usable_scene'),usage);
-  try{return withUsage({state:'completed',proposal:validateArgonOutput(JSON.parse(output),shotId)},usage);}
-  catch{return withUsage(directFailure('scene_schema_mismatch'),usage);}
+  try{
+    const {document,repairs}=validateArgonOutput(JSON.parse(output),shotId);
+    logRepairs(ARGON_DIRECT_PROFILE,repairs);
+    return withUsage({state:'completed',proposal:document,...(repairs?{repairs}:{})},usage);
+  }catch(error){return withUsage({state:'failed',diagnostic:argonSceneFailure(error)},usage);}
 }
 async function startDirectArgonJob(request,env){
   if(!env.ARGON_JOBS)return fail(503,'Argon direct job storage is not configured');
@@ -1114,14 +1202,16 @@ export class ArgonJob {
       job=await this.finish(job,directFailure(job.state==='queued'?'job_not_started':'job_interrupted'));
     if(job.state==='queued')return reply({ok:true,status:'queued'});
     if(job.state==='submitted')return reply({ok:true,status:'in_progress'});
-    if(job.state==='completed')return reply(withUsage({ok:true,status:'completed',proposal:job.proposal},job.usage));
+    if(job.state==='completed')return reply(withUsage({ok:true,status:'completed',proposal:job.proposal,
+      ...(job.repairs?{repairs:job.repairs}:{})},job.usage));
     return reply(withUsage({ok:true,status:'failed',diagnostic:job.diagnostic},job.usage));
   }
   async finish(job,outcome){
     const done={state:outcome.state,shotId:job.shotId,created:job.created,finished:Date.now(),
       ...(outcome.proposal?{proposal:outcome.proposal}:{}),
       ...(outcome.diagnostic?{diagnostic:outcome.diagnostic}:{}),
-      ...(outcome.usage?{usage:outcome.usage}:{})};
+      ...(outcome.usage?{usage:outcome.usage}:{}),
+      ...(outcome.repairs?{repairs:outcome.repairs}:{})};
     await this.ctx.storage.put('job',done);
     await this.ctx.storage.delete('request');
     await this.ctx.storage.setAlarm(done.finished+ARGON_DIRECT_RETENTION_MS);
@@ -1162,7 +1252,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-full-scene-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-salvage-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
