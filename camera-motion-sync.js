@@ -162,3 +162,14 @@ export function syncChapterCameraMotion(source,shotId,{
    estimatedOrientationUsed:mode==='model-view'
  }};
 }
+
+/** Dynamic 3D camera clip planes for much larger regenerated scenes.
+ *  Kept independent from Three.js to unit test without GPU/runtime access. */
+export function clipPlanesForScene(position,target,bounds){
+ if(!vec(position)||!vec(target))return {near:.35,far:500};
+ const distance=norm(sub(position,target));
+ if(!validBounds(bounds))return {near:.35,far:Math.max(500,round(distance*4))};
+ const sceneDistance=norm(sub(position,bounds.center));
+ return {near:clamp(distance*.002,.05,.35),
+   far:clamp(Math.max(500,sceneDistance+bounds.radius*3,distance*4),500,60000)};
+}
