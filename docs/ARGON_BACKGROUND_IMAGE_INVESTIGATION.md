@@ -1290,3 +1290,35 @@ and no background-image mode. High/Maximum select 65,536 by default, Standard
 multi-retry recovery have not been verified live. No provider calls or
 production deployment are part of offline validation; merging can interrupt
 an active paid job.
+
+## Additive Argon tails and PAIGE progress loader (PR #94)
+
+For `argon_direct` full-scene jobs, the **Add two detail passes automatically**
+checkbox is enabled by default and can be unchecked independently from the
+three guarded base retries. The single paid confirmation includes these two
+additional, potentially billable *separate* calls (up to four base attempts
+if every cheap failure qualifies, plus two detail calls). Each detail call
+uses the same three inline JPEGs and sends a bounded existing-object index.
+Worker `validateDetailContext` accepts only passes 1 and 2, full-scene
+mode, at most 239 existing entries, strictly checked object IDs, primitive
+types, layers, positions and scales; never accept arbitrary prompt text.
+`argonAddDetailPrompt` asks for **only new visible details**, not a new scene;
+the original Standard and Maximum base prompts are unchanged.
+The browser `appendArgonDetail` function appends valid distinct objects,
+preserving the existing objects, camera and scene lights, enforcing 240 total
+editable objects and 2,000 rendered copies. If a detail pass fails or its
+start is uncertain, stop submitting subsequent paid calls and preview the
+successful partial scene. Repeated alarms/status polling never submit a new
+paid job, and reloading does not schedule detail passes or retries.
+
+The full-viewport PAIGE particle cloud is decorative and pointer-responsive.
+The moving track is **indeterminate**, not a percentage or ETA. Argon SSE
+`step.start` events may advance a private Durable Object stage to
+`reasoning` or `geometry`; after the provider response it advances to
+`validating`. These fixed stage labels plus elapsed seconds are the only
+new status data exposed to authenticated PHP/browser polls. Do not expose
+thought text, partial provider output, image bytes or provider metadata.
+Provider does not promise an ETA, and some models may emit no intermediate
+steps at all. The overlay may be minimized without cancelling a paid job.
+Do not merge during running paid Argon calls. No live paid model runs were
+performed by this change.
