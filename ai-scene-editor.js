@@ -645,7 +645,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         status('AI proposal failed: '+error.message);
       }
       onDiscard();pending=null;pendingShot=null;
-    }finally{busy=false;ui();}
+    }finally{overlay.hide();busy=false;ui();}
   });
   smokeButton?.addEventListener('click',async()=>{
     if(busy||!authenticated||smoke.state==='done')return;
@@ -710,7 +710,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       status('Diagnostics reset; stage 1 is ready. Each paid stage requires confirmation.');
     }catch(error){log('Diagnostic reset failed: '+error.message);
       status('Diagnostic reset failed: '+error.message);}
-    finally{overlay.hide();busy=false;ui();}
+    finally{busy=false;ui();}
   });
   checkArgon?.addEventListener('click',async()=>{
     if(busy||!authenticated)return;
