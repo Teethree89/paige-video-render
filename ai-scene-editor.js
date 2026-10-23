@@ -1,5 +1,7 @@
 import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
+import {appendArgonDetail,argonDetailIndex} from './argon-detail.js';
+import {createArgonOverlay} from './ai-generation-overlay.js';
 import {referenceFrameTimes,ENVIRONMENT_PASSES,appendEnvironmentPass} from './environment-generation.js';
 
 const el=id=>document.getElementById(id);
@@ -201,6 +203,8 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const argonSettings=el('aiArgonSettings'),thinkingSelect=el('aiArgonThinking'),detailSelect=el('aiArgonDetail');
   const budgetField=el('aiArgonBudgetField'),budgetSelect=el('aiArgonBudget');
   const retryField=el('aiArgonRetryField'),retrySelect=el('aiArgonRetry');
+  const addDetailField=el('aiArgonAddDetailField'),addDetailSelect=el('aiArgonAddDetail');
+  const overlay=createArgonOverlay();
   // Chrome silently dismisses window.confirm() when the tab is not in front
   // (live 2026-10-23), which reads as Cancel. Paid requests ask in the page
   // instead, in a dialog that waits for an answer; confirm() is the fallback.
@@ -226,8 +230,10 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(argonSettings)argonSettings.hidden=!['argon_previs','argon_direct'].includes(modelSelect?.value);
     if(budgetField)budgetField.hidden=modelSelect?.value!=='argon_direct';
     if(retryField)retryField.hidden=modelSelect?.value!=='argon_direct';
+    if(addDetailField)addDetailField.hidden=modelSelect?.value!=='argon_direct'||scope?.value==='subject';
   };
   modelSelect?.addEventListener?.('change',showArgonSettings);
+  scope?.addEventListener?.('change',showArgonSettings);
   showArgonSettings();
   // Each detail level selects the budget it worked with live (2026-10-23):
   // High and Maximum came back empty at 32,768 and returned 106 to 153
@@ -325,11 +331,14 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         if(!interrupted)log('Status check interrupted ('+error.message+'). Retrying without a new paid request…');
         interrupted=true;
         status('Connection to the editor server interrupted — reconnecting to the existing Argon job…');
+        overlay.phase('reconnecting');
       }
       if(result){
         interrupted=false;
         if(result.shotId!==shotId)throw Error('Argon job belongs to a different chapter');
         argonJob={shotId,status:result.status};
+        if(result.status==='queued')overlay.phase('queued');
+        else if(result.status==='in_progress')overlay.phase(result.phase||'waiting');
         if(result.status!==prior){
           prior=result.status;
           log('Argon job status: '+result.status+'.');
@@ -403,6 +412,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(detailSelect)detailSelect.disabled=busy;
     if(budgetSelect)budgetSelect.disabled=busy;
     if(retrySelect)retrySelect.disabled=busy;
+    if(addDetailSelect)addDetailSelect.disabled=busy;
     if(checkArgon)checkArgon.disabled=busy||!authenticated;
     if(smokeButton)smokeButton.disabled=busy||!authenticated;
     if(smokeReset)smokeReset.disabled=busy||!authenticated;
@@ -493,6 +503,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const largeBudget=profile==='argon_direct'&&budgetSelect?.value==='65536';
       const tokenBudget=largeBudget?65536:32768;
       const retryEnabled=profile==='argon_direct'&&retrySelect?.checked===true;
+      const addDetailEnabled=argonFull&&addDetailSelect?.checked===true;
       const settings='Settings: '+thinking+' thinking, '+ARGON_DETAIL_LABELS[detail]+' detail. '+
         tokenBudget.toLocaleString('en-US')+' tokens maximum for thinking + output.'+
         (thinking==='high'||detail==='max'?' An answer cut off at the limit keeps only the objects it finished, and every generated token is billed.':'');
@@ -502,10 +513,12 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         if(!await askPaid(settings+' '+(profile==='argon_direct'
           ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable initial call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'+
             (retryEnabled?' You authorize up to THREE automatic paid retries as new identical jobs, with a 15-second pause before each retry. Each preceding attempt must either finish with an unusable scene AND reported thinking plus output strictly below 10,000 tokens, or have its start conclusively marked as never received by Google. At most FOUR total attempts (one initial plus three retries); each uses a separate request slot and bills its own input and generated tokens. Interrupted calls, provider errors and unknown or partial usage never trigger a retry.':'')+
+            (addDetailEnabled?' After the base succeeds, you also authorize TWO additional potentially billable Argon detail calls using the same three JPEG frames and a bounded index of existing geometry. Each uses another request slot and bills its own input and generated tokens. They add new objects rather than replacing the base scene. An interrupted or failed detail pass stops further calls and retains successful geometry.':'')+
             (largeBudget?' The thinking + output ceiling is 65,536 tokens instead of 32,768, on the same call; Google bills only the tokens Argon generates, up to 65,536.':'')
           :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'),
           'Start paid Argon run')){notStarted();return;}
       }
+      if(profile==='argon_direct')overlay.show({totalStages:addDetailEnabled?3:1});
       log('Preparing reference frames from the selected chapter…');
       status('Sampling the selected playhead frame and two chapter context frames…');
       const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.(),
@@ -568,6 +581,35 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
               status('Argon failed cheaply; retry '+(attempt+1)+'/'+ARGON_RETRY_MAX+' starts in 15 seconds…');
               await new Promise(resolve=>setTimeout(resolve,ARGON_RETRY_DELAY_MS));
               log('Starting automatic paid Argon retry '+(attempt+1)+'/'+ARGON_RETRY_MAX+' as a new identical job…');
+            }
+          }
+          if(addDetailEnabled&&doc){
+            doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
+            for(let pass=1;pass<=2;pass++){
+              const existing=argonDetailIndex(doc);
+              if(!existing.length){
+                log('Add Detail stopped: scene already at its 240-object safety cap.');
+                break;
+              }
+              overlay.step(pass+1);
+              status('Add Detail '+pass+'/2 — preserving the existing scene…');
+              log('Starting paid Add Detail '+pass+'/2 with '+existing.length+' existing editable objects…');
+              try{
+                const started=await request('argon_start',{...payload,detailPass:pass,existing});
+                argonJob={shotId:shot.id,status:started.status};
+                if(started.startUnconfirmed)log('Add Detail start not confirmed; polling the named job (no resubmission).');
+                const addition=await pollArgon(shot.id);
+                const result=appendArgonDetail(doc,addition,shot.id);
+                doc=result.document;
+                argonJob={shotId:shot.id,status:'completed'};
+                log('Add Detail '+pass+'/2 added '+result.added+' new editable objects; '+doc.scenes[0].objects.length+
+                  ' objects and '+result.rendered+' rendered parts in total. Existing scene preserved.');
+              }catch(error){
+                log('Add Detail '+pass+'/2 stopped: '+error.message+'. Keeping all earlier successful geometry; no later detail pass submitted.');
+                logDiagnostic(error);
+                status('Detail pass stopped; previewing all previously completed geometry.');
+                break;
+              }
             }
           }
         }else{
@@ -668,7 +710,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       status('Diagnostics reset; stage 1 is ready. Each paid stage requires confirmation.');
     }catch(error){log('Diagnostic reset failed: '+error.message);
       status('Diagnostic reset failed: '+error.message);}
-    finally{busy=false;ui();}
+    finally{overlay.hide();busy=false;ui();}
   });
   checkArgon?.addEventListener('click',async()=>{
     if(busy||!authenticated)return;
