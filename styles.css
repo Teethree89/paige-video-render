@@ -228,3 +228,14 @@ html,body{font-size:14px}
 .key-marker,.text-item{touch-action:none;user-select:none}
 .timeline-section{min-height:260px}
 @media(max-width:780px){.timeline-edit-tools{padding:5px 9px;gap:3px}.timeline-edit-tools button{font-size:10px;padding:5px 7px}}
+
+/* Camera motion curve and per-key custom Bézier authoring. */
+.animation-curve-panel{margin:20px 0 0;padding:16px 0 4px;border-top:1px solid #3a5365;display:flex;flex-direction:column;gap:10px}
+.animation-curve-panel .section-label{color:#91e7dd}
+.animation-curve-panel canvas{width:100%;height:auto;display:block;background:#091825;border:1px solid #375168;border-radius:7px;touch-action:none}
+#cameraEaseGraph{cursor:crosshair}
+.curve-handle-fields[hidden]{display:none!important}
+.curve-handle-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+.curve-handle-fields label{display:flex;flex-direction:column;color:#92b5bd;font-size:9px;gap:5px}
+.curve-handle-fields input{width:100%;min-width:0;padding:7px;border-radius:5px;border:1px solid #446071;background:#0d2030;color:#f3ffff;font:11px ui-monospace,monospace}
+#curveGraphStatus{min-height:20px;margin:1px 0 0}
