@@ -229,6 +229,13 @@ function forwarded() { global $workerInput; echo json_encode(['status' => 200, '
             ('argon_start', {'profile': 'argon_direct', 'mode': 'full_scene', 'detail': ['max']}, 400, None),
             ('generate', {'mode': 'primary_subject', 'thinking': 'high'}, 400, None),
             ('generate', {'detail': 'high'}, 400, None),
+            ('argon_start', {'profile': 'argon_direct', 'mode': 'full_scene', 'tokenBudget': 100000}, 200, 'full_scene'),
+            ('argon_start', {'profile': 'argon_direct', 'mode': 'full_scene', 'tokenBudget': 32768}, 200, 'full_scene'),
+            ('argon_start', {'profile': 'argon_direct', 'mode': 'full_scene', 'tokenBudget': '100000'}, 400, None),
+            ('argon_start', {'profile': 'argon_direct', 'mode': 'full_scene', 'tokenBudget': 65536}, 400, None),
+            ('argon_start', {'profile': 'argon_direct', 'mode': 'full_scene', 'tokenBudget': 100001}, 400, None),
+            ('argon_start', {'profile': 'argon_previs', 'mode': 'primary_subject', 'tokenBudget': 100000}, 400, None),
+            ('generate', {'profile': 'g38_low', 'mode': 'primary_subject', 'tokenBudget': 100000}, 400, None),
         ]
         import tempfile
         with tempfile.TemporaryDirectory() as folder:
@@ -244,7 +251,7 @@ function forwarded() { global $workerInput; echo json_encode(['status' => 200, '
                     if status == 200:
                         self.assertEqual(value['worker'].get('mode'), mode)
                         self.assertEqual(value['worker']['shotId'], 'draft_001')
-                        for setting in ('thinking', 'detail'):
+                        for setting in ('thinking', 'detail', 'tokenBudget'):
                             self.assertEqual(value['worker'].get(setting), extra.get(setting))
 
     def test_gemini_model_selection_is_explicit_and_server_allowlisted(self):

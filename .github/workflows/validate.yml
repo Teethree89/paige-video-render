@@ -30,6 +30,7 @@ jobs:
         run: |
           php -l scene-proxy.php
           node --check worker/scene-worker.mjs
+          node --check scripts/inspect_argon_prompts.mjs
       # The 50webs host reports X-Powered-By: PHP/7.0.33. The runner's newer
       # PHP accepts 7.1+ syntax that is a fatal parse error in production.
       - name: Lint PHP proxy with the production PHP version (7.0)

@@ -439,6 +439,15 @@ const ARGON_PROFILE='argon_previs';
 const ARGON_DIRECT_PROFILE='argon_direct';
 const ARGON_MODEL='gemini-4-argon';
 const ARGON_MAX_OUTPUT_TOKENS=32768; // Total billed thinking/output allowance per job, either profile
+// Explicit direct-image experiment. Above 65,536 Google requires a stored
+// background interaction; never silently switch the working synchronous path.
+const ARGON_LONG_OUTPUT_TOKENS=100000;
+function argonTokenBudget(payload){
+  const budget=payload?.tokenBudget===undefined?ARGON_MAX_OUTPUT_TOKENS:payload.tokenBudget;
+  if(![ARGON_MAX_OUTPUT_TOKENS,ARGON_LONG_OUTPUT_TOKENS].includes(budget))
+    throw Error('Invalid Argon token budget');
+  return budget;
+}
 // The token budget already bounds the text (~4 characters per token); this
 // only rejects a malformed reply, and leaves room for 120 rich objects.
 const ARGON_MAX_OUTPUT_CHARS=160000;
@@ -1071,7 +1080,7 @@ async function argonGateway(request,env,path){
     let validated;
     try{
       if(payload?.profile!==ARGON_PROFILE||payload?.mode!=='primary_subject'||
-         payload.layer!==undefined||payload.model!==undefined)
+         payload.layer!==undefined||payload.model!==undefined||payload.tokenBudget!==undefined)
         throw Error('Argon requires paid primary-subject profile');
       validated={...validateInput({...payload,profile:'g38_medium'}),...argonSettings(payload)};
     }catch{return fail(400,'Invalid image request');}
@@ -1327,17 +1336,10 @@ function providerStatusReason(status){
   if(status===502)return 'provider_gateway';
   return status>=500?'provider_unavailable':'provider_refused';
 }
-// Never throws; every outcome is a stored state with fixed-vocabulary reasons.
-async function runDirectArgon(env,{shotId,content,mode,thinking='medium',detail='standard'},saveOutput){
-  let response;const started=Date.now();
-  try{
-    response=await fetch(ARGON_API,{method:'POST',redirect:'manual',
-      signal:AbortSignal.timeout(ARGON_DIRECT_TIMEOUT_MS),
-      headers:{'Content-Type':'application/json','Accept':'text/event-stream','x-goog-api-key':env.GEMINI_API_KEY,
-        'Api-Revision':ARGON_REVISION,'X-Server-Timeout':String(ARGON_SERVER_TIMEOUT_S)},
-      // store:false: the interaction is not stored for later retrieval.
-      body:JSON.stringify({model:ARGON_MODEL,store:false,stream:true,
-        generation_config:{thinking_level:thinking,max_output_tokens:ARGON_MAX_OUTPUT_TOKENS},
+function directArgonBody({shotId,content,mode,thinking='medium',detail='standard',tokenBudget=ARGON_MAX_OUTPUT_TOKENS}){
+  return {model:ARGON_MODEL,
+        ...(tokenBudget===ARGON_LONG_OUTPUT_TOKENS?{background:true,store:true}:{store:false,stream:true}),
+        generation_config:{thinking_level:thinking,max_output_tokens:tokenBudget},
         response_format:{type:'text',mime_type:'application/json',schema:ARGON_SCENE_SCHEMA},
         // A job stored before scopes existed has no mode: primary subject.
         system_instruction:argonPrompt(shotId,mode==='full_scene'?'full_scene':'primary_subject',detail)+`
@@ -1355,7 +1357,18 @@ Return only the scene JSON.`,
         // resolution); first live run used the default and lost fine detail.
         input:content.map(part=>part.inlineData
           ?{type:'image',data:part.inlineData.data,mime_type:'image/jpeg',resolution:'high'}
-          :{type:'text',text:part.text})})});
+          :{type:'text',text:part.text})};
+}
+// Never throws; every outcome is a stored state with fixed-vocabulary reasons.
+async function runDirectArgon(env,request,saveOutput){
+  const {shotId}=request;
+  let response;const started=Date.now();
+  try{
+    response=await fetch(ARGON_API,{method:'POST',redirect:'manual',
+      signal:AbortSignal.timeout(ARGON_DIRECT_TIMEOUT_MS),
+      headers:{'Content-Type':'application/json','Accept':'text/event-stream','x-goog-api-key':env.GEMINI_API_KEY,
+        'Api-Revision':ARGON_REVISION,'X-Server-Timeout':String(ARGON_SERVER_TIMEOUT_S)},
+      body:JSON.stringify(directArgonBody(request))});
   }catch(error){
     const category=argonFetchFailureCategory(error);
     console.warn('argon-provider-fetch','direct-image',category);
@@ -1402,6 +1415,9 @@ Return only the scene JSON.`,
   }
   // Logged once: the alarm reaches this point at most once per job.
   const usage=logUsage(ARGON_DIRECT_PROFILE,'geometry',streamUsage||argonUsage(interaction?.usage,ARGON_MAX_OUTPUT_TOKENS));
+  return finishArgonInteraction(interaction,shotId,usage,saveOutput);
+}
+async function finishArgonInteraction(interaction,shotId,usage,saveOutput){
   const output=argonOutputText(interaction);
   // The original is durable before any geometry/material validation runs.
   const original=await retainArgonOutput({},output,interaction?.status!=='completed',saveOutput);
@@ -1418,6 +1434,36 @@ Return only the scene JSON.`,
   }catch(error){
     return keep({state:'failed',diagnostic:incomplete?argonJobDiagnostic(interaction):argonSceneFailure(error)});
   }
+}
+// Exactly one paid POST. A lost reply is never retried, even though Google may
+// have created a stored job. Its ID stays private; only free GETs can resume it.
+async function startLongArgon(env,request,saveOutput){
+  let response;
+  try{
+    response=await fetch(ARGON_API,{method:'POST',redirect:'manual',
+      signal:AbortSignal.timeout(35000),
+      headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY,'Api-Revision':ARGON_REVISION},
+      body:JSON.stringify(directArgonBody(request))});
+  }catch(error){
+    return directFailure(argonFetchFailureCategory(error)==='timeout-or-abort'?'provider_timeout':'provider_network');
+  }
+  if(!response.ok){
+    let diagnostic=argonProviderDiagnostic(null,'create',response.status);
+    try{diagnostic=argonProviderDiagnostic((await response.json())?.error,'create',response.status);}catch{}
+    if(response.status!==400&&response.status!==422)
+      diagnostic.reason=response.status>=300&&response.status<400?'provider_redirect_blocked':providerStatusReason(response.status);
+    console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
+    return {state:'failed',diagnostic};
+  }
+  let interaction;
+  try{interaction=await response.json();}catch{return directFailure('invalid_provider_response');}
+  if(['queued','in_progress'].includes(interaction?.status)){
+    if(typeof interaction.id!=='string'||!ARGON_JOB_ID.test(interaction.id))
+      return directFailure('invalid_provider_response');
+    return {state:'background',interactionId:interaction.id};
+  }
+  return finishArgonInteraction(interaction,request.shotId,
+    logUsage(ARGON_DIRECT_PROFILE,'geometry',argonUsage(interaction?.usage,ARGON_LONG_OUTPUT_TOKENS)),saveOutput);
 }
 async function startDirectArgonJob(request,env){
   if(!env.ARGON_JOBS)return fail(503,'Argon direct job storage is not configured');
@@ -1465,11 +1511,11 @@ export class ArgonJob {
         throw Error('Direct image requires a direct-image scope');
       // Frames and shot are checked exactly as for every image request.
       validated={...validateInput({...payload,mode:'primary_subject',profile:'g38_medium'}),mode:payload.mode,
-        ...argonSettings(payload)};
+        ...argonSettings(payload),tokenBudget:argonTokenBudget(payload)};
     }catch(error){return fail(error?.message==='Request too large'?413:400,'Invalid image request');}
     // Frames stay only until the single provider call finishes.
     await this.ctx.storage.put('request',{shotId:validated.shotId,content:validated.content,mode:validated.mode,
-      thinking:validated.thinking,detail:validated.detail});
+      thinking:validated.thinking,detail:validated.detail,tokenBudget:validated.tokenBudget});
     await this.ctx.storage.put('job',{state:'queued',shotId:validated.shotId,created:Date.now()});
     await this.ctx.storage.setAlarm(Date.now());
     return reply({ok:true,status:'queued'});
@@ -1484,6 +1530,9 @@ export class ArgonJob {
       if(!job&&seal)job=await this.finish({shotId,created:Date.now()},directFailure('start_not_received'));
       if(!job)return fail(404,'No resumable Argon job');
       if(job.shotId!==shotId)return fail(400,'Invalid Argon job request');
+      // Background work lives at Google and survives Worker deployments. A
+      // status read can only GET its existing private ID, never create a job.
+      if(job.state==='background')return await this.pollLong(job);
       // No alarm outlives its 15-minute wall limit: a job still open past that
       // was interrupted (e.g. by a deploy). It is reported, never resubmitted.
       if((job.state==='queued'||job.state==='submitted')&&
@@ -1499,6 +1548,30 @@ export class ArgonJob {
       // Handler time, not the platform's longer context/lifecycle wall time.
       console.log('argon-status-read',JSON.stringify({handlerMilliseconds:Date.now()-started}));
     }
+  }
+  async pollLong(job){
+    if(Date.now()-job.created>ARGON_DIRECT_RETENTION_MS)
+      return fail(404,'No resumable Argon job');
+    let response;
+    try{
+      response=await fetch(ARGON_API+'/'+encodeURIComponent(job.interactionId),{
+        method:'GET',redirect:'manual',signal:AbortSignal.timeout(20000),
+        headers:{'x-goog-api-key':this.env.GEMINI_API_KEY,'Api-Revision':ARGON_REVISION}});
+    }catch{return fail(502,'AI provider network connection failed');}
+    if(response.status===400||response.status===422)return argonBadRequest(response,'poll');
+    if(!response.ok)return safeProviderStatus(response.status);
+    let interaction;
+    try{interaction=await response.json();}catch{return fail(502,'Invalid provider response');}
+    if(interaction?.id!==job.interactionId)return fail(502,'Invalid provider response');
+    const status=argonSafeStatus(interaction.status);
+    if(!status)return fail(502,'Invalid provider response');
+    if(status==='queued'||status==='in_progress')return reply({ok:true,status});
+    // Usage is cumulative across long-decode hops; never sum step snapshots.
+    const usage=logUsage(ARGON_DIRECT_PROFILE,'geometry',argonUsage(interaction.usage,ARGON_LONG_OUTPUT_TOKENS));
+    const outcome=await finishArgonInteraction(interaction,job.shotId,usage,
+      output=>this.ctx.storage.put('output',output));
+    await this.finish(job,outcome);
+    return this.status(job.shotId);
   }
   async finish(job,outcome){
     // Preserve paid model text BEFORE scene/job persistence can fail. The job
@@ -1536,6 +1609,14 @@ export class ArgonJob {
         else await this.ctx.storage.deleteAll();
         return;
       }
+      if(job.state==='background'){
+        // Cleanup alarm only. Google runs for at most 24 hours; PHP's same
+        // window expires the session job. Repeated alarms never resubmit it.
+        if(Date.now()<job.created+ARGON_DIRECT_RETENTION_MS)
+          await this.ctx.storage.setAlarm(job.created+ARGON_DIRECT_RETENTION_MS);
+        else await this.ctx.storage.deleteAll();
+        return;
+      }
       if(job.state==='submitted'){ // an earlier run died mid-call
         const reason=interruptedReason(job,this.env);
         // Numbers and a fixed reason only: how far into the call it was cut.
@@ -1545,10 +1626,16 @@ export class ArgonJob {
         return;
       }
       const request=await this.ctx.storage.get('request'),version=workerVersion(this.env);
-      await this.ctx.storage.put('job',{...job,state:'submitted',submitted:Date.now(),...(version?{version}:{})});
-      await this.finish(job,request?await runDirectArgon(this.env,request,
-        output=>this.ctx.storage.put('output',output)):
-        directFailure('job_input_missing'));
+      const submitted={...job,state:'submitted',submitted:Date.now(),...(version?{version}:{})};
+      await this.ctx.storage.put('job',submitted);
+      const run=request?.tokenBudget===ARGON_LONG_OUTPUT_TOKENS?startLongArgon:runDirectArgon;
+      const outcome=request?await run(this.env,request,output=>this.ctx.storage.put('output',output)):
+        directFailure('job_input_missing');
+      if(outcome.state==='background'){
+        await this.ctx.storage.put('job',{...submitted,...outcome});
+        await this.ctx.storage.delete('request');
+        await this.ctx.storage.setAlarm(job.created+ARGON_DIRECT_RETENTION_MS);
+      }else await this.finish(job,outcome);
     }catch{
       try{await this.ctx.storage.delete('request');}catch{}
     }
@@ -1564,7 +1651,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-detail-stages-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-100k-experiment-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');

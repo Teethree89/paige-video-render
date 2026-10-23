@@ -609,6 +609,14 @@ foreach (['thinking' => ['minimal', 'low', 'medium', 'high'],
         reject(400, 'Invalid Argon setting');
     $workerInput[$setting] = $input[$setting];
 }
+// Only the explicit direct-image experiment can request stored long decode.
+// This remains an allowlist, not a caller-controlled provider configuration.
+if (array_key_exists('tokenBudget', $input)) {
+    if ($action !== 'argon_start' || ($workerInput['profile'] ?? '') !== 'argon_direct' ||
+        !in_array($input['tokenBudget'], [32768, 100000], true))
+        reject(400, 'Invalid Argon token budget');
+    $workerInput['tokenBudget'] = $input['tokenBudget'];
+}
 // Authenticated four-pass environment generation. Validate pass name and count
 // before forwarding. The Worker validates every previous object's geometry;
 // PHP must never deserialize executable model code or send config secrets.

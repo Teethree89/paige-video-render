@@ -2,7 +2,7 @@
 // This test does not contact 50webs, Cloudflare or the model provider.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {setupAiSceneEditor,describeRepairs} from '../ai-scene-editor.js';
+import {setupAiSceneEditor,describeRepairs,describeUsage} from '../ai-scene-editor.js';
 import sceneWorker,{ARGON_REPAIR_CODES} from '../worker/scene-worker.mjs';
 import {validatePrimitiveDocument} from '../primitive-schema.js';
 
@@ -652,7 +652,7 @@ test('Argon Direct image rebuilds a full scene in ONE call, with layers and ligh
     ids.get('aiArgonThinking').value='high';ids.get('aiArgonDetail').value='max';
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(payloads[0].thinking,'high');assert.equal(payloads[0].detail,'max');
-    assert.match(confirmed,/^Settings: high thinking, Maximum detail\. These use more of the same 32,768-token output budget/);
+    assert.match(confirmed,/^Settings: high thinking, Maximum detail\. 32,768 tokens maximum for thinking \+ output/);
     assert.match(ids.get('aiSceneLog').textContent,/Argon settings: high thinking, Maximum detail\./);
     // One paid start, never the four Flash passes.
     assert.deepEqual(payloads.map(p=>p.action),['argon_start','argon_status']);
@@ -1056,13 +1056,14 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
     constructor(answer){super();this.answer=answer;this.returnValue='x';this.shown=0;}
     showModal(){this.shown++;setTimeout(()=>{this.returnValue=this.answer;this.handlers.get('close')?.();},0);}
   }
-  const run=async answer=>{
+  const run=async(answer,budget='32768')=>{
     const ids=new Map(),actions=[];
     globalThis.document=argonDomHarness(ids,jpeg);
     const dialog=new FakeDialog(answer);ids.set('aiConfirm',dialog);
     globalThis.fetch=async(url,options={})=>{
       if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'c',argonJob:null}),{status:200});
       const payload=JSON.parse(options.body);actions.push(payload.action);
+      if(payload.action==='argon_start')assert.equal(payload.tokenBudget,Number(budget));
       return new Response(JSON.stringify(payload.action==='argon_start'
         ?{ok:true,status:'in_progress',shotId:'shot_a'}
         :{ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,status:'failed',
@@ -1074,13 +1075,16 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
       onPreview:()=>{},onDiscard:()=>{},onAccept:()=>{}});
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='environment';ids.get('aiSceneModel').value='argon_direct';
+    ids.get('aiArgonBudget').value=budget;
+    await ids.get('aiSceneModel').fire('change');
+    assert.equal(ids.get('aiArgonBudgetField').hidden,false);
     await ids.get('aiSceneGenerate').fire('click');
     return {ids,actions,dialog};
   };
   try{
     const cancelled=await run('cancel');
     assert.equal(cancelled.dialog.shown,1);
-    assert.match(cancelled.ids.get('aiConfirmText').textContent,/^Settings: medium thinking, Standard detail\. Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation of the FULL SCENE\?/);
+    assert.match(cancelled.ids.get('aiConfirmText').textContent,/^Settings: medium thinking, Standard detail\. 32,768 tokens maximum for thinking \+ output\. Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation of the FULL SCENE\?/);
     assert.equal(cancelled.ids.get('aiConfirmOk').textContent,'Start paid Argon run');
     assert.deepEqual(cancelled.actions,[],'nothing is sent unless confirmed');
     assert.match(cancelled.ids.get('aiSceneLog').textContent,/Paid request not started: the confirmation was cancelled or dismissed\. Nothing was sent\./);
@@ -1089,9 +1093,30 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
     const confirmed=await run('ok');
     assert.deepEqual(confirmed.actions,['argon_start','argon_status']);
     assert.doesNotMatch(confirmed.ids.get('aiSceneLog').textContent,/not started/);
+    const longCancelled=await run('cancel','100000');
+    assert.deepEqual(longCancelled.actions,[]);
+    const disclosure=longCancelled.ids.get('aiConfirmText').textContent;
+    assert.match(disclosure,/100,000 tokens maximum for thinking \+ output/);
+    assert.match(disclosure,/stores THE REFERENCE IMAGES/);
+    assert.match(disclosure,/55 days/);assert.match(disclosure,/roughly 6.7k/);
+    assert.match(disclosure,/second decode hop also bills replayed input/);
+    assert.match(disclosure,/previously failed with HTTP 400/);
+    assert.doesNotMatch(disclosure,/not to store|up to 12 minutes/);
+    const longConfirmed=await run('ok','100000');
+    assert.deepEqual(longConfirmed.actions,['argon_start','argon_status'],'one explicit paid start, no fallback');
+    longConfirmed.ids.get('aiSceneModel').value='argon_previs';
+    await longConfirmed.ids.get('aiSceneModel').fire('change');
+    assert.equal(longConfirmed.ids.get('aiArgonBudgetField').hidden,true);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
     globalThis.fetch=oldFetch;
   }
+});
+
+test('missing thinking usage is unknown, not a zero-token budget measurement',()=>{
+  assert.doesNotMatch(describeUsage('Argon',{output:38,cap:100000}),/Thinking \+ output used|0 thinking/);
+  assert.match(describeUsage('Argon',{thinking:0,output:38,cap:100000}),/0 thinking/);
+  assert.match(describeUsage('Argon',{thinking:72000,output:10000,cap:100000}),/82,000 of 100,000 \(82%\)/);
+  assert.equal(describeUsage('Argon',undefined),'Argon tokens: not reported.');
 });

@@ -34,6 +34,18 @@ const options=version=>({
     calls.push({url:request.url,method:request.method,body:await request.text(),
       key:request.headers.get('x-goog-api-key'),revision:request.headers.get('Api-Revision'),
       deadline:request.headers.get('X-Server-Timeout')});
+    if(mode.startsWith('long')){
+      const id='v1_long_workerd';
+      if(request.method==='POST')return new Response(JSON.stringify({id,status:'queued'}));
+      assert.equal(request.method,'GET');assert.ok(request.url.endsWith('/'+id));
+      if(mode==='long_pending')return new Response(JSON.stringify({id,status:'in_progress'}));
+      const output=JSON.stringify(scene),cut=output.length>>1;
+      return new Response(JSON.stringify({id,status:'completed',usage:{total_thought_tokens:72000,total_output_tokens:10000},steps:[
+        {type:'thought',content:[{type:'text',text:'PRIVATE_THOUGHT'}]},
+        {type:'model_output',content:[{type:'text',text:output.slice(0,cut)}]},
+        {type:'model_output',content:[{type:'text',text:output.slice(cut)}]}
+      ]}));
+    }
     if(mode==='hang')await new Promise(r=>{release=r;}); // still answering when the deploy lands
     await new Promise(r=>setTimeout(r,1500)); // a slow model: longer than the start request
     if(mode==='reject')return new Response(JSON.stringify({error:{code:'invalid_request',
@@ -79,7 +91,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-detail-stages-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-100k-experiment-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
@@ -160,5 +172,29 @@ try{
   }
   assert.deepEqual([after.status,after.diagnostic.reason],['failed','job_interrupted_deploy']);
   assert.equal(calls.length,4,'never resubmitted after the deploy');
+  // 6) Stored 100k generation survives a restart. All subsequent traffic is
+  // GET of the same interaction, including after a repeated alarm/deploy.
+  mode='long_pending';
+  const long=await (await post('/api/scene/argon/direct-start',{...job,tokenBudget:100000})).json();
+  const longStatus=async()=>(await post('/api/scene/argon/status',{jobId:long.jobId,shotId:'shot_a'})).json();
+  for(let i=0;i<40&&!calls.some(c=>c.method==='GET');i++){
+    await longStatus();await new Promise(r=>setTimeout(r,100));
+  }
+  assert.ok(calls.some(c=>c.method==='GET'),'background job was persisted and polled');
+  const longBody=JSON.parse(calls[4].body);
+  assert.equal(longBody.generation_config.max_output_tokens,100000);
+  assert.equal(longBody.background,true);assert.equal(longBody.store,true);assert.equal(longBody.stream,undefined);
+  assert.equal(longBody.system_instruction,sent.system_instruction);
+  assert.deepEqual(longBody.input,sent.input);
+  await mf.setOptions(options('0a1b2c3d-0000-4000-8000-000000000003'));
+  mode='long_complete';
+  const longResult=await longStatus();
+  assert.deepEqual(longResult,{ok:true,status:'completed',proposal:scene,usage:{thinking:72000,output:10000,cap:100000}});
+  const callCount=calls.length;
+  assert.deepEqual(await longStatus(),longResult);assert.equal(calls.length,callCount);
+  assert.equal(calls.filter(c=>c.method==='POST').length,5,'only one new paid POST for the 100k job');
+  assert.ok(calls.slice(5).every(c=>c.method==='GET'));
+  const longOutput=await (await post('/api/scene/argon/output',{jobId:long.jobId,shotId:'shot_a'})).json();
+  assert.deepEqual(JSON.parse(longOutput.output),scene);assert.ok(!longOutput.output.includes('PRIVATE'));
   console.log('WORKERD TEST PASS');
 }finally{release();await mf.dispose();}
