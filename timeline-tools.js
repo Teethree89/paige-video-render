@@ -10,7 +10,7 @@ const mk=(tag,txt,attributes={})=>{
 };
 export function setupTimelineEditing({
   getSequence,getShotId,onCommit,onSeek,onUndo,onRedo,canUndo,canRedo,
-  canEdit=()=>true,sourceDuration=()=>null
+  canEdit=()=>true,sourceDuration=()=>null,getSelectedKey=()=>null
 }){
  const tracks=document.getElementById('tracks'),toolbar=document.querySelector('.timeline-toolset');
  if(!tracks||!toolbar)return null;
@@ -32,6 +32,19 @@ export function setupTimelineEditing({
  const status=mk('span','Select a chapter to copy, paste, resize or move.',{id:'timelineEditStatus',role:'status'});
  bar.append(status);
  toolbar.closest('.timeline-header').insertAdjacentElement('afterend',bar);
+ const projectPanel=document.getElementById('projectPanel');
+ const chapterField=document.createElement('label');
+ chapterField.className='field timeline-chapter-duration';
+ chapterField.textContent='Selected chapter duration (seconds)';
+ const durationInput=document.createElement('input');
+ durationInput.type='number';durationInput.step='0.01';durationInput.min='0.25';
+ durationInput.max='3600';durationInput.id='timelineChapterDuration';
+ chapterField.append(durationInput);projectPanel?.prepend(chapterField);
+ const cameraPanel=document.getElementById('cameraPanel'),timeField=document.createElement('label');
+ timeField.className='field';timeField.textContent='Camera key time (seconds)';
+ const cameraTime=document.createElement('input');cameraTime.type='number';cameraTime.step='0.01';
+ cameraTime.min='0';cameraTime.id='timelineKeyTime';timeField.append(cameraTime);
+ cameraPanel?.insertBefore(timeField,cameraPanel.querySelector('#camTime')?.nextSibling||cameraPanel.firstChild);
  const locks=new Map();
  for(const [kind,label] of [['scenes','SCENES'],['camera','CAMERA'],['text','TEXT']]){
    const row=Array.from(document.querySelectorAll('.track-label')).find(e=>e.textContent.includes(label));
@@ -63,12 +76,17 @@ export function setupTimelineEditing({
    earlier.disabled=!available||index<=0;
    later.disabled=!available||index<0||index===seq.shots.length-1;
    remove.disabled=!available||seq.shots.length<=1;
+   const active=seq.shots.find(x=>x.id===id);
+   chapterField.hidden=!active;
+   if(active&&document.activeElement!==durationInput)durationInput.value=(active.end-active.start).toFixed(2);
+   const selectedCamera=seq.camera.find(k=>k.id===getSelectedKey()?.id);
+   if(selectedCamera&&document.activeElement!==cameraTime)cameraTime.value=selectedCamera.at.toFixed(2);
  }
- function run(change,{time=null,label='Timeline updated'}={}){
+ function run(change,{time=null,label='Timeline updated',retain=null}={}){
    if(!canEdit()){note('Finish or discard the active AI generation before modifying the timeline.');return false;}
    try{
      const next=change(getSequence());
-     onCommit(next,time);
+     onCommit(next,time,retain);
      note(label);refresh();return true;
    }catch(error){note(error.message);refresh();return false;}
  }
@@ -109,6 +127,20 @@ export function setupTimelineEditing({
  };
  undo.onclick=()=>{onUndo();refresh();};
  redo.onclick=()=>{onRedo();refresh();};
+ durationInput.addEventListener('change',()=>{
+   const id=selected(),seq=getSequence(),shot=seq.shots.find(s=>s.id===id);
+   if(!shot)return;
+   const duration=Number(durationInput.value);
+   run(s=>resizeChapter(s,id,duration,{ripple:state.ripple,sourceDuration:sourceDuration(id)}),
+      {time:shot.start,label:'Chapter duration updated.'});
+ });
+ cameraTime.addEventListener('change',()=>{
+   const selected=getSelectedKey();
+   if(selected?.type!=='camera')return;
+   const nextTime=Number(cameraTime.value);
+   run(s=>moveTimelineKey(s,'camera',selected.id,nextTime,{snap:state.snap}),
+     {time:nextTime,label:'Camera timecode updated.',retain:selected});
+ });
  ripple.onclick=()=>{state.ripple=!state.ripple;ripple.textContent=state.ripple?'Ripple ON':'Ripple OFF';refresh();};
  snap.onclick=()=>{state.snap=!state.snap;snap.textContent=state.snap?'Snap ON':'Snap OFF';refresh();};
  const times=()=>getSequence().shots.flatMap(x=>[x.start,x.end]);
@@ -178,11 +210,11 @@ export function setupTimelineEditing({
    const seq=getSequence(),delta=position(event)-drag.startTime;
    const proposed=snapTime(drag.initial+delta);
    if(drag.type==='camera')run(s=>moveTimelineKey(s,'camera',drag.id,proposed,{snap:state.snap}),
-      {time:proposed,label:'Camera key moved.'});
+      {time:proposed,label:'Camera key moved.',retain:{type:'camera',id:drag.id}});
    else if(drag.type==='text')run(s=>moveTimelineKey(s,'text',drag.id,proposed,{snap:state.snap}),
-      {time:proposed,label:'Text overlay moved.'});
+      {time:proposed,label:'Text overlay moved.',retain:{type:'text',id:drag.id}});
    else if(drag.type==='text-resize')run(s=>resizeText(s,drag.id,proposed),
-      {time:proposed,label:'Text overlay resized.'});
+      {time:proposed,label:'Text overlay resized.',retain:{type:'text',id:drag.id}});
    else if(drag.type==='chapter-resize'){
      const item=seq.shots.find(s=>s.id===drag.id),duration=proposed-item.start;
      run(s=>resizeChapter(s,drag.id,duration,{ripple:state.ripple,
