@@ -292,16 +292,16 @@ async function boot(){
    onCommit:doc=>{sequence=doc;refreshAll();renderWorld();saveLocal();}
  });
  timelineEditing=setupTimelineEditing({
-   getSequence:()=>sequence,getShotId:()=>shotAt(playhead),
+   getSequence:()=>sequence,getShotId:()=>shotAt(playhead),getSelectedKey:()=>selection,
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
    sourceDuration:id=>referenceBuilder?.sourceForShot(id)?.mediaDuration??null,
    canUndo:()=>timelineHistory?.canUndo===true,canRedo:()=>timelineHistory?.canRedo===true,
-   onCommit:(doc,time)=>{
+   onCommit:(doc,time,retain)=>{
      setPlaying(false);endGeometryReview();
      validatePrimitiveDocument(doc.primitiveScenes,doc.shots.map(s=>s.id));
      checkTimeline(doc);
      sequence=doc;referenceBuilder.loadFromSequence(sequence);
-     syncPrimitiveWorld();selection=null;refreshAll();
+     syncPrimitiveWorld();selection=retain||null;refreshAll();
      seek(time===null?Math.min(playhead,sequence.duration):Math.min(time,sequence.duration));
      saveLocal();
    },
