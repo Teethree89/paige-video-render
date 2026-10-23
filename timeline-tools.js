@@ -54,7 +54,7 @@ export function setupTimelineEditing({
  }
  function refresh(){
    const available=canEdit();
-   undo.disabled=!canUndo();redo.disabled=!canRedo();
+   undo.disabled=!available||!canUndo();redo.disabled=!available||!canRedo();
    for(const b of [copy,paste,remove,earlier,later,ripple,snap])b.disabled=!available;
    paste.disabled=!available||!state.clipboard;
    ripple.setAttribute('aria-pressed',String(state.ripple));
