@@ -67,7 +67,7 @@ export function moveTimelineKey(source,kind,id,newStart,{snap=true}={}){
   seq.camera.sort((a,b)=>a.at-b.at);
   return checkTimeline(seq);
 }
-export function resizeChapter(source,id,newDuration,{ripple=true}={}){
+export function resizeChapter(source,id,newDuration,{ripple=true,sourceDuration=null}={}){
   const seq=clone(checkTimeline(source));
   const index=seq.shots.findIndex(x=>x.id===id);
   if(index<0)throw Error('Chapter not found');
@@ -77,8 +77,9 @@ export function resizeChapter(source,id,newDuration,{ripple=true}={}){
   let duration=rnd(newDuration);
   if(seq.referenceSequence?.items){
     const item=seq.referenceSequence.items.find(x=>x.id===id);
-    if(item?.kind==='video'&&duration>item.sourceOut-item.sourceIn+.001)
-      throw Error('Video source has insufficient frames. Extend the source out point in Reference Builder first.');
+    if(item?.kind==='video'&&sourceDuration!==null&&
+      (!num(sourceDuration)||item.sourceIn+duration>sourceDuration+.001))
+      throw Error('Video source does not contain enough frames for this duration.');
   }
   if(!ripple){
     const next=seq.shots[index+1];
@@ -229,7 +230,20 @@ export function deleteChapter(source,id){
   if(seq.referenceSequence?.items)seq.referenceSequence.items=
     seq.referenceSequence.items.filter(x=>x.id!==id);
   seq.duration=rnd(seq.duration-length);
+  if(!seq.camera.length){
+    const original=source.camera[0];
+    const first=seq.shots[0];
+    seq.camera.push({...clone(original),id:'cam_kept_'+first.id,at:0,cut:true});
+  }
   seq.camera.sort((a,b)=>a.at-b.at);
+  return checkTimeline(seq);
+}
+export function resizeText(source,id,newEnd){
+  const seq=clone(checkTimeline(source));
+  const tx=seq.text.find(x=>x.id===id);
+  if(!tx||!num(newEnd)||newEnd-tx.start<.05||newEnd>seq.duration)
+    throw Error('Text overlay must be at least 0.05 seconds and within the timeline');
+  tx.end=rnd(newEnd);
   return checkTimeline(seq);
 }
 export function createTimelineHistory(initial,max=90){
