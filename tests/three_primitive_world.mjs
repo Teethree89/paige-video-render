@@ -170,3 +170,52 @@ test('viewport picking resolves each repeated copy to one editable holder ID',()
   const copy=world.getSceneForExport('s1');
   assert.ok(copy.getObjectByName('Windows'),'export continues using ordinary nodes');
 });
+
+test('pinned Three.js TransformControls attach to saved primitives and toggle orbit safely',async()=>{
+  const {setupSceneObjectEditing}=await import('../scene-object-edit.js');
+  const {world}=build(),scene=new THREE.Scene();
+  // The real world object is already parented to its own scene; its existing
+  // meshes can be referenced by TransformControls without reparenting it.
+  const camera=new THREE.PerspectiveCamera(50,1,.1,1000);
+  camera.position.set(0,5,30);camera.lookAt(0,0,0);
+  const listeners=new Map();
+  const canvas={
+    style:{},addEventListener(type,fn){listeners.set(type,fn);},
+    removeEventListener(type){listeners.delete(type);},
+    getBoundingClientRect(){return {left:0,top:0,width:800,height:600}},
+    setPointerCapture(){},releasePointerCapture(){}
+  };
+  const ids=new Map();
+  const oldDocument=globalThis.document;
+  globalThis.document={getElementById(id){
+    if(!ids.has(id))ids.set(id,{
+      hidden:false,disabled:false,textContent:'',classList:{toggle(){}},
+      addEventListener(){},setAttribute(){}
+    });
+    return ids.get(id);
+  }};
+  const orbit={enabled:false};
+  let enters=0,exits=0,selection=null,deletes=0;
+  try{
+    const editor=setupSceneObjectEditing({
+      scene,camera,canvas,orbitControls:orbit,world,
+      getActiveShot:()=>({id:'s1'}),getDocument:()=>document,
+      onEnter:()=>{enters++;return true;},onExit:()=>{exits++;orbit.enabled=false;},
+      onSelect:id=>selection=id,onDelete:()=>{deletes++;},
+      onTransform:()=>assert.fail('Do not persist transforms on selection'),
+      onStatus:()=>{}
+    });
+    assert.equal(editor.active,false);
+    assert.equal(editor.setActive(true),true);
+    assert.equal(editor.active,true);assert.equal(orbit.enabled,true);
+    assert.equal(editor.select('windows'),true);
+    assert.equal(editor.selectedId,'windows');assert.equal(selection,'windows');
+    assert.equal(editor.setMode('rotate'),undefined);
+    assert.equal(editor.select('unknown'),false);
+    assert.equal(editor.deleteSelected(),true);assert.equal(deletes,1);
+    assert.equal(editor.selectedId,null);
+    assert.equal(editor.setActive(false),true);
+    assert.equal(editor.active,false);assert.equal(enters,1);assert.equal(exits,1);
+    editor.dispose();
+  }finally{globalThis.document=oldDocument;world.dispose();}
+});
