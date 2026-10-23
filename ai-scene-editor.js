@@ -78,6 +78,10 @@ export function describeUsage(label,u) {
 const ARGON_THINKING=Object.freeze(['minimal','low','medium','high']);
 const ARGON_DETAIL_LABELS=Object.freeze({standard:'Standard',high:'High',max:'Maximum'});
 const ARGON_RETRY_TOKENS=10000;
+// Three additional paid jobs at most; each retry is only eligible after an
+// independently confirmed cheap terminal failure of its preceding attempt.
+const ARGON_RETRY_MAX=3;
+const ARGON_RETRY_DELAY_MS=15000;
 // Only a terminal scene-validation failure has complete generated-token usage.
 // Transport failures (even with partial counts) never authorize another bill.
 export function argonRetryReason(error){
@@ -497,7 +501,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
         if(!await askPaid(settings+' '+(profile==='argon_direct'
           ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable initial call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'+
-            (retryEnabled?' You also authorize ONE automatic paid retry as a new identical job if the completed scene is unusable and both reported thinking and output total under 10,000 tokens, or if the first start never reached Google. At most TWO attempts, each using a request slot and billing its input and generated tokens. Interrupted calls and unknown usage never retry.':'')+
+            (retryEnabled?' You authorize up to THREE automatic paid retries as new identical jobs, with a 15-second pause before each retry. Each preceding attempt must either finish with an unusable scene AND reported thinking plus output strictly below 10,000 tokens, or have its start conclusively marked as never received by Google. At most FOUR total attempts (one initial plus three retries); each uses a separate request slot and bills its own input and generated tokens. Interrupted calls, provider errors and unknown or partial usage never trigger a retry.':'')+
             (largeBudget?' The thinking + output ceiling is 65,536 tokens instead of 32,768, on the same call; Google bills only the tokens Argon generates, up to 65,536.':'')
           :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'),
           'Start paid Argon run')){notStarted();return;}
@@ -539,7 +543,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
             mode:argonFull?'full_scene':'primary_subject',thinking,detail,
             ...(profile==='argon_direct'?{tokenBudget}:{})};
           log('Argon '+settings.charAt(0).toLowerCase()+settings.slice(1));
-          for(let attempt=0;attempt<(retryEnabled?2:1);attempt++){
+          for(let attempt=0;attempt<=(retryEnabled?ARGON_RETRY_MAX:0);attempt++){
             try{
               const start=await request('argon_start',payload);
               if(start.usage)log(describeUsage('Flash-Lite analysis',start.usage));
@@ -555,12 +559,15 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
             }catch(error){
               if(profile==='argon_previs'&&error.usage&&!error.argonTerminal)
                 log(describeUsage('Flash-Lite analysis',error.usage));
-              const reason=retryEnabled&&attempt===0?argonRetryReason(error):null;
+              const reason=retryEnabled&&attempt<ARGON_RETRY_MAX?argonRetryReason(error):null;
               if(!reason)throw error;
               log((reason==='scene'?'The unusable scene used '+
                 (error.usage.thinking+error.usage.output).toLocaleString('en-US')+' generated tokens (under 10,000).'
                 :'The first start never reached Google.')+
-                ' Starting ONE automatic retry as a new paid job; there are no further retries.');
+                ' Retrying in 15 seconds ('+(attempt+1)+'/'+ARGON_RETRY_MAX+' permitted retries).');
+              status('Argon failed cheaply; retry '+(attempt+1)+'/'+ARGON_RETRY_MAX+' starts in 15 seconds…');
+              await new Promise(resolve=>setTimeout(resolve,ARGON_RETRY_DELAY_MS));
+              log('Starting automatic paid Argon retry '+(attempt+1)+'/'+ARGON_RETRY_MAX+' as a new identical job…');
             }
           }
         }else{
