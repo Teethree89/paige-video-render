@@ -168,6 +168,7 @@ async function boot(){
    scene,camera,canvas,orbitControls:controls,world:primitiveWorld,
    getActiveShot:()=>shotAt(playhead),
    getDocument:()=>sequence.primitiveScenes,
+   getInitialObjectId:()=>primitiveEditor?.getSelectedId?.()||null,
    onEnter:()=>{
      if(aiSceneEditor?.hasPending?.()){
        el('primitiveStatus').textContent='Accept or discard the AI proposal before editing saved objects.';
