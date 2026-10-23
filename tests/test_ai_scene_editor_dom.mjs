@@ -1269,7 +1269,8 @@ test('checked detail tail submits two fresh paid jobs and appends their objects 
   const obj=(id,x)=>({id,name:id,layer:'structures',primitive:'box',position:[x,1,0],
     rotation:[0,0,0],scale:[2,2,2],material:{color:'#334455',metalness:0,roughness:.6}});
   const run=async({failDetail=0}={})=>{
-    const ids=new Map(),starts=[],actions=[];let preview=null,paid='';
+    const ids=new Map(),starts=[],actions=[],soundEvents=[];let preview=null,paid='',soundArms=0;
+    const generationSounds={arm:()=>soundArms++,play:outcome=>{soundEvents.push(outcome);return Promise.resolve(true);}};
     globalThis.document=argonDomHarness(ids,jpeg);
     globalThis.confirm=text=>{paid=text;return true;};
     globalThis.fetch=async(url,options={})=>{
@@ -1291,16 +1292,18 @@ test('checked detail tail submits two fresh paid jobs and appends their objects 
     const shot={id:'shot_a',start:0,end:6};
     setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
       getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
-      onPreview:entry=>{preview=entry;},onDiscard:()=>{},onAccept:()=>{}});
+      onPreview:entry=>{preview=entry;},onDiscard:()=>{},onAccept:()=>{},generationSounds});
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='environment';ids.get('aiSceneModel').value='argon_direct';
     ids.get('aiArgonRetry').checked=false;ids.get('aiArgonAddDetail').checked=true;
     await ids.get('aiSceneGenerate').fire('click');
-    return {starts,actions,preview,paid,log:ids.get('aiSceneLog').textContent};
+    return {starts,actions,preview,paid,soundEvents,soundArms,log:ids.get('aiSceneLog').textContent};
   };
   try{
     const ok=await run();
     assert.equal(ok.starts.length,3);
+    assert.deepEqual(ok.soundEvents,['success'],'three completed paid calls produce ONE success cue');
+    assert.equal(ok.soundArms,1);
     assert.equal(ok.starts[0].detailPass,undefined);
     assert.equal(ok.starts[1].detailPass,1);assert.equal(ok.starts[2].detailPass,2);
     assert.deepEqual(ok.starts[1].existing.map(x=>x.id),['base']);
@@ -1311,6 +1314,9 @@ test('checked detail tail submits two fresh paid jobs and appends their objects 
     assert.match(ok.log,/Add Detail 1\/2 added 1 new editable objects/);
     const failed=await run({failDetail:2});
     assert.equal(failed.starts.length,2,'failed pass one prevents paid pass two');
+    assert.deepEqual(failed.soundEvents,['failed'],
+      'a partial base preview with a failed detail tail must signal failure once');
+    assert.equal(failed.soundArms,1);
     assert.deepEqual(failed.preview.objects.map(o=>o.id),['base']);
     assert.match(failed.log,/Keeping all earlier successful geometry/);
   }finally{
