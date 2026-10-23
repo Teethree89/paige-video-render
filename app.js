@@ -289,7 +289,7 @@ async function boot(){
  if(sequence.referenceSequence)syncReferenceMedia(playhead);
  animationGraph=setupAnimationGraph({
    getSequence:()=>sequence,getSelected:()=>selection,
-   onCommit:doc=>{sequence=doc;refreshAll();renderWorld();saveLocal();}
+   onCommit:doc=>{if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.())throw Error('Finish the current AI job or proposal before editing camera curves.');sequence=doc;refreshAll();renderWorld();saveLocal();}
  });
  timelineEditing=setupTimelineEditing({
    getSequence:()=>sequence,getShotId:()=>shotAt(playhead),getSelectedKey:()=>selection,
