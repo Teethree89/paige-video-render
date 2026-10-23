@@ -135,3 +135,24 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
 .argon-particle-reopen{position:fixed;z-index:20000;bottom:26px;left:50%;transform:translateX(-50%);padding:13px 20px;border-radius:26px;border:1px solid #5edbcc;background:#10303a;color:#c9fff5;box-shadow:0 10px 40px #020911;cursor:pointer}
 @keyframes argon-unknown-progress{0%{transform:translateX(-105%)}50%{transform:translateX(100%)}100%{transform:translateX(300%)}}
 @media(prefers-reduced-motion:reduce){.argon-particle-track>div{animation:none;width:100%!important;background:#638f91}}
+
+/* Orthogonal View/Edit mode in the transport; orbit inspection remains a
+   viewing tool, while Edit exposes only saved primitive geometry. */
+.scene-mode-switch{display:inline-flex;gap:2px;border:1px solid #3d6575;border-radius:5px;padding:2px;background:#0b1a25}
+.transport-right .scene-mode-switch button{border:0;background:transparent;color:#90b0c1;border-radius:3px;padding:7px 12px;font-weight:700}
+.transport-right .scene-mode-switch button.active{background:#80e8e0;color:#07252a}
+.scene-edit-tools[hidden]{display:none!important}
+.scene-edit-tools{position:absolute;right:16px;top:106px;z-index:47;min-width:260px;max-width:min(345px,calc(100% - 32px));
+ padding:13px;background:#081b27ed;border:1px solid #42788a;border-radius:8px;box-shadow:0 12px 35px #0009;backdrop-filter:blur(8px)}
+.scene-edit-selected{display:flex;flex-direction:column;gap:6px;min-width:0}
+.scene-edit-selected span{color:#87e7db;font-size:9px;font-weight:800;letter-spacing:1.4px}
+.scene-edit-selected strong{font-size:13px;color:#f0ffff;overflow-wrap:anywhere}
+.scene-edit-actions{display:flex;gap:5px;margin-top:13px}
+.scene-edit-actions button{background:#143544;color:#c8e9ef;border:1px solid #426879;padding:9px 8px;border-radius:5px;font-size:11px;font-weight:700;flex:1;white-space:nowrap}
+.scene-edit-actions button.active{color:#00282c;background:#9cf6e7;border-color:#a8fdef}
+.scene-edit-actions button.scene-edit-delete{flex:0 0 auto;background:#35202b;border-color:#7c4652;color:#ffc0c7}
+.scene-edit-tools p{font-size:10px;line-height:1.55;color:#a7d9dd;margin:10px 0 0}
+.scene-edit-tools .scene-edit-note{color:#759aa8}
+#scene.editing-primitives{cursor:crosshair}
+@media(max-width:1200px){.transport-right .scene-mode-switch button{padding:7px 8px}}
+@media(max-width:680px){.scene-edit-tools{right:9px;top:93px;min-width:210px}.scene-edit-actions button{font-size:10px;padding:8px 5px}.scene-mode-switch{margin-left:2px}.transport-right .scene-mode-switch button{padding:6px 6px}}
