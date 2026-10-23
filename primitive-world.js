@@ -40,6 +40,30 @@ const surface = material => new THREE.MeshStandardMaterial({
   ...(material.opacity<1?{transparent:true,opacity:material.opacity,depthWrite:false}:{})
 });
 
+// Lights live in their shot's group, so they shine only while it is shown.
+// Directional and spot lights aim along their own -Z at the target, which is
+// kept as a child at (0,0,-1): glTF exports that direction exactly.
+const light = spec => {
+  const color=new THREE.Color(spec.color);
+  const node=spec.type==='directional'?new THREE.DirectionalLight(color,spec.intensity)
+    :spec.type==='spot'?new THREE.SpotLight(color,spec.intensity,spec.distance,spec.angle,spec.penumbra)
+    :new THREE.PointLight(color,spec.intensity,spec.distance);
+  node.name=spec.name;
+  node.userData.primitiveLight=spec.type;
+  node.position.set(...spec.position);
+  if(node.target){
+    const target=new THREE.Vector3(...spec.target);
+    // Straight up or down is parallel to the default up axis, where lookAt
+    // has to perturb the aim; any other up keeps a downlight exact.
+    if(Math.abs(target.clone().sub(node.position).normalize().y)>.999)node.up.set(0,0,1);
+    node.lookAt(target);
+    node.target.position.set(0,0,-1);
+    node.target.userData.lightTarget=true;
+    node.add(node.target);
+  }
+  return node;
+};
+
 export function createPrimitiveWorld(scene) {
   const groups=new Map();
   let document={schemaVersion:1,scenes:[]};
@@ -50,6 +74,7 @@ export function createPrimitiveWorld(scene) {
       scene.remove(group);
       group.traverse(item=>{
         if(item.isMesh){item.geometry.dispose();item.material.dispose();}
+        if(item.isLight)item.dispose();
       });
     }
     groups.clear();
@@ -58,6 +83,7 @@ export function createPrimitiveWorld(scene) {
     const next=validatePrimitiveDocument(value,allowedShotIds);
     clear();document=next;
     for(const entry of next.scenes){
+      // A shot with geometry replaces the original world; lights alone do not.
       if(!entry.objects.length)continue;
       const root=new THREE.Group();
       root.name='Primitives_'+entry.shotId;
@@ -100,6 +126,7 @@ export function createPrimitiveWorld(scene) {
           layerGroups.get(key).add(holder);
         }
       }
+      for(const spec of entry.lights||[])root.add(light(spec));
       root.visible=false;
       groups.set(entry.shotId,root);
       scene.add(root);
@@ -124,6 +151,12 @@ export function createPrimitiveWorld(scene) {
     const root=groups.get(shotId);
     if(!root)throw Error('No primitive scene for '+shotId);
     const copy=root.clone(true);
+    // Cloning a light copies its target as a detached object; point it back
+    // at the cloned child so the exported direction is the node's -Z.
+    copy.traverse(node=>{
+      const target=node.isLight&&node.children.find(child=>child.userData.lightTarget);
+      if(target)node.target=target;
+    });
     copy.visible=true;
     copy.name='Editable_primitives_'+shotId;
     return copy;

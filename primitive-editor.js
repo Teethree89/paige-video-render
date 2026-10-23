@@ -57,7 +57,9 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     const filtered=objects.filter(o=>chosenLayer==='all'||
       (o.layer||'manual')===chosenLayer);
     const selected=filtered.find(o=>o.id===selectedId);
-    el('primitiveShotLabel').textContent=shot.name+' · '+objects.length+' object(s)';
+    const lights=entry?.lights?.length||0;
+    el('primitiveShotLabel').textContent=shot.name+' · '+objects.length+' object(s)'+
+      (lights?' · '+lights+' light(s)':'');
     objectSelect.replaceChildren();
     const none=document.createElement('option');
     none.value='';none.textContent=filtered.length?'Select an object…':
@@ -71,6 +73,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     if(selected){
       objectSelect.value=selected.id;
       el('primitiveName').value=selected.name;
+      el('primitiveLayer').value=selected.layer||'manual';
       el('primitiveColor').value=selected.material.color;
       el('primitiveMetalness').value=selected.material.metalness;
       el('primitiveRoughness').value=selected.material.roughness;
@@ -107,6 +110,11 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   objectSelect.addEventListener('change',()=>{selectedId=objectSelect.value||null;refresh();});
   el('primitiveName').addEventListener('change',event=>apply(entry=>{
     const item=entry.objects.find(o=>o.id===selectedId);if(item)item.name=event.target.value;
+  }));
+  // "Manual" is the absence of a layer, as for hand-added shapes.
+  el('primitiveLayer').addEventListener('change',event=>apply(entry=>{
+    const item=entry.objects.find(o=>o.id===selectedId);if(!item)return;
+    if(event.target.value==='manual')delete item.layer;else item.layer=event.target.value;
   }));
   for(const key of ['Color','Metalness','Roughness']){
     el('primitive'+key).addEventListener('change',event=>apply(entry=>{

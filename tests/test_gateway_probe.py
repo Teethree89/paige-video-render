@@ -191,13 +191,51 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("'samesite' => 'Strict'", script)
         self.assertIn("($modernCookieApi && strcasecmp(", script)
 
-    def test_primary_mode_is_strictly_validated_and_forwarded_by_php(self):
+    @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
+    def test_generation_scope_is_strictly_validated_and_forwarded_by_php(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
-        self.assertIn("if (array_key_exists('mode', $input))", php)
-        self.assertIn("$input['mode'] !== 'primary_subject'", php)
-        self.assertIn("array_key_exists('layer', $input)", php)
-        self.assertIn("$workerInput['mode'] = 'primary_subject';", php)
-        self.assertIn("$workerInput = ['shotId' => $shotId, 'frames' => $validated];", php)
+        # The real profile, model, scope, pass and Argon-start checks, up to
+        # the session/slot logic, run against each request below.
+        start = php.index("$workerInput = ['shotId' => $shotId, 'frames' => $validated];")
+        end = php.index("    $active = $_SESSION['argon_job'] ?? null;")
+        harness = '''<?php
+$case = json_decode(stream_get_contents(STDIN), true);
+$input = $case['input']; $action = $case['action']; $shotId = 'draft_001'; $validated = [];
+function reject($status, $message) { echo json_encode(['status' => $status, 'error' => $message]); exit; }
+function forwarded() { global $workerInput; echo json_encode(['status' => 200, 'worker' => $workerInput]); exit; }
+''' + php[start:end] + "forwarded(); }\nforwarded();\n"
+        cases = [
+            ('generate', {'mode': 'primary_subject'}, 200, 'primary_subject'),
+            ('generate', {'profile': 'g38_medium', 'mode': 'primary_subject'}, 200, 'primary_subject'),
+            ('generate', {}, 200, None),
+            ('argon_start', {'profile': 'argon_direct', 'mode': 'full_scene'}, 200, 'full_scene'),
+            ('argon_start', {'profile': 'argon_direct', 'mode': 'primary_subject'}, 200, 'primary_subject'),
+            ('argon_start', {'profile': 'argon_previs', 'mode': 'primary_subject'}, 200, 'primary_subject'),
+            # Full scene is ONE Argon Direct image call, nothing else.
+            ('argon_start', {'profile': 'argon_previs', 'mode': 'full_scene'}, 400, None),
+            ('generate', {'profile': 'argon_direct', 'mode': 'full_scene'}, 400, None),
+            ('generate', {'profile': 'g38_low', 'mode': 'full_scene'}, 400, None),
+            ('generate', {'mode': 'full_scene'}, 400, None),
+            ('argon_start', {'profile': 'argon_direct'}, 400, None),
+            ('argon_start', {'profile': 'argon_direct', 'mode': 'environment'}, 400, None),
+            ('argon_start', {'profile': 'argon_direct', 'mode': 'full_scene', 'layer': 'structures'}, 400, None),
+            ('generate', {'mode': 'primary_subject', 'layer': 'structures'}, 400, None),
+            ('generate', {'mode': ['full_scene']}, 400, None),
+        ]
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            script = pathlib.Path(folder) / "scope.php"
+            script.write_text(harness)
+            for action, extra, status, mode in cases:
+                with self.subTest(action=action, input=extra):
+                    result = subprocess.run(["php", str(script)],
+                        input=json.dumps({'action': action, 'input': extra}),
+                        text=True, capture_output=True, check=True)
+                    value = json.loads(result.stdout)
+                    self.assertEqual(value['status'], status, value)
+                    if status == 200:
+                        self.assertEqual(value['worker'].get('mode'), mode)
+                        self.assertEqual(value['worker']['shotId'], 'draft_001')
 
     def test_gemini_model_selection_is_explicit_and_server_allowlisted(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
@@ -214,7 +252,7 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("reject(400, 'Unsupported AI profile')", php)
         self.assertIn("array_key_exists('model', $input)", php)
         self.assertIn("$workerInput['profile'] = $input['profile'];", php)
-        self.assertIn("($workerInput['mode'] ?? '') !== 'primary_subject'", php)
+        self.assertIn("!in_array($workerInput['mode'] ?? '', $argonModes, true)", php)
         self.assertIn("array_key_exists('layer', $workerInput)", php)
         self.assertIn("$curlTimeout = (($workerInput['profile'] ?? '') === 'g38_medium') ? 85 : 55;", php)
         self.assertIn("CURLOPT_TIMEOUT => $curlTimeout", php)

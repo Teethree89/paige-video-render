@@ -60,14 +60,23 @@ The format grew additively and keeps `schemaVersion: 1`: a document written befo
 - **`material.emissive`** `#RRGGBB` with **`emissiveIntensity`** from 0 to 10 (default 1) for lit windows, screens and lamps. It exports to glTF as `emissiveFactor` plus `KHR_materials_emissive_strength`.
 - **`material.opacity`** from 0.05 to 1 for glass or water. Below 1 the material blends and does not write depth, and exports with `alphaMode: BLEND`.
 - **Scene `camera`** `{"position":[x,y,z],"target":[x,y,z],"fov":deg}` is a model's estimate of the reference camera, in the shot's local coordinates (vertical field of view from 10 to 120). The geometry preview starts from it when it plausibly frames the objects. It is a reviewable suggestion: it is **never** written to the timeline's `camera` keys.
+- **Scene `lights`**: up to 8 lights, each `{"type","name","color","intensity","position"}` plus type-specific fields, all in the shot's local coordinates:
 
-The editor's shape dropdown adds all nine primitives (an extrusion starts as an L footprint). Fields without their own inputs (copies, footprint, glow, opacity) are listed read-only next to the shape, stay intact through every edit and duplicate, and are changed through Export/Import JSON. Z-fighting cleanup compares every field when it removes exact duplicates and never moves a repeated object or uses one as a host.
+  | `type` | Intensity | Extra fields (defaults) |
+  | --- | --- | --- |
+  | `directional` (sun, moon) | 0–10 | `target` (`[0,0,0]`) |
+  | `point` (lamps, fixtures) | 0–500 candela, squared falloff | `distance` 0–1000 (0, no cutoff) |
+  | `spot` (floodlights, downlights) | 0–500 candela, squared falloff | `target` (`[0,0,0]`), `distance` (0), `angle` 0.05–1.5 rad (0.6), `penumbra` 0–1 (0.3) |
+
+  The units match Three.js and the original world (its point lights are 14–22 with a 35–50 range). Lights add to the editor's base lighting, shine only while their shot is shown, cast no shadows, and export to GLB as `KHR_lights_punctual`. The target must differ from the position. A light has no shape, so model a visible fixture as an emissive object. A shot with lights but no objects keeps the original world.
+
+The editor's shape dropdown adds all nine primitives (an extrusion starts as an L footprint). The inspector's **Layer** picker moves an object between *Manual shapes* (no `layer`) and the four environment layers; Gemini 4 Argon assigns a layer to every object it returns. Fields without their own inputs (copies, footprint, glow, opacity) are listed read-only next to the shape, the shot label counts lights, and all of them stay intact through every edit and duplicate and are changed through Export/Import JSON. Z-fighting cleanup compares every field when it removes exact duplicates and never moves a repeated object or uses one as a host.
 
 Shot-specific objects render **only during that shot**. When a draft shot has one or more primitive objects, the generic Phase 1 guide blockout hides automatically. The original hand-built models remain unchanged. Each shot can export its own binary GLB.
 
 ## Validation / safety for future AI
 
-The validator rejects unsupported geometry, duplicate IDs, unrecognized shot IDs, nonfinite numbers, invalid materials, malformed footprints, repeats or cameras, and oversized responses. Caps: up to 120 scenes, 200 objects per scene, 2000 total objects, 400 copies per repeated object and 2000 rendered copies per scene. The Cloudflare Worker imports this same validator (`primitive-schema.js`) for Gemini 4 Argon results, with a tighter 120-object cap; the Flash profiles keep their own five-primitive validator and 24/36/48-object budgets. Names are bounded and inserted into HTML via `textContent`. Extra fields in generated content are ignored. No arbitrary JavaScript, URLs, remote textures, custom shaders or eval.
+The validator rejects unsupported geometry, duplicate IDs, unrecognized shot IDs, nonfinite numbers, invalid materials, malformed footprints, repeats, cameras or lights, and oversized responses. Caps: up to 120 scenes, 200 objects per scene, 2000 total objects, 400 copies per repeated object, 2000 rendered copies and 8 lights per scene. The Cloudflare Worker imports this same validator (`primitive-schema.js`) for Gemini 4 Argon results, with a tighter 120-object cap; the Flash profiles keep their own five-primitive validator and 24/36/48-object budgets. Names are bounded and inserted into HTML via `textContent`. Extra fields in generated content are ignored. No arbitrary JavaScript, URLs, remote textures, custom shaders or eval.
 
 A future AI model must return a data structure conforming to this contract; **never execute code written by the model**. The model should also attach confidence/explanations in a separate analysis report—not put unsupported keys in the runtime document.
 

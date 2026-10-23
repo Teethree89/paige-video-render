@@ -531,13 +531,17 @@ if (array_key_exists('model', $input)) {
     }
     $workerInput['model'] = $input['model'];
 }
-// Whitelist the single-pass detail profile explicitly. Never trust a model
-// selector or arbitrary prompt sent by the browser.
+// Whitelist the generation scope explicitly. Never trust a model selector or
+// arbitrary prompt sent by the browser. Full scene is only the single Argon
+// Direct image call; every other profile is primary subject or passes.
 if (array_key_exists('mode', $input)) {
-    if ($input['mode'] !== 'primary_subject' || array_key_exists('layer', $input)) {
+    $mode = $input['mode'];
+    if (!in_array($mode, ['primary_subject', 'full_scene'], true) || array_key_exists('layer', $input) ||
+        ($mode === 'full_scene' &&
+         (($workerInput['profile'] ?? '') !== 'argon_direct' || $action !== 'argon_start'))) {
         reject(400, 'Invalid generation mode');
     }
-    $workerInput['mode'] = 'primary_subject';
+    $workerInput['mode'] = $mode;
 }
 // Authenticated four-pass environment generation. Validate pass name and count
 // before forwarding. The Worker validates every previous object's geometry;
@@ -553,11 +557,14 @@ if (array_key_exists('layer', $input)) {
     $workerInput['layer'] = $pass;
     $workerInput['existing'] = $prior;
 }
-// Paid Argon background generation is opt-in and primary-subject only.
+// Paid Argon generation is opt-in: Previs is primary subject only, Direct
+// image is primary subject or full scene, never layered passes.
 $argonProfiles = ['argon_previs', 'argon_direct'];
 if ($action === 'argon_start') {
+    $argonModes = ($workerInput['profile'] ?? '') === 'argon_direct'
+        ? ['primary_subject', 'full_scene'] : ['primary_subject'];
     if (!in_array($workerInput['profile'] ?? '', $argonProfiles, true) ||
-        ($workerInput['mode'] ?? '') !== 'primary_subject' ||
+        !in_array($workerInput['mode'] ?? '', $argonModes, true) ||
         array_key_exists('layer', $workerInput))
         reject(400, 'Argon Previs requires Primary subject only');
     $active = $_SESSION['argon_job'] ?? null;

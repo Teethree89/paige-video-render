@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-rich-usage-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-full-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-rich-usage-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-full-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -1502,4 +1502,74 @@ test('Direct-image Argon stores its token counts once and returns them with the 
     assert.deepEqual(logs.lines[0],{profile:'argon_direct',stage:'geometry',...geometryCounts,cap:32768});
     assert.ok(logs.all.every(line=>!line.includes('PRIVATE')));
   }finally{globalThis.fetch=prior;logs.restore();}
+});
+
+test('Argon sorts objects into editor layers, may add lights, and direct image can rebuild the full scene',async()=>{
+  const prior=globalThis.fetch,bodies=[];
+  const material={color:'#334455',metalness:.1,roughness:.6};
+  const lights=[{type:'directional',name:'Moon',color:'#AABBFF',intensity:1,position:[30,60,40],target:[0,0,0]},
+    {type:'point',name:'Lamp',color:'#ffcc88',intensity:25,position:[6,5,8],distance:30}];
+  const proposal={schemaVersion:1,scenes:[{shotId:'draft_001',lights,objects:[
+    {id:'hall',name:'Hall',layer:'structures',primitive:'box',position:[0,3,0],rotation:[0,0,0],scale:[20,6,12],material},
+    {id:'road',name:'Road',layer:'ground',primitive:'plane',position:[0,.01,12],rotation:[-1.571,0,0],scale:[40,6,1],material},
+    {id:'odd',name:'Odd',layer:'PRIVATE_layer',primitive:'box',position:[5,1,5],rotation:[0,0,0],scale:[1,1,1],material}]}]};
+  globalThis.fetch=async(url,opts)=>{
+    bodies.push(JSON.parse(opts.body));
+    return new Response(JSON.stringify({id:'v1_sync',status:'completed',
+      steps:[{type:'model_output',content:[{type:'text',text:JSON.stringify(proposal)}]}]}));
+  };
+  try{
+    const results={};
+    for(const mode of ['primary_subject','full_scene']){
+      const {objects,namespace}=fakeArgonJobs(env);
+      const jobsEnv={...env,ARGON_JOBS:namespace};
+      const started=await (await argonPost(jobsEnv,'/api/scene/argon/direct-start',{...directJob,mode})).json();
+      assert.equal(started.status,'queued');
+      const job=objects.get(started.jobId.slice(3));
+      assert.equal((await job.ctx.storage.get('request')).mode,mode);
+      await job.alarm();
+      results[mode]=await (await argonPost(jobsEnv,'/api/scene/argon/status',
+        {jobId:started.jobId,shotId:'draft_001'})).json();
+    }
+    const [primary,full]=bodies;
+    assert.match(primary.system_instruction,/SCOPE: PRIMARY SUBJECT/);
+    assert.doesNotMatch(primary.system_instruction,/FULL SCENE/);
+    assert.match(full.system_instruction,/SCOPE: FULL SCENE\. Rebuild the whole visible environment/);
+    assert.match(full.system_instruction,/Target 80 to 120 objects/);
+    assert.doesNotMatch(full.system_instruction,/PRIMARY SUBJECT/);
+    for(const body of bodies){
+      // Same single synchronous call and frames; only the scope text differs.
+      assert.equal(body.store,false);assert.equal(body.background,undefined);
+      assert.equal(body.input.length,6);
+      assert.match(body.system_instruction,/layer: "structures"/);
+      assert.match(body.system_instruction,/scene "lights": up to 8 lights/);
+      const objectShape=body.response_format.schema.properties.scenes.items.properties.objects.items;
+      assert.deepEqual(objectShape.properties.layer,{type:'string',enum:['structures','ground','vegetation','details']});
+      assert.ok(objectShape.required.includes('layer'));
+      const lightShape=body.response_format.schema.properties.scenes.items.properties.lights.items;
+      assert.deepEqual(lightShape.properties.type.enum,['directional','point','spot']);
+      assert.deepEqual(lightShape.required,['type','color','intensity','position']);
+    }
+    for(const result of Object.values(results)){
+      const scene=result.proposal.scenes[0];
+      assert.deepEqual(scene.objects.map(item=>item.layer),['structures','ground',undefined]);
+      assert.deepEqual(scene.lights.map(light=>[light.type,light.color]),[['directional','#aabbff'],['point','#ffcc88']]);
+    }
+    // Every other scope is refused before anything is stored or sent.
+    const {namespace}=fakeArgonJobs(env);
+    for(const mode of ['environment',undefined,'FULL_SCENE'])
+      assert.equal((await argonPost({...env,ARGON_JOBS:namespace},'/api/scene/argon/direct-start',
+        {...directJob,mode})).status,400);
+    assert.equal(bodies.length,2);
+    // Previs stays primary-subject only.
+    assert.equal((await argonPost(env,'/api/scene/argon/start',
+      {...sample,profile:'argon_previs',mode:'full_scene'})).status,400);
+    // A job stored before scopes existed runs as primary subject.
+    const legacy=fakeArgonJobs(env);
+    const started=await (await argonPost({...env,ARGON_JOBS:legacy.namespace},'/api/scene/argon/direct-start',directJob)).json();
+    const job=legacy.objects.get(started.jobId.slice(3));
+    const stored=await job.ctx.storage.get('request');delete stored.mode;
+    await job.ctx.storage.put('request',stored);await job.alarm();
+    assert.match(bodies[2].system_instruction,/SCOPE: PRIMARY SUBJECT/);
+  }finally{globalThis.fetch=prior;}
 });

@@ -132,3 +132,34 @@ test('richer vocabulary is still strictly bounded data',()=>{
   assert.equal(validatePrimitiveDocument(richDoc(arrays(5))).scenes[0].objects.length,5);
   bad(arrays(5).concat([base('one_more','box')]),undefined,/more than 2000 rendered copies/);
 });
+
+test('scene lights are bounded data with defaults, and only shine for their shot',()=>{
+  const lit=lights=>validatePrimitiveDocument({schemaVersion:1,scenes:[{shotId:'draft_001',
+    objects:[makePrimitive('box','rack_1')],lights}]}).scenes[0].lights;
+  assert.deepEqual(lit([
+    {type:'directional',color:'#AABBFF',intensity:1.5,position:[30,60,40]},
+    {type:'point',name:'Lamp',color:'#ffcc88',intensity:30,position:[4,5,6],distance:25,target:[1,1,1],extra:'dropped'},
+    {type:'spot',color:'#ffffff',intensity:120,position:[0,12,0],target:[0,0,0]}
+  ]),[
+    {type:'directional',name:'directional light 1',color:'#aabbff',intensity:1.5,position:[30,60,40],target:[0,0,0]},
+    {type:'point',name:'Lamp',color:'#ffcc88',intensity:30,position:[4,5,6],distance:25},
+    {type:'spot',name:'spot light 3',color:'#ffffff',intensity:120,position:[0,12,0],target:[0,0,0],
+      distance:0,angle:.6,penumbra:.3}
+  ]);
+  // An empty list is dropped, so v1 documents keep their exact output.
+  assert.equal(lit([]),undefined);
+  const point={type:'point',color:'#ffffff',intensity:10,position:[0,3,0]};
+  for(const [lights,pattern] of [
+    [Array(LIMITS.lightsPerScene+1).fill(point),/at most 8/],
+    [[{...point,type:'ambient'}],/unsupported light type/],
+    [[{...point,color:'white'}],/#RRGGBB/],
+    [[{...point,intensity:501}],/intensity/],
+    [[{...point,type:'directional',intensity:11}],/intensity/],
+    [[{...point,distance:-1}],/distance/],
+    [[{...point,type:'spot',angle:1.6}],/angle/],
+    [[{...point,type:'spot',penumbra:2}],/penumbra/],
+    [[{...point,type:'directional',target:[0,3,0]}],/distinct target/],
+    [[{...point,position:[0,Infinity,0]}],/position/],
+    ['bright',/array/]
+  ])assert.throws(()=>lit(lights),pattern);
+});

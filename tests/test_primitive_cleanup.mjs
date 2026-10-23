@@ -89,9 +89,11 @@ test('cleanup keeps the scene camera and rich fields, and never moves arrays',()
   const square={...obj('square','extrude',[5,1,5],[4,2,4]),points:[[-.5,-.5],[.5,-.5],[.5,.5],[-.5,.5]]};
   const copy={...structuredClone(tiles),id:'tiles_copy'};
   const camera={position:[0,4,18],target:[0,1,0],fov:45};
-  const value={schemaVersion:1,scenes:[{shotId:'shot_a',camera,objects:[ground,tiles,glow,plainLamp,ell,square,copy]}]};
+  const lights=[{type:'point',name:'Lamp',color:'#ffcc88',intensity:30,position:[0,4,0],distance:20}];
+  const value={schemaVersion:1,scenes:[{shotId:'shot_a',camera,lights,objects:[ground,tiles,glow,plainLamp,ell,square,copy]}]};
   const {document,report}=cleanupPrimitiveDocument(value,['shot_a']);
   assert.deepEqual(document.scenes[0].camera,camera);
+  assert.deepEqual(document.scenes[0].lights,lights);
   // Only the identical array is a duplicate: glow, footprint and repeat all count.
   assert.equal(report.removedDuplicates,1);
   assert.deepEqual(document.scenes[0].objects.map(item=>item.id),['ground','tiles','lamp','lamp_plain','ell','square']);

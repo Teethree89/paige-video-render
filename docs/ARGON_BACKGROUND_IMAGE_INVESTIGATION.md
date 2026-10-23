@@ -374,6 +374,52 @@ first live runs will therefore answer the budget question directly
 (thinking + output against the cap), and `inputImage` gives the real image
 token count, replacing the tiling estimate listed under remaining blockers.
 
+### First rich-format live run (2026-10-23, about 7:37 AM EDT)
+
+`argon_direct`, primary subject, on Worker `argon-rich-usage-v1`, shot 01
+"Night campus exterior":
+
+- **Accepted and valid.** Google accepted the larger response schema, and the
+  Worker validated **54 editable objects, 255 rendered parts** (repeat
+  arrays for window bands, roof vents, tree rows, lamp posts and road
+  markings). Cleanup adjusted 8 overlapping surfaces. The preview opened from
+  Argon's camera estimate and was accepted.
+- **Tokens:** 5,687 input (3,300 image: about 1,100 per `high` frame), 0
+  cached, 0 thinking reported, 8,618 output, 14,305 total. Thinking + output
+  used 26% of the 32,768 cap, so 120 objects fit with room to spare.
+- **Polling** finished without a manual resume, though every other status
+  check failed ("Load failed"), most likely a keep-alive race at the 5 s poll
+  interval; the interval is now 6.5 s.
+- **Layers:** every object arrived as a manual shape, because the format had
+  no layer for Argon. Argon now assigns one.
+
+The schema and budget questions above are answered for `argon_direct`;
+Previs has not been run on the rich format yet.
+
+### Full scene, layers and lights (`argon-full-scene-v1`)
+
+- **Full scene.** With *Full environment* selected, `argon_direct` runs its
+  same single synchronous call in `full_scene` mode. The prompt then covers
+  the whole visible environment: background buildings as simpler masses,
+  the ground, roads, parking, vegetation, street furniture, vehicles and
+  lighting, targeting 80 to 120 objects. It never runs the four Flash passes.
+  PHP and the Worker accept `full_scene` only for `argon_direct`; Previs stays
+  primary subject only.
+- **Layers.** Argon assigns every object one of the editor's layers
+  (`structures`, `ground`, `vegetation`, `details`), a required enum in the
+  response schema. An unknown value is dropped, so the object stays as a
+  manual shape rather than failing a paid result. The editor's inspector can
+  change any object's layer, including in scenes accepted earlier.
+- **Lights.** The scene format gains up to 8 `directional`, `point` or
+  `spot` lights (bounded color, intensity, position, target, range and cone).
+  They add to the editor's base lighting only while their chapter is shown,
+  and export to GLB as `KHR_lights_punctual`. A shot with lights but no
+  objects still shows the original world.
+- **Budget.** Unchanged: one call, 32,768 tokens. At the first run's rate,
+  about 160 output tokens per object, 120 objects is roughly 19,000 tokens.
+  Unverified until a live full-scene run: whether Argon fills the larger
+  target, and how its lights look against the base lighting.
+
 ### Remaining blockers
 
 These need the live steps above or action from Google:
@@ -383,9 +429,9 @@ These need the live steps above or action from Google:
   this.
 - Whether direct observation by Argon actually improves reconstruction
   fidelity compared with Previs.
-- How Google counts Gemini 3+ image tokens for these frames (the cost
-  estimates above assume the documented tiling). The next live run's
-  `inputImage` count answers this.
+- How Google counts Gemini 3+ image tokens for these frames. Answered for
+  direct image on 2026-10-23: 3,300 tokens for three `high` frames, about
+  1,100 each, below the tiling estimate above.
 
 ### Sources (read 2026-10-22)
 
