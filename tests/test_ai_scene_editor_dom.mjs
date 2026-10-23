@@ -442,7 +442,12 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
     return true;
   };
   globalThis.document={
-    getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
+    getElementById(id){if(!ids.has(id)){
+      const element=new Element();
+      // Existing one-call test cases explicitly bypass the optional paid tails.
+      if(id==='aiArgonAddDetail')element.checked=false;
+      ids.set(id,element);
+    }return ids.get(id);},
     createElement(tag){
       if(tag==='video')return new FakeVideo();
       if(tag==='canvas')return {width:0,height:0,getContext:()=>({drawImage:()=>{}}),
