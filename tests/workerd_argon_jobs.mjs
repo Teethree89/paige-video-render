@@ -21,18 +21,20 @@ const scene={schemaVersion:1,scenes:[{shotId:'shot_a',camera:{position:[0,3,15],
     material:{color:'#223344',metalness:0.3,roughness:0.2,emissive:'#ffcc88',emissiveIntensity:1.2,opacity:.8}},
   {id:'roof',name:'Roof',primitive:'gable',position:[0,2.5,0],rotation:[0,0,0],scale:[4,1,1.2],
     material:{color:'#553322',metalness:0,roughness:0.8}}]}]};
-let mode='ok';const calls=[];
-const mf=new Miniflare({
+let mode='ok',release=()=>{};const calls=[];
+// CF_VERSION_METADATA mirrors wrangler.toml's version_metadata binding.
+const options=version=>({
   // The repository root: the Worker imports ../primitive-schema.js, an ES
   // module with a .js name (Wrangler's esbuild bundles it the same way).
   modules:true,scriptPath,modulesRoot:scriptPath.replace(/\/[^/]*\/[^/]*$/,''),compatibilityDate:'2026-07-01',
   modulesRules:[{type:'ESModule',include:['**/*.js']}],
-  bindings:{GEMINI_API_KEY:'do-not-print-secret',SCENE_ACCESS_TOKEN:token},
+  bindings:{GEMINI_API_KEY:'do-not-print-secret',SCENE_ACCESS_TOKEN:token,CF_VERSION_METADATA:{id:version}},
   durableObjects:{ARGON_JOBS:{className:'ArgonJob',useSQLite:true}},
   async outboundService(request){
     calls.push({url:request.url,method:request.method,body:await request.text(),
       key:request.headers.get('x-goog-api-key'),revision:request.headers.get('Api-Revision'),
       deadline:request.headers.get('X-Server-Timeout')});
+    if(mode==='hang')await new Promise(r=>{release=r;}); // still answering when the deploy lands
     await new Promise(r=>setTimeout(r,1500)); // a slow model: longer than the start request
     if(mode==='reject')return new Response(JSON.stringify({error:{code:'invalid_request',
       message:'The agent does not support image input modality. PRIVATE_DETAIL'}}),{status:400});
@@ -53,6 +55,7 @@ const mf=new Miniflare({
     }}),{headers:{'Content-Type':'text/event-stream'}});
   }
 });
+const mf=new Miniflare(options('0a1b2c3d-0000-4000-8000-000000000001'));
 const post=(path,body)=>mf.dispatchFetch('https://worker.test'+path,{method:'POST',
   headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
 // Full scene: the same single synchronous call, with the full-scene scope.
@@ -76,7 +79,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-output-material-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-deploy-interrupt-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
@@ -121,5 +124,22 @@ try{
   const unknown=await post('/api/scene/argon/status',{jobId:'do_'+'0'.repeat(64),shotId:'shot_a'});
   assert.equal(unknown.status,400,'malformed object id');
   assert.equal(calls.length,2);
+  // 4) A deploy mid-call: restarting workerd on a new version resets the
+  // object while Google is still answering. The re-delivered alarm names the
+  // deploy and never calls Google again (2026-10-23: a run cut off this way).
+  mode='hang';
+  const cut=await (await post('/api/scene/argon/direct-start',job)).json();
+  const cutStatus=async()=>(await post('/api/scene/argon/status',{jobId:cut.jobId,shotId:'shot_a'})).json();
+  for(let i=0;i<40&&calls.length<3;i++)await new Promise(r=>setTimeout(r,100));
+  assert.equal(calls.length,3);assert.equal((await cutStatus()).status,'in_progress');
+  await mf.setOptions(options('0a1b2c3d-0000-4000-8000-000000000002'));
+  let after;
+  for(let i=0;i<40;i++){
+    after=await cutStatus();
+    if(after.status!=='in_progress')break;
+    await new Promise(r=>setTimeout(r,250));
+  }
+  assert.deepEqual([after.status,after.diagnostic.reason],['failed','job_interrupted_deploy']);
+  assert.equal(calls.length,3,'never resubmitted after the deploy');
   console.log('WORKERD TEST PASS');
-}finally{await mf.dispose();}
+}finally{release();await mf.dispose();}

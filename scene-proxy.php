@@ -203,7 +203,7 @@ function argon_worker_call(string $endpoint, string $secret, string $action, arr
     if ($status < 200 || $status >= 300) {
         $error = is_array($value) && is_string($value['error'] ?? null) ? $value['error'] : '';
         if ($action === 'output' && $status === 404 && $error === 'No saved Argon output')
-            reject(404, 'This job has no saved original output. Older direct-image jobs cannot be recovered.');
+            reject(404, 'This job has no saved original output: it was cut off before any output was saved, or it ran before outputs were kept.');
         if ($onRejected !== null) $onRejected($error);
         answer($status === 429 ? 429 : 502, with_diagnostic(
             ['ok' => false, 'error' => safe_worker_error($status, $response)], $value));

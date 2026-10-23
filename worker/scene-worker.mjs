@@ -1177,6 +1177,17 @@ function directFailure(reason){
   console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
   return {state:'failed',diagnostic};
 }
+// The deployed Worker version (version_metadata binding in wrangler.toml).
+// A deploy restarts Durable Objects and cuts off a call in flight; comparing
+// versions lets that interruption say so instead of looking like any other.
+function workerVersion(env){
+  const id=env?.CF_VERSION_METADATA?.id;
+  return typeof id==='string'&&/^[0-9a-f-]{1,64}$/i.test(id)?id:null;
+}
+function interruptedReason(job,env){
+  const current=workerVersion(env);
+  return job.version&&current&&job.version!==current?'job_interrupted_deploy':'job_interrupted';
+}
 // Kept only in private job storage, never in logs or routine status replies.
 function withRawOutput(outcome,output,partial=false){
   return typeof output==='string'&&output.length>0&&output.length<=ARGON_MAX_OUTPUT_CHARS
@@ -1441,7 +1452,8 @@ export class ArgonJob {
       // was interrupted (e.g. by a deploy). It is reported, never resubmitted.
       if((job.state==='queued'||job.state==='submitted')&&
          Date.now()-(job.submitted||job.created)>ARGON_DIRECT_STUCK_MS)
-        job=await this.finish(job,directFailure(job.state==='queued'?'job_not_started':'job_interrupted'));
+        job=await this.finish(job,directFailure(job.state==='queued'?'job_not_started':
+          interruptedReason(job,this.env)));
       if(job.state==='queued')return reply({ok:true,status:'queued'});
       if(job.state==='submitted')return reply({ok:true,status:'in_progress'});
       if(job.state==='completed')return reply(withUsage({ok:true,status:'completed',proposal:job.proposal,
@@ -1489,11 +1501,15 @@ export class ArgonJob {
         return;
       }
       if(job.state==='submitted'){ // an earlier run died mid-call
-        await this.finish(job,directFailure('job_interrupted'));
+        const reason=interruptedReason(job,this.env);
+        // Numbers and a fixed reason only: how far into the call it was cut.
+        console.warn('argon-direct-interrupted',JSON.stringify({reason,
+          seconds:Math.round((Date.now()-job.submitted)/1000)}));
+        await this.finish(job,directFailure(reason));
         return;
       }
-      const request=await this.ctx.storage.get('request');
-      await this.ctx.storage.put('job',{...job,state:'submitted',submitted:Date.now()});
+      const request=await this.ctx.storage.get('request'),version=workerVersion(this.env);
+      await this.ctx.storage.put('job',{...job,state:'submitted',submitted:Date.now(),...(version?{version}:{})});
       await this.finish(job,request?await runDirectArgon(this.env,request,
         output=>this.ctx.storage.put('output',output)):
         directFailure('job_input_missing'));
@@ -1512,7 +1528,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-output-material-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-deploy-interrupt-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');

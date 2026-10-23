@@ -77,6 +77,12 @@ export function describeUsage(label,u) {
 // Argon settings the Worker and PHP accept (ARGON_THINKING, ARGON_DETAIL).
 const ARGON_THINKING=Object.freeze(['minimal','low','medium','high']);
 const ARGON_DETAIL_LABELS=Object.freeze({standard:'Standard',high:'High',max:'Maximum'});
+// Direct-image jobs that stopped on Cloudflare's side, not Google's.
+const JOB_STOPS=Object.freeze({
+  job_interrupted_deploy:'The Worker was redeployed during the paid call; a deploy restarts running jobs, which cut the call off. Wait until a deploy has finished before starting a paid run.',
+  job_interrupted:'The job stopped during the paid call (a Worker deploy is the usual cause).',
+  job_not_started:'The job never started, so nothing was sent to Google.'
+});
 // Worker reasons for an HTTP 5xx answer from Google (providerStatusReason).
 const SERVER_FAILURES=Object.freeze(['provider_internal','provider_deadline','provider_gateway','provider_unavailable','provider_capacity']);
 // The Worker's fixed repair codes (ARGON_REPAIR_CODES), in plain words.
@@ -234,6 +240,8 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       log('The provider request returned a server error. Google\'s billing FAQ says failed 400/500 requests are not charged for tokens (they still count against quota). Nothing was retried.');
     if(['provider_stream_error','provider_stream_interrupted'].includes(source.diagnostic.reason))
       log('The provider stream ended without a complete result. Any reported usage is shown above; billing is not confirmed by this connection error. Nothing was retried.');
+    if(['job_interrupted_deploy','job_interrupted'].includes(source.diagnostic.reason))
+      log('The cut-off call was not resubmitted. Its billing is not confirmed by this job status.');
   };
   const clearActivity=()=>{
     activityLines=[];
@@ -296,8 +304,11 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           log('Argon model output received and validated by the Worker.');
           return result.proposal;
         }
+        const stop=result.status==='failed'&&Object.hasOwn(JOB_STOPS,result.diagnostic?.reason)
+          ?JOB_STOPS[result.diagnostic.reason]:null;
         if(result.status==='failed')throw Object.assign(Error(result.diagnostic?.reason==='scene_schema_mismatch'
           ?'Argon returned output, but no scene passed validation. Use Download original Argon output to inspect it.'
+          :stop?'Argon job stopped on Cloudflare, not at Google. '+stop+' No geometry was returned.'
           :'Argon job failed on the provider. No geometry was returned.'),{diagnostic:result.diagnostic});
         if(!['queued','in_progress'].includes(result.status))throw Error('Unrecognized Argon status');
         status('Argon '+result.status.replace('_',' ')+' — waiting for editable geometry…');

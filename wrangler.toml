@@ -31,3 +31,9 @@ class_name = "ArgonJob"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ArgonJob"]
+
+# The deployed version's id. A deploy restarts Durable Objects and cuts off a
+# direct-image call in flight; the job compares versions to report that as
+# job_interrupted_deploy rather than a generic interruption.
+[version_metadata]
+binding = "CF_VERSION_METADATA"

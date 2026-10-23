@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-output-material-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-deploy-interrupt-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-output-material-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-deploy-interrupt-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -922,6 +922,49 @@ test('An interrupted direct-image run is reported once and never resubmitted',as
       {jobId:started.jobId,shotId:'draft_001'})).json();
     assert.deepEqual([result.status,result.diagnostic.reason],['failed','job_interrupted']);
     assert.equal(await job.ctx.storage.get('request'),undefined);
+    // A deploy restarts the object on a new Worker version: the job records
+    // the version it was submitted on, so the interruption names the deploy.
+    const before=fakeArgonJobs({...env,CF_VERSION_METADATA:{id:'0a1b2c3d-0000-4000-8000-000000000001'}});
+    const firstId=(await (await doPost({...env,ARGON_JOBS:before.namespace},'/api/scene/argon/direct-start',
+      directJob)).json()).jobId.slice(3);
+    const submitting=before.objects.get(firstId);
+    let atReset=null,resetCalls=0;
+    globalThis.fetch=async()=>{resetCalls++;
+      atReset=structuredClone(submitting.ctx.storage.data); // what a reset mid-call leaves behind
+      throw Error('stands in for the reset');};
+    await submitting.alarm();
+    assert.equal(resetCalls,1);
+    assert.deepEqual([atReset.get('job').state,atReset.get('job').version],
+      ['submitted','0a1b2c3d-0000-4000-8000-000000000001'],'version stored with the marker, before the paid call');
+    submitting.ctx.storage.data=atReset;
+    submitting.env={...env,CF_VERSION_METADATA:{id:'0a1b2c3d-0000-4000-8000-000000000002'}};
+    await submitting.alarm();
+    assert.equal(resetCalls,1,'The new version never calls Google again');
+    assert.equal((await submitting.ctx.storage.get('job')).diagnostic.reason,'job_interrupted_deploy');
+    // Same version (no deploy), or no binding: the generic reason stays.
+    for(const [stored,current] of [['0a1b2c3d-0000-4000-8000-000000000001','0a1b2c3d-0000-4000-8000-000000000001'],
+      [undefined,'0a1b2c3d-0000-4000-8000-000000000002'],['0a1b2c3d-0000-4000-8000-000000000001',undefined]]){
+      const other=fakeArgonJobs(env);
+      const otherId=(await (await doPost({...env,ARGON_JOBS:other.namespace},'/api/scene/argon/direct-start',
+        directJob)).json()).jobId.slice(3);
+      const object=other.objects.get(otherId),queuedJob=await object.ctx.storage.get('job');
+      await object.ctx.storage.put('job',{...queuedJob,state:'submitted',submitted:Date.now(),
+        ...(stored?{version:stored}:{})});
+      object.env={...env,...(current?{CF_VERSION_METADATA:{id:current}}:{})};
+      await object.alarm();
+      assert.equal((await object.ctx.storage.get('job')).diagnostic.reason,'job_interrupted');
+    }
+    // The 16-minute status check uses the same comparison.
+    const polled=fakeArgonJobs(env);
+    const polledId=(await (await doPost({...env,ARGON_JOBS:polled.namespace},'/api/scene/argon/direct-start',
+      directJob)).json()).jobId.slice(3);
+    const polledJob=polled.objects.get(polledId),open=await polledJob.ctx.storage.get('job');
+    await polledJob.ctx.storage.put('job',{...open,state:'submitted',submitted:Date.now()-17*60*1000,
+      version:'0a1b2c3d-0000-4000-8000-000000000001'});
+    polledJob.env={...env,CF_VERSION_METADATA:{id:'0a1b2c3d-0000-4000-8000-000000000002'}};
+    const late16=await (await polledJob.fetch(new Request('https://argon-job/status?shot=draft_001'))).json();
+    assert.deepEqual([late16.status,late16.diagnostic.reason],['failed','job_interrupted_deploy']);
+    globalThis.fetch=async()=>{calls++;return completedScene();};
     // A queued job whose alarm never ran is reported after the window, and a
     // late alarm then finds nothing to send.
     const second=await (await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob)).json();
