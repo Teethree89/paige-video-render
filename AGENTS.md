@@ -178,3 +178,27 @@ Provider does not promise an ETA, and some models may emit no intermediate
 steps at all. The overlay may be minimized without cancelling a paid job.
 Do not merge during running paid Argon calls. No live paid model runs were
 performed by this change.
+
+## Independent View/Edit primitive interaction (PR #95)
+
+The transport View/Edit selector is **not** part of paid Argon generation.
+View preserves normal cinematic playback. Edit pauses playback, uses the
+existing OrbitControls camera (temporary only), raycasts accepted shot-local
+primitive meshes, selects an entire repeated-group object by its
+`primitiveId`, and highlights it without changing the object's material.
+Three.js TransformControls uses the pinned 0.166.1 build: its controls object
+is added to the scene (newer Three releases use `getHelper()`).
+
+W (or G) selects XYZ move; E (or R) selects local XYZ rotate. Gizmo drags
+update the *view* first and commit through `editPrimitiveTransform` on mouse
+release, including strict schema validation. Delete removes only the selected
+object via `deletePrimitiveObject`. The primitive inspector dropdown and
+numeric XYZ fields remain synchronized with viewport selection. Scene edits
+autosave to the existing local timeline document and export in JSON/GLB/AE
+without changing camera keyframes, other chapters, repeats or scene lights.
+Edit mode cannot mutate a pending AI proposal: accept/discard it first. Playing,
+changing chapters or importing/resetting the timeline closes Edit safely.
+External prebuilt GLB assets are not individually editable in this mode.
+Do not save the temporary BoxHelper, TransformControls, review grid or orbit
+camera into project data. Use `tests/test_scene_object_edit.mjs` and the pinned
+Three.js integration test to guard the interaction.
