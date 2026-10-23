@@ -22,7 +22,7 @@ FILES = [
     "draft-world.js", "chapter-analysis.js", "primitive-schema.js", "primitive-cleanup.js",
     "primitive-world.js", "primitive-editor.js", "scene-object-edit.js", "scene-object-operations.js",
     "ai-scene-editor.js", "primitive-preview.js", "environment-generation.js",
-    "argon-detail.js", "ai-generation-overlay.js", "help-toggles.js",
+    "argon-detail.js", "ai-generation-overlay.js", "generation-sounds.js", "help-toggles.js",
     "scene-proxy.php", "wrangler.toml", "timeline.json", "README.md", "AGENTS.md",
     "EXTERNAL_MODELS.md", "VIDEO_AND_AFTER_EFFECTS.md",
     "start.sh", "convert_to_mp4.sh", "convert_to_mp4.bat",
