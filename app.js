@@ -11,6 +11,7 @@ import {setupTimelineEditing} from './timeline-tools.js';
 import {evaluateCamera,curveEasing} from './animation-curves.js';
 import {setupAnimationGraph} from './animation-graph.js';
 import {sampleReferenceMedia} from './reference-frames.js';
+import {syncChapterCameraMotion} from './camera-motion-sync.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
@@ -68,7 +69,7 @@ reviewGrid.material.transparent=true;reviewGrid.material.opacity=.42;
 reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
-let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null;
+let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
   primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id),primitiveAnchors());
@@ -220,6 +221,14 @@ async function boot(){
    getPlayheadTime:()=>playhead,
    onPreview:entry=>{
      sceneObjectEditor?.setActive(false);
+     // Snapshot the SAVED geometry before mounting a newly generated proposal.
+     // Cleanup may preview the same pending scene again; retain the original.
+     if(cameraSyncSession?.shotId!==entry.shotId){
+       cameraSyncSession={shotId:entry.shotId,
+         oldBounds:primitiveWorld.getBounds(entry.shotId),
+         anchor:[...(primitiveAnchors()[entry.shotId]||[0,0,0])]};
+     }
+     cameraSyncPreview=null;
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
      doc.scenes.push(entry);
@@ -228,13 +237,54 @@ async function boot(){
      if(entry.objects.length)showGeneratedGeometry(entry.shotId,true);
    },
    onInspect:shotId=>showGeneratedGeometry(shotId,true),
-   onDiscard:()=>{endGeometryReview();syncPrimitiveWorld();renderWorld();},
-   onAccept:entry=>{
+   onCameraSync:(entry,mode)=>{
+     if(cameraSyncSession?.shotId!==entry.shotId)
+       throw Error('The reference chapter changed. Generate a new preview.');
+     if(!primitiveWorld.hasObjects(entry.shotId))
+       throw Error('There is no preview geometry to frame.');
+     const proposal=syncChapterCameraMotion(sequence,entry.shotId,{
+       oldBounds:cameraSyncSession.oldBounds,
+       newBounds:primitiveWorld.getBounds(entry.shotId),
+       modelCamera:primitiveWorld.getCamera(entry.shotId),
+       anchor:cameraSyncSession.anchor,mode,
+       aspect:viewport.clientWidth/Math.max(viewport.clientHeight,1)
+     });
+     cameraSyncPreview=proposal.sequence;
+     // Leave orbit review so the editor displays the synchronized CINEMATIC
+     // camera and lets the user scrub the path before saving anything.
+     endGeometryReview();
+     seek(sequence.shots.find(s=>s.id===entry.shotId).start+.01);
+     return proposal.report;
+   },
+   onCameraSyncReset:()=>{
+     if(cameraSyncPreview){
+       cameraSyncPreview=null;
+       if(ready){applyCamera();renderWorld();}
+     }
+   },
+   onDiscard:()=>{
+     cameraSyncPreview=null;cameraSyncSession=null;
+     endGeometryReview();syncPrimitiveWorld();renderWorld();
+   },
+   onAccept:(entry,{syncCamera=false}={})=>{
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
      doc.scenes.push(entry);
-     sequence.primitiveScenes=validatePrimitiveDocument(doc,sequence.shots.map(s=>s.id));
-     syncPrimitiveWorld();renderWorld();saveLocal();
+     const accepted=validatePrimitiveDocument(doc,sequence.shots.map(s=>s.id));
+     if(syncCamera){
+       if(cameraSyncSession?.shotId!==entry.shotId||!cameraSyncPreview)
+         throw Error('Preview camera synchronization before applying it.');
+       const next=structuredClone(cameraSyncPreview);
+       next.primitiveScenes=accepted;
+       // Commit BOTH changes at once, preserving the geometry anchor on the
+       // chapter. Other chapters' keys and accepted scenes remain untouched.
+       sequence=next;
+     }else{
+       sequence.primitiveScenes=accepted;
+     }
+     cameraSyncPreview=null;cameraSyncSession=null;
+     endGeometryReview();syncPrimitiveWorld();
+     refreshAll();seek(Math.min(playhead,sequence.duration));saveLocal();
    }
  });
  el('primitiveCleanupSaved')?.addEventListener('click',()=>{
@@ -354,7 +404,13 @@ function saveLocal(record=true){
  el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();
 }
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
-function cameraAt(t){return evaluateCamera(sequence.camera,t);}
+function cameraAt(t){
+ // Temporary motion preview affects only the selected chapter's renderer.
+ // No scene JSON, exported camera, or local storage changes before Accept.
+ if(cameraSyncPreview&&cameraSyncSession?.shotId===shotAt(t)?.id)
+   return evaluateCamera(cameraSyncPreview.camera,t);
+ return evaluateCamera(sequence.camera,t);
+}
 function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.near=.35;camera.far=500;camera.updateProjectionMatrix();controls.target.set(...c.t);}
 function seek(t,opts={}){if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
  (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
