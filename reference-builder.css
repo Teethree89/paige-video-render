@@ -76,3 +76,6 @@
 .rb-scene[draggable=true]{cursor:grab}
 .rb-scene[draggable=true]:active{cursor:grabbing}
 .rb-monitor img:not([hidden]),.rb-monitor video:not([hidden]){position:absolute;inset:0}
+
+.rb-split-button{display:block;width:100%;margin-bottom:12px;padding:10px 9px;border:1px solid #4f7b82;border-radius:7px;background:#21414d;color:#d7f5f2;font:600 11px Inter,system-ui,sans-serif}
+.rb-split-button:hover{background:#2c5560}
