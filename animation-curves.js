@@ -5,9 +5,9 @@ export const CURVE_MODES=Object.freeze(['smooth','linear','ease-in','ease-out','
 const bound=x=>Math.min(1,Math.max(0,x));
 const bez=(p1,p2,t)=>3*p1*(1-t)**2*t+3*p2*(1-t)*t*t+t*t*t;
 export function cubicEasing(u,handles=[.25,.1,.25,1]){
- const [x1,y1,x2,y2]=handles;
  if(!Array.isArray(handles)||handles.length!==4||handles.some(x=>!Number.isFinite(x)||x<0||x>1))
    throw Error('Animation handles must contain four values between 0 and 1');
+ const [x1,y1,x2,y2]=handles;
  const target=bound(u);
  if(target===0||target===1)return target;
  let low=0,high=1;
@@ -24,7 +24,7 @@ export function curveEasing(u,curve=null){
  case 'hold':return 0;
  case 'ease-in':return t*t;
  case 'ease-out':return 1-(1-t)*(1-t);
- case 'bezier':return cubicEasing(t,curve?.handles);
+ case 'bezier':try{return cubicEasing(t,curve?.handles);}catch{return t*t*(3-2*t);}
  case 'smooth':default:return t*t*(3-2*t);
  }
 }
