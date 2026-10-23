@@ -74,7 +74,8 @@ class WorkspaceTests(unittest.TestCase):
         import re
         import runpy
         manifest = set(runpy.run_path(str(ROOT / 'scripts/build_workspace.py'))['FILES'])
-        for required in ('argon-detail.js', 'ai-generation-overlay.js'):
+        for required in ('argon-detail.js', 'ai-generation-overlay.js',
+                         'scene-object-edit.js', 'scene-object-operations.js'):
             self.assertIn(required, manifest)
         dependency_pattern = re.compile(
             r"""(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)['"]([.]/[^'"]+\.js)['"]"""
