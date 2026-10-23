@@ -30,7 +30,7 @@ Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wra
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
-- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-start-recovery-v1` identifies the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile run by the `ArgonJob` Durable Object, sanitized provider diagnostics (with `terms`) for Argon rejections, and the rich scene format for both Argon profiles: nine primitive types, `repeat` arrays, glow, opacity, editor layers, up to 8 scene lights and a camera estimate, validated by the shared `primitive-schema.js` with per-detail object caps (see [PRIMITIVE_SCENE_FORMAT.md](PRIMITIVE_SCENE_FORMAT.md)), per-job token usage (see *Argon token usage* below), the one-call `full_scene` scope for `argon_direct`, part-by-part validation of Argon scenes (see *Argon output repairs* below), the requested server deadline for direct image, and the editor's Argon thinking and detail settings (see *Argon thinking and detail* below), saved original output, and direct-image jobs that name a Worker deploy as the cause of an interruption, and the `empty` code for an answer with no objects, and direct-image starts that stay recoverable when their reply is lost (see *A lost start reply* below). `/health.argonDirectJobs` is `true` only when the deployed Worker has its `ARGON_JOBS` binding. The existing three Flash profiles, their five-primitive format and budgets, and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
+- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-detail-stages-v1` identifies the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile run by the `ArgonJob` Durable Object, sanitized provider diagnostics (with `terms`) for Argon rejections, and the rich scene format for both Argon profiles: nine primitive types, `repeat` arrays, glow, opacity, editor layers, up to 8 scene lights and a camera estimate, validated by the shared `primitive-schema.js` with per-detail object caps (see [PRIMITIVE_SCENE_FORMAT.md](PRIMITIVE_SCENE_FORMAT.md)), per-job token usage (see *Argon token usage* below), the one-call `full_scene` scope for `argon_direct`, part-by-part validation of Argon scenes (see *Argon output repairs* below), the requested server deadline for direct image, and the editor's Argon thinking and detail settings (see *Argon thinking and detail* below), saved original output, and direct-image jobs that name a Worker deploy as the cause of an interruption, and the `empty` code for an answer with no objects, and direct-image starts that stay recoverable when their reply is lost (see *A lost start reply* below), and the two-stage High and Maximum detail prompts (see *Argon thinking and detail* below). `/health.argonDirectJobs` is `true` only when the deployed Worker has its `ARGON_JOBS` binding. The existing three Flash profiles, their five-primitive format and budgets, and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
 - Lite and 3.8 Low retain at most **one additional** Gemini request on HTTP 500/502/503/504 (700ms pause, one shared 45s deadline). Medium can make **up to three total attempts**, with a roughly 1s then 2s delay and bounded jitter, **only if the second attempt also returns HTTP 503**. Other upstream 5xx stop after two attempts. Every attempt shares Medium's 70s deadline, and retries never start with less than 10s remaining. HTTP 429, permission and malformed-request failures never retry. The editor's HTTP 502 may represent PHP relaying provider 5xx; the distinct safe `Gemini is overloaded (upstream 503)` message means all permitted 503 retries were exhausted. Cloudflare's sanitized `gemini-provider-http` logs record status and attempt without raw bodies or API keys. A single PHP session-quota request can cause up to three Gemini API attempts, potentially affecting Google quota and billing.
 - HTTP **503** with `{"ok":false,"service":"paige-scene","ready":false}` means the runtime is missing one or both bindings. In Cloudflare Dashboard → Workers & Pages → `paige-video-render` → Settings → **Variables and Secrets**, confirm the two names exactly match `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN`, that their type is **Secret**, and click **Deploy** to save the production version. Never paste the values into CI logs or the public repository.
 - If the build is red, inspect the exact latest Cloudflare build log and resolve the reported issue before testing PHP.
@@ -236,7 +236,7 @@ A C4D-native project/export pipeline is a separate planned development.
   review usage in AI Studio before running client production sequences.
   There is no guaranteed spend cap just because a project was pre-funded.
 - Deployment requires **both** Cloudflare Worker and 50webs FTP publisher to
-  update. `/health.workerRevision=argon-start-recovery-v1` indicates the
+  update. `/health.workerRevision=argon-detail-stages-v1` indicates the
   current Worker path; if FTP deploys first, do not test Argon until Worker revision
   matches.
 
@@ -474,10 +474,20 @@ With an Argon model selected, the editor shows two selectors:
   for a full scene, cap 120), High (cap 150) or Maximum (cap 180). Every level
   shares the same 32,768-token output budget.
 
-Medium thinking with Standard detail is the tested setting (54 and 69
-objects, 2026-10-23). Both live runs at high thinking with Maximum detail
-returned almost nothing: 147 output tokens, then a well-formed scene with
-no objects, which now fails with repair code `empty`.
+Standard detail is the tested setting: 54 and 69 objects on the earlier
+Worker, and 71 objects (450 parts, 8 lights) on the streaming Worker at
+Medium thinking (2026-10-23). Every completed live run at High or Maximum detail came
+back empty or nearly empty, at High thinking (147 output tokens, then 0
+objects) and at Medium thinking (High detail: 0 objects in 14 seconds), so
+the detail prompt, not the thinking level, was the cause. Such an answer
+fails with repair code `empty`.
+
+Since `argon-detail-stages-v1`, Standard sends exactly the prompt of those
+successful runs. High and Maximum ask for the Standard scene first, then
+finer parts up to their targets in the same answer. They state that a
+cut-off answer keeps its finished objects (the old "an unfinished answer is
+discarded" was false once truncated answers were salvaged) and rule out an
+empty objects array. This is unverified until a live run.
 
 The confirmation is an in-page dialog, not the browser's `confirm()`, which
 Chrome dismisses without asking when the tab is not in front (seen live

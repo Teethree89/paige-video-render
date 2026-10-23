@@ -855,7 +855,7 @@ HARD LIMITS (a part outside them is dropped, so stay inside):
   differs from the position; camera fov 10 to 120 DEGREES.
 
 BUDGET: simple scenes need fewer objects than the limit. Keep the JSON compact (at most 3 decimals, names of 2 to 5 words, no extra
-fields) and complete: an unfinished answer is discarded.
+fields) BUDGET_END
 
 QUALITY:
 1. Identify the dominant subject (building exterior, equipment hall, machine,
@@ -898,13 +898,30 @@ bays, window frames and mullions, railings, steps, roof equipment, curbs,
 signage frames and site furniture, each attached to its parent surface.`,
   max:`
 DETAIL: MAXIMUM. Model every element the frames resolve, at the finest scale
-you can place reliably. Keep names to 1 to 3 words and numbers to at most 2
-decimals so the answer fits; finish every object you start.`});
+you can place reliably. At this level use names of 1 to 3 words and numbers
+with at most 2 decimals instead, so the answer fits; finish every object you
+start.`});
+// Standard keeps the exact prompt of the live 69- and 71-object scenes. At
+// High and Maximum, Argon answered three times with an empty or nearly empty
+// scene (2026-10-23). Those levels therefore start from the Standard scene in
+// the same answer, state that a cut-off answer keeps its finished objects
+// (the old "discarded" warning predates truncation salvage) and rule out an
+// empty answer.
 function argonPrompt(shotId,mode='primary_subject',detail='standard'){
   const level=ARGON_DETAIL[detail],[low,high]=level[mode];
-  return ARGON_PROMPT.replaceAll('SHOT_ID',shotId).replace('OBJECT_CAP',String(level.cap))+
-    ARGON_SCOPE[mode]+ARGON_DETAIL_TEXT[detail]+`
+  const [baseLow,baseHigh]=ARGON_DETAIL.standard[mode];
+  const prompt=ARGON_PROMPT.replaceAll('SHOT_ID',shotId).replace('OBJECT_CAP',String(level.cap));
+  if(detail==='standard')
+    return prompt.replace('BUDGET_END','and complete: an unfinished answer is discarded.')+
+      ARGON_SCOPE[mode]+`
 Target ${low} to ${high} objects when visible detail supports it.`;
+  return prompt.replace('BUDGET_END',`and complete. An answer cut off at the output limit keeps only the
+objects it finished, so write the main masses first.`)+ARGON_SCOPE[mode]+ARGON_DETAIL_TEXT[detail]+`
+Work in two stages inside this one answer. First block out the whole scope
+as at standard detail: every main mass, about ${baseLow} to ${baseHigh} objects. Then keep
+adding finer attached parts, as DETAIL above asks, until about ${low} to ${high} objects.
+Never return an empty objects array: fewer complete objects are always
+better than none.`;
 }
 function argonSafeStatus(raw){
   if(raw==='queued'||raw==='in_progress')return raw;
@@ -1546,7 +1563,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-start-recovery-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-detail-stages-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');

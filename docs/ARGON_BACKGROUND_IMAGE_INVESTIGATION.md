@@ -631,6 +631,33 @@ lost, and seals it after 90 seconds if it never appeared (see the setup
 guide). The cURL error is reduced to a fixed reason, so the next lost reply
 says how the connection failed.
 
+### Standard works; High and Maximum detail come back empty (`argon-detail-stages-v1`)
+
+Two runs on the streaming Worker, full scene on `exterior`, Medium
+thinking:
+
+| Detail | Time | Thinking | Output | Result |
+|---|---|---|---|---|
+| Standard (12:30) | 1:28 | 0 | 7,551 | 71 objects, 450 parts, 8 lights |
+| High (12:34) | 0:14 | 0 | 38 | `{"objects":[]}` |
+
+So streaming and the pipeline work, and the thinking level was not the
+cause: with the same Medium thinking, the High detail prompt alone gave an
+empty scene. The schema and generation settings are identical for every
+level. Only the prompt differs: a higher cap and target and one DETAIL
+paragraph. Even Standard stopped short of its target (71 of 80–120). The
+likeliest reading is that a larger target, together with the old "an
+unfinished answer is discarded" line, makes Argon close the array at the
+first object rather than risk an unfinished answer. That line has been
+false since truncated answers are salvaged.
+
+The Standard prompt stays byte-identical. High and Maximum now ask, in the
+same one answer, for the Standard scene first (every main mass, the
+Standard object range), then finer parts up to their own target. They say
+that a cut-off answer keeps its finished objects, write the main masses
+first, and never return an empty objects array. Whether that fixes High and
+Maximum needs one live run.
+
 ### Status wall-time observation
 
 A supplied log records a `/status` Durable Object fetch with 555,593 ms
