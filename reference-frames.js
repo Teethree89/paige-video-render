@@ -36,7 +36,7 @@ function encodedFrame(canvas,drawable,fit,detailed){
   const widths=detailed?[768,640,480]:[640,480,384];
   for(const width of widths){
     paintFrame(canvas,drawable,width,Math.round(width*9/16),fit);
-    for(const quality of [detailed?.78:.66,.58,.48]){
+    for(const quality of [detailed ? .78 : .66,.58,.48]){
       const imageDataUrl=canvas.toDataURL('image/jpeg',quality);
       if(imageDataUrl.length<=460000)return imageDataUrl;
     }
