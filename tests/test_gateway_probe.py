@@ -24,6 +24,13 @@ class GatewaySmokeTests(unittest.TestCase):
             worker = tomllib.load(config)
         self.assertEqual(worker["name"], "paige-video-render")
         self.assertEqual(worker["main"], "worker/scene-worker.mjs")
+        # Direct-image jobs need a SQLite-backed Durable Object: the only kind
+        # the Workers Free plan offers.
+        self.assertEqual(worker["durable_objects"]["bindings"],
+                         [{"name": "ARGON_JOBS", "class_name": "ArgonJob"}])
+        self.assertEqual(worker["migrations"], [{"tag": "v1", "new_sqlite_classes": ["ArgonJob"]}])
+        self.assertIn("export class ArgonJob",
+                      (root / "worker" / "scene-worker.mjs").read_text())
         self.assertEqual(worker["observability"]["logs"], {
             "enabled": True,
             "invocation_logs": True,
@@ -226,7 +233,7 @@ class GatewaySmokeTests(unittest.TestCase):
         self.assertIn("'argonJob' => $active === null ? null", php)
         self.assertIn("if ($action !== 'generate' && $action !== 'argon_start')", php)
         self.assertNotIn("$input['jobId']", php)
-        self.assertIn("CURLOPT_TIMEOUT => in_array($action, ['start','diagnostic'], true) ? 45 : 30", php)
+        self.assertIn("CURLOPT_TIMEOUT => in_array($action, ['start','direct-start','diagnostic'], true) ? 45 : 30", php)
         self.assertIn("CURLOPT_SSL_VERIFYPEER => true", php)
 
     @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
@@ -257,6 +264,9 @@ function argon_worker_call($endpoint, $secret, $action, $body) {
     $calls++;
     $slots = $case['profile'] === 'argon_direct' ? 1 : 2;
     if ($_SESSION['ai_calls'] !== $case['used'] + $slots) reject(500, 'unreserved');
+    // Direct image is started in the Worker's Durable Object route.
+    if ($action !== ($case['profile'] === 'argon_direct' ? 'direct-start' : 'start'))
+        reject(500, 'wrong worker route');
     if ($case['fail']) reject(502, 'analysis failed');
     return ['jobId' => 'new_job_123456', 'status' => 'queued'];
 }
@@ -420,7 +430,7 @@ function argon_worker_call($endpoint, $secret, $action, $body, $onRejected = nul
         )
         self.assertEqual(php_array.stdout, "[]")
         self.assertIn("'400:Invalid Argon check request'", php)
-        self.assertIn("['start', 'status', 'check', 'diagnostic', 'diagnostic-status']", php)
+        self.assertIn("['start', 'direct-start', 'status', 'check', 'diagnostic', 'diagnostic-status']", php)
         self.assertIn("'available' => $check['available']", php)
         self.assertIn("'502:Argon model metadata check unavailable'", php)
         self.assertLess(php.index("if (empty($_SESSION['authenticated']))"),
@@ -486,6 +496,9 @@ function argon_worker_call($endpoint, $secret, $action, $body, $onRejected = nul
             "502:Argon provider redirect blocked": "correctly refused to follow",
             "502:Argon rejected Interactions request": "No job was created",
             "502:Argon rejected interaction status request": "after the job was created",
+            "503:Argon direct job storage is not configured": "ARGON_JOBS Durable Object binding",
+            "502:Argon direct job could not be created": "No paid request was made",
+            "502:Argon direct job status unavailable": "No new paid request was made",
 
             "502:AI provider capacity unavailable": "Gemini is overloaded (upstream 503)",
             "502:AI provider temporarily unavailable": "temporary server error (upstream 5xx)",

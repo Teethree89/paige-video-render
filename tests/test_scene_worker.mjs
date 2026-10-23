@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import worker,{validateInput,validateOutput,secretMatches,argonProviderDiagnostic} from '../worker/scene-worker.mjs';
+import worker,{validateInput,validateOutput,secretMatches,argonProviderDiagnostic,ArgonJob} from '../worker/scene-worker.mjs';
 
 const token='test-token-should-be-at-least-thirty-two-chars-private';
 const image='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-diagnostic-terms-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct']});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-durable-object-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-diagnostic-terms-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct']});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-durable-object-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -561,102 +561,224 @@ test('Status rejections and failed jobs report their phase without claiming no j
     assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
   }finally{globalThis.fetch=prior;console.warn=priorWarn;}
 });
-test('Direct-image Argon is one opt-in background call with ordered inline frames',async()=>{
-  const prior=globalThis.fetch,oldTimeout=AbortSignal.timeout;const times=[];let calls=0;
-  AbortSignal.timeout=ms=>{times.push(ms);return oldTimeout.call(AbortSignal,ms);};
-  const frames=[{at:1.5,imageDataUrl:image},{at:0,imageDataUrl:image},{at:3,imageDataUrl:image}];
-  const id='v1_direct_image_123';
+// In-memory stand-in for a SQLite-backed Durable Object namespace. The real
+// runtime path (workerd, SQLite storage, alarms) is exercised separately.
+function fakeArgonJobs(jobEnv){
+  const objects=new Map();let counter=0;
+  class Storage{
+    constructor(){this.data=new Map();this.alarm=null;this.failPut=null;}
+    async get(key){return structuredClone(this.data.get(key));}
+    async put(key,value){
+      if(this.failPut&&this.failPut(key,value))throw Error('PRIVATE storage failure');
+      this.data.set(key,structuredClone(value));
+    }
+    async delete(key){return this.data.delete(key);}
+    async deleteAll(){this.data.clear();this.alarm=null;}
+    async setAlarm(time){this.alarm=time;}
+  }
+  const object=hex=>{
+    if(!objects.has(hex))objects.set(hex,new ArgonJob({storage:new Storage()},jobEnv));
+    return objects.get(hex);
+  };
+  const id=hex=>({toString:()=>hex});
+  return {objects,namespace:{
+    newUniqueId:()=>id((++counter).toString(16).padStart(64,'a')),
+    idFromString(hex){if(!/^[0-9a-f]{64}$/.test(hex))throw TypeError('Invalid id');return id(hex);},
+    get:objectId=>({fetch:(url,init={})=>object(objectId.toString())
+      .fetch(new Request(url,{...init,...(init.body?{duplex:'half'}:{})}))})
+  }};
+}
+const directJob={...sample,profile:'argon_direct',mode:'primary_subject',
+  frames:[{at:1.5,imageDataUrl:image},{at:0,imageDataUrl:image},{at:3,imageDataUrl:image}]};
+const completedScene=()=>new Response(JSON.stringify({id:'v1_sync',status:'completed',steps:[
+  {type:'user_input',content:[{type:'image',data:'PRIVATE_FRAME'}]},
+  {type:'model_output',content:[{type:'text',text:JSON.stringify(scene)}]}]}));
+const doPost=(jobsEnv,path,body)=>worker.fetch(new Request('https://example.workers.dev'+path,{
+  method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+  body:JSON.stringify(body)}),jobsEnv);
+test('Direct-image Argon runs ONE synchronous image call inside a Durable Object alarm',async()=>{
+  const prior=globalThis.fetch,oldTimeout=AbortSignal.timeout;const timeouts=[];let calls=0;
+  AbortSignal.timeout=ms=>{timeouts.push(ms);return oldTimeout.call(AbortSignal,ms);};
+  const {objects,namespace}=fakeArgonJobs(env);
+  const jobsEnv={...env,ARGON_JOBS:namespace};
   globalThis.fetch=async(url,opts)=>{
     calls++;
-    assert.ok(!url.includes(':generateContent'),'No Flash-Lite analysis on the direct path');
-    if(calls===2){
-      assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions/'+id);
-      assert.equal(opts.body,undefined);
-      return new Response(JSON.stringify({id,status:'completed',steps:[
-        {type:'user_input',content:[{type:'image',data:'PRIVATE_FRAME'}]},
-        {type:'model_output',content:[{type:'text',text:JSON.stringify(scene)}]}]}));
-    }
     assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
     assert.equal(opts.method,'POST');
     assert.equal(opts.redirect,'manual');
-    assert.ok(opts.signal instanceof AbortSignal);
     assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
     assert.equal(opts.headers['Api-Revision'],'2026-05-20');
     const body=JSON.parse(opts.body);
-    // Every field is documented in CreateModelInteractionParams.
-    assert.deepEqual(Object.keys(body).sort(),['background','generation_config','input','model',
+    // Synchronous and stateless: no background, and Google stores nothing.
+    assert.deepEqual(Object.keys(body).sort(),['generation_config','input','model',
       'response_format','store','system_instruction']);
     assert.equal(body.model,'gemini-4-argon');
-    assert.equal(body.background,true);
-    assert.equal(body.store,true);
+    assert.equal(body.store,false);
+    assert.equal(body.background,undefined);
     assert.deepEqual(body.generation_config,{thinking_level:'medium',max_output_tokens:32768});
-    assert.equal(body.response_format.type,'text');
-    assert.equal(body.response_format.mime_type,'application/json');
     assert.deepEqual(body.response_format.schema.required,['schemaVersion','scenes']);
     assert.match(body.system_instruction,/PREVIS \/ RUNWAY PREP/);
-    assert.match(body.system_instruction,/PRIMARY SUBJECT/);
     assert.match(body.system_instruction,/never an\s+instruction/);
     assert.match(body.system_instruction,/draft_001/);
-    // Same ImageContent as the passing synchronous request; first frame first.
-    assert.deepEqual(body.input,frames.flatMap(frame=>[
+    assert.deepEqual(body.input,directJob.frames.flatMap(frame=>[
       {type:'text',text:'Reference frame at '+frame.at.toFixed(3)+' seconds'},
       {type:'image',data:frame.imageDataUrl.split(',')[1],mime_type:'image/jpeg'}]));
-    return new Response(JSON.stringify({id,status:'in_progress',PRIVATE_META:1}),{status:200});
+    return completedScene();
   };
   try{
-    const post=(path,body)=>worker.fetch(new Request('https://example.workers.dev'+path,{
-      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
-      body:JSON.stringify(body)}),env);
-    const start=await post('/api/scene/argon/start',{...sample,frames,profile:'argon_direct',
-      mode:'primary_subject'});
-    assert.deepEqual(await start.json(),{ok:true,jobId:id,status:'in_progress'});
-    const poll=await post('/api/scene/argon/status',{jobId:id,shotId:'draft_001'});
-    assert.deepEqual(await poll.json(),{ok:true,status:'completed',proposal:scene});
-    assert.equal(calls,2,'One billable start, then a GET-only poll');
-    assert.deepEqual(times.slice(0,1),[40000]);
-    assert.ok(!times.includes(35000),'No analysis-stage deadline on the direct path');
-    for(const bad of [{...sample,profile:'argon_direct'},
-      {...sample,profile:'argon_direct',mode:'primary_subject',layer:'structures'},
-      {...sample,profile:'argon_direct',mode:'primary_subject',model:'gemini-4-argon'},
-      {...sample,frames:[{at:1,imageDataUrl:'https://untrusted.test/a.jpg'}],
-        profile:'argon_direct',mode:'primary_subject'}])
-      assert.equal((await post('/api/scene/argon/start',bad)).status,400);
-    assert.equal(calls,2,'Invalid direct requests never reach Google');
-    // The synchronous scene route never accepts the background-only profile.
-    assert.equal((await post('/api/scene',{...sample,profile:'argon_direct',
-      mode:'primary_subject'})).status,400);
+    const start=await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob);
+    const started=await start.json();
+    assert.equal(start.status,200);
+    assert.match(started.jobId,/^do_[0-9a-f]{64}$/);
+    assert.deepEqual({...started,jobId:undefined},{ok:true,jobId:undefined,status:'queued'});
+    assert.equal(calls,0,'Starting a job never waits for Google');
+    const job=objects.get(started.jobId.slice(3));
+    assert.equal(typeof job.ctx.storage.alarm,'number','The billable call runs in an alarm');
+    assert.equal((await job.ctx.storage.get('request')).content.length,6);
+    const poll=()=>doPost(jobsEnv,'/api/scene/argon/status',{jobId:started.jobId,shotId:'draft_001'})
+      .then(r=>r.json());
+    assert.deepEqual(await poll(),{ok:true,status:'queued'});
+    await job.alarm();
+    assert.equal(calls,1);
+    assert.deepEqual(await poll(),{ok:true,status:'completed',proposal:scene});
+    assert.equal(await job.ctx.storage.get('request'),undefined,'Frames deleted after the call');
+    assert.ok(job.ctx.storage.alarm>Date.now()+23*3600*1000,'Result kept for the 24h job window');
+    // At-least-once alarms: a repeated delivery never calls Google again.
+    await job.alarm();
+    assert.equal(calls,1);
+    assert.deepEqual(timeouts.filter(ms=>ms>40000),[12*60*1000],'12-minute provider deadline');
+    // The job is bound to its chapter; unknown and malformed IDs are refused.
+    assert.equal((await doPost(jobsEnv,'/api/scene/argon/status',
+      {jobId:started.jobId,shotId:'other_shot'})).status,400);
+    assert.equal((await doPost(jobsEnv,'/api/scene/argon/status',
+      {jobId:'do_'+'b'.repeat(64),shotId:'draft_001'})).status,404);
+    // The synchronous scene route never accepts the job-only profile.
+    assert.equal((await doPost(jobsEnv,'/api/scene',directJob)).status,400);
   }finally{globalThis.fetch=prior;AbortSignal.timeout=oldTimeout;}
 });
-test('Direct-image rejections are never retried and never fall back to Flash-Lite or Previs',async()=>{
+test('Direct-image jobs validate input in the object and fail closed without a binding',async()=>{
+  const prior=globalThis.fetch;let calls=0;
+  globalThis.fetch=async()=>{calls++;throw Error('must not reach Google');};
+  const {objects,namespace}=fakeArgonJobs(env);
+  const jobsEnv={...env,ARGON_JOBS:namespace};
+  try{
+    for(const bad of [{...directJob,profile:'argon_previs'},{...directJob,mode:'environment'},
+      {...directJob,layer:'structures'},{...directJob,model:'gemini-4-argon'},
+      {...directJob,frames:[{at:1,imageDataUrl:'https://untrusted.test/a.jpg'}]},
+      {...directJob,frames:Array(4).fill(sample.frames[0])}])
+      assert.equal((await doPost(jobsEnv,'/api/scene/argon/direct-start',bad)).status,400);
+    const huge=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/direct-start',{
+      method:'POST',headers:{Authorization:'Bearer '+token,'Content-Length':'1600001'},body:'{}'}),jobsEnv);
+    assert.equal(huge.status,413);
+    assert.ok([...objects.values()].every(job=>job.ctx.storage.data.size===0&&job.ctx.storage.alarm===null),
+      'Rejected input stores nothing and schedules nothing');
+    const missing=await doPost(env,'/api/scene/argon/direct-start',directJob);
+    assert.deepEqual([missing.status,await missing.json()],
+      [503,{ok:false,error:'Argon direct job storage is not configured'}]);
+    assert.equal((await doPost(env,'/api/scene/argon/status',
+      {jobId:'do_'+'c'.repeat(64),shotId:'draft_001'})).status,503);
+    assert.equal(calls,0);
+  }finally{globalThis.fetch=prior;}
+});
+test('Direct-image alarms never retry, resubmit or leak, whatever fails',async()=>{
   const prior=globalThis.fetch,oldWarn=console.warn;const logs=[];
   console.warn=(...args)=>logs.push(args);
+  const run=async(respond,{failPut,once}={})=>{
+    const {objects,namespace}=fakeArgonJobs(env);
+    const jobsEnv={...env,ARGON_JOBS:namespace};let calls=0;
+    globalThis.fetch=async(url)=>{calls++;
+      assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
+      return respond();};
+    const started=await (await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob)).json();
+    const job=objects.get(started.jobId.slice(3));
+    if(failPut)job.ctx.storage.failPut=failPut;
+    await job.alarm(); // must never throw: Cloudflare would retry it
+    if(!once)await job.alarm(); // a duplicate at-least-once delivery
+    job.ctx.storage.failPut=null;
+    const status=await (await doPost(jobsEnv,'/api/scene/argon/status',
+      {jobId:started.jobId,shotId:'draft_001'})).json();
+    return {status,calls,job};
+  };
+  const reason=async(respond,expected,extra)=>{
+    const {status,calls,job}=await run(respond,extra);
+    assert.equal(calls,1,'exactly one provider call: '+expected);
+    assert.equal(status.status,'failed',expected);
+    assert.equal(status.diagnostic.reason,expected);
+    assert.equal(await job.ctx.storage.get('request'),undefined,'frames deleted: '+expected);
+    assert.ok(!JSON.stringify(status).includes('PRIVATE'));
+    return status;
+  };
   try{
-    for(const status of [400,401,403,404,422,429,500,503,302,'network','json']){
-      let calls=0;
-      globalThis.fetch=async(url)=>{
-        calls++;
-        assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions');
-        if(status==='network')throw new TypeError('PRIVATE_PROVIDER_ERROR '+env.GEMINI_API_KEY);
-        if(status==='json')return new Response('PRIVATE_PROVIDER_ERROR');
-        return new Response(JSON.stringify({error:{code:'invalid_request',
-          message:'The model cannot process this image in a background request PRIVATE_FRAME'}}),
-          {status,headers:status===302?{Location:'https://attacker.example/PRIVATE'}:{}});
-      };
-      const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/start',{
-        method:'POST',headers:{Authorization:'Bearer '+token},
-        body:JSON.stringify({...sample,profile:'argon_direct',mode:'primary_subject'})}),env);
-      assert.equal(response.status,status===429?429:502);
-      const raw=await response.text();
-      assert.ok(!raw.includes('PRIVATE')&&!raw.includes(env.GEMINI_API_KEY));
-      assert.equal(calls,1,'No retry, Files upload, Flash-Lite or Previs fallback');
-      if(status===400)assert.deepEqual(JSON.parse(raw),{ok:false,error:'Argon rejected Interactions request',
-        diagnostic:{phase:'create',http:400,status:null,codes:['invalid_request'],
-          reason:'media_input_rejected',fields:['model','background'],terms:['image','cannot']}});
-    }
-    assert.deepEqual(logs.find(line=>line[0]==='argon-provider-fetch'),
-      ['argon-provider-fetch','direct-image','runtime-type-or-network']);
+    const rejected=await reason(()=>new Response(JSON.stringify({error:{code:'invalid_request',
+      message:'The agent does not support image input modality. PRIVATE'}}),{status:400}),'unrecognized_message');
+    assert.deepEqual(rejected.diagnostic,{phase:'create',http:400,status:null,codes:['invalid_request'],
+      reason:'unrecognized_message',fields:['input'],terms:['image','modality','not','agent']});
+    await reason(()=>new Response('{"error":{"message":"PRIVATE"}}',{status:429}),'provider_rate_limited');
+    await reason(()=>new Response('PRIVATE',{status:503}),'provider_capacity');
+    await reason(()=>new Response('PRIVATE',{status:500}),'provider_unavailable');
+    await reason(()=>new Response('PRIVATE',{status:403}),'provider_permission');
+    await reason(()=>new Response(null,{status:302,headers:{Location:'https://attacker.example/PRIVATE'}}),
+      'provider_redirect_blocked');
+    await reason(()=>{throw new DOMException('PRIVATE '+env.GEMINI_API_KEY,'TimeoutError');},'provider_timeout');
+    await reason(()=>{throw new TypeError('PRIVATE network');},'provider_network');
+    await reason(()=>new Response('not json PRIVATE'),'invalid_provider_response');
+    await reason(()=>new Response(JSON.stringify({status:'incomplete'})),'incomplete_output');
+    await reason(()=>new Response(JSON.stringify({status:'completed',steps:[
+      {type:'model_output',content:[{type:'text',text:'{"PRIVATE":1}'}]}]})),'scene_schema_mismatch');
+    // A storage failure after the submitted marker: no throw, no second call,
+    // frames removed, and the job is reported once its window has passed.
+    const broken=await run(completedScene,{once:true,
+      failPut:(key,value)=>key==='job'&&value.state==='completed'});
+    assert.equal(broken.calls,1);
+    assert.equal(broken.status.status,'in_progress');
+    assert.equal(await broken.job.ctx.storage.get('request'),undefined);
+    const stuck=await broken.job.ctx.storage.get('job');
+    await broken.job.ctx.storage.put('job',{...stuck,submitted:Date.now()-17*60*1000});
+    const later=await (await broken.job.fetch(new Request('https://argon-job/status?shot=draft_001'))).json();
+    assert.deepEqual([later.status,later.diagnostic.reason],['failed','job_interrupted']);
     assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
+    assert.ok(!JSON.stringify(logs).includes(env.GEMINI_API_KEY));
   }finally{globalThis.fetch=prior;console.warn=oldWarn;}
+});
+test('An interrupted direct-image run is reported once and never resubmitted',async()=>{
+  const prior=globalThis.fetch;let calls=0;
+  globalThis.fetch=async()=>{calls++;return completedScene();};
+  const {objects,namespace}=fakeArgonJobs(env);
+  const jobsEnv={...env,ARGON_JOBS:namespace};
+  try{
+    const started=await (await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob)).json();
+    const job=objects.get(started.jobId.slice(3));
+    // Simulate a deploy resetting the object mid-call: state is already
+    // "submitted", then Cloudflare re-delivers the alarm.
+    const queued=await job.ctx.storage.get('job');
+    await job.ctx.storage.put('job',{...queued,state:'submitted',submitted:Date.now()});
+    assert.deepEqual(await (await doPost(jobsEnv,'/api/scene/argon/status',
+      {jobId:started.jobId,shotId:'draft_001'})).json(),{ok:true,status:'in_progress'});
+    await job.alarm();
+    assert.equal(calls,0,'A submitted job is never sent to Google again');
+    const result=await (await doPost(jobsEnv,'/api/scene/argon/status',
+      {jobId:started.jobId,shotId:'draft_001'})).json();
+    assert.deepEqual([result.status,result.diagnostic.reason],['failed','job_interrupted']);
+    assert.equal(await job.ctx.storage.get('request'),undefined);
+    // A queued job whose alarm never ran is reported after the window, and a
+    // late alarm then finds nothing to send.
+    const second=await (await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob)).json();
+    const late=objects.get(second.jobId.slice(3));
+    const pending=await late.ctx.storage.get('job');
+    await late.ctx.storage.put('job',{...pending,created:Date.now()-17*60*1000});
+    const expired=await (await doPost(jobsEnv,'/api/scene/argon/status',
+      {jobId:second.jobId,shotId:'draft_001'})).json();
+    assert.deepEqual([expired.status,expired.diagnostic.reason],['failed','job_not_started']);
+    await late.alarm();
+    assert.equal(calls,0);
+    // Retention: the cleanup alarm removes everything after 24 hours.
+    const done=await late.ctx.storage.get('job');
+    await late.alarm();
+    assert.ok(late.ctx.storage.data.size>0,'Kept within the 24h window');
+    await late.ctx.storage.put('job',{...done,finished:Date.now()-24*3600*1000-1});
+    await late.alarm();
+    assert.equal(late.ctx.storage.data.size,0);
+  }finally{globalThis.fetch=prior;}
 });
 test('Argon diagnostic rejects unapproved stages, custom prompts and input footage without provider calls',async()=>{
   const previous=globalThis.fetch;let upstream=0;

@@ -20,3 +20,14 @@ keep_vars = true
 enabled = true
 invocation_logs = true
 persist = true
+
+# Direct-image Argon jobs: a Durable Object holds the long synchronous Gemini
+# call that PHP and a normal Worker request cannot wait for. The Workers Free
+# plan only offers SQLite-backed Durable Objects, hence new_sqlite_classes.
+[[durable_objects.bindings]]
+name = "ARGON_JOBS"
+class_name = "ArgonJob"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ArgonJob"]

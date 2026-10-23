@@ -224,7 +224,8 @@ Each step requires its own explicit approval. Do not run them in a batch,
 and do not retry automatically.
 
 0. Deploy the Worker and confirm `/health` shows
-   `workerRevision: argon-direct-image-diagnostics-v1`. Deploy PHP and the
+   `workerRevision: argon-direct-image-diagnostics-v1` (now
+   `argon-direct-durable-object-v1`). Deploy PHP and the
    frontend through FTP. This step is free.
 1. **Retry diagnostic stage 6**, which sends the synthetic inline JPEG in the
    background. This is one paid call, about $0.04 at most.
@@ -280,6 +281,32 @@ approval: re-run once (stage 6, which uses only the synthetic image, or
 `argon_direct`) and read the `terms`. If they indicate the input form, the
 documented StepList form `[{"type":"user_input","content":[…]}]` is the one
 candidate fix left to test.
+
+### Root cause from the `terms` (2026-10-22, 7:36 PM EDT)
+
+The second direct-image run, on Worker `argon-diagnostic-terms-v1`, reported:
+
+`create · HTTP 400 · reason unrecognized_message · code invalid_request · fields input · terms image, modality, not, agent`
+
+The vocabulary also contains `supported`, `unsupported`, `allowed`, `invalid`
+and `cannot`, and none of them appeared. The message is therefore most
+likely "the agent does not support image input modality". This is a
+**provider capability restriction**: background Argon jobs accept text input
+only, and Google appears to run them through an internal agent runtime. It is
+not a request-shape error, which explains why inline and Files transports
+failed identically. The StepList hypothesis is withdrawn. The exact sentence
+is inferred from a bag of words.
+
+Google keeps nothing for a synchronous call, and a dropped stream before
+32K tokens is unbilled. Long-decode checkpoints only begin after 32,768
+output tokens, which is our whole budget. So the only way for Argon to see
+the frames in a long job is for *our* side to hold one synchronous call
+open. `argon_direct` now does that in a Cloudflare Durable Object alarm: one
+synchronous call with `store:false` and images inline (the stage-3 shape), at
+most 12 minutes, with idempotent at-least-once handling. See
+[PHP_AI_SCENE_SETUP.md](PHP_AI_SCENE_SETUP.md). The background
+`argon_direct` request described above is retired. Stages 6–7 still probe
+the background combination.
 
 ### Remaining blockers
 

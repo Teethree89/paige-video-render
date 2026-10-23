@@ -42,6 +42,9 @@ function safe_worker_error(int $status, string $body): string {
         '502:Argon reference analysis unavailable' => 'Argon reference analysis did not complete. No background job was submitted and no automatic retry was made.',
         '502:Argon reference analysis invalid' => 'Argon did not return a usable visual description. No background job was submitted and no automatic retry was made.',
         '502:Argon provider redirect blocked' => 'Google returned a redirect that the Worker correctly refused to follow. No redirected request was sent.',
+        '503:Argon direct job storage is not configured' => 'The Worker is missing its ARGON_JOBS Durable Object binding. Redeploy it with wrangler.toml; no paid request was made.',
+        '502:Argon direct job could not be created' => 'Cloudflare could not create the direct-image job. No paid request was made.',
+        '502:Argon direct job status unavailable' => 'Cloudflare could not read the direct-image job status. No new paid request was made; use Resume to check again.',
 
 
         '413:Invalid image request' => 'The sampled frames exceed the Worker request size limit.',
@@ -141,7 +144,7 @@ function with_diagnostic(array $payload, $workerValue): array {
 /** Fixed-target Argon background job transport (only after session+CSRF). */
 function argon_worker_call(string $endpoint, string $secret, string $action, array $body,
                            $onRejected = null): array {
-    if (!in_array($action, ['start', 'status', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
+    if (!in_array($action, ['start', 'direct-start', 'status', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
     // The metadata-only check accepts an empty JSON OBJECT, not an array.
     // PHP json_encode([]) serializes as "[]", which the Worker correctly rejects
@@ -157,7 +160,7 @@ function argon_worker_call(string $endpoint, string $secret, string $action, arr
             'Authorization: Bearer ' . $secret],
         CURLOPT_FOLLOWLOCATION => false,
         CURLOPT_CONNECTTIMEOUT => 8,
-        CURLOPT_TIMEOUT => in_array($action, ['start','diagnostic'], true) ? 45 : 30,
+        CURLOPT_TIMEOUT => in_array($action, ['start','direct-start','diagnostic'], true) ? 45 : 30,
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_SSL_VERIFYHOST => 2,
         CURLOPT_RETURNTRANSFER => true
@@ -555,7 +558,10 @@ if ($action === 'argon_start') {
     if ((int) ($_SESSION['ai_calls'] ?? 0) + $slots > 10)
         reject(429, 'Session AI limit reached');
     $_SESSION['ai_calls'] = (int) ($_SESSION['ai_calls'] ?? 0) + $slots;
-    $job = argon_worker_call($workerEndpoint, $secret, 'start', $workerInput);
+    // Direct image runs in the Worker's ARGON_JOBS Durable Object, which holds
+    // the long synchronous Gemini call; PHP only starts it and polls.
+    $job = argon_worker_call($workerEndpoint, $secret,
+        $workerInput['profile'] === 'argon_direct' ? 'direct-start' : 'start', $workerInput);
     if (!is_string($job['jobId'] ?? null) ||
         !preg_match('/^[A-Za-z0-9_-]{8,160}$/', $job['jobId']) ||
         !in_array($job['status'] ?? '', ['queued','in_progress','completed','failed'], true))

@@ -34,6 +34,12 @@ jobs:
       # PHP accepts 7.1+ syntax that is a fatal parse error in production.
       - name: Lint PHP proxy with the production PHP version (7.0)
         run: docker run --rm -v "$PWD":/app -w /app php:7.0-cli php -l scene-proxy.php
+      # Durable Objects and alarms only exist in workerd; Node mocks cannot
+      # prove them. Google is mocked inside the test, so nothing is billed.
+      - name: Run the direct-image Durable Object in workerd (Miniflare)
+        run: |
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/mf" miniflare@4.20260730.0
+          MINIFLARE_MODULE="$RUNNER_TEMP/mf/node_modules/miniflare/dist/src/index.js" node tests/workerd_argon_jobs.mjs
       - name: Validate timeline and model assets
         run: |
           python tests/test_workspace.py

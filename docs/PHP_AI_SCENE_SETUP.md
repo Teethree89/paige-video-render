@@ -30,7 +30,7 @@ Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wra
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
-- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-direct-image-diagnostics-v1` identifies the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile, and sanitized provider diagnostics for Argon rejections. The existing three Flash profiles and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
+- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-direct-durable-object-v1` identifies the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile run by the `ArgonJob` Durable Object, and sanitized provider diagnostics (with `terms`) for Argon rejections. `/health.argonDirectJobs` is `true` only when the deployed Worker has its `ARGON_JOBS` binding. The existing three Flash profiles and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
 - Lite and 3.8 Low retain at most **one additional** Gemini request on HTTP 500/502/503/504 (700ms pause, one shared 45s deadline). Medium can make **up to three total attempts**, with a roughly 1s then 2s delay and bounded jitter, **only if the second attempt also returns HTTP 503**. Other upstream 5xx stop after two attempts. Every attempt shares Medium's 70s deadline, and retries never start with less than 10s remaining. HTTP 429, permission and malformed-request failures never retry. The editor's HTTP 502 may represent PHP relaying provider 5xx; the distinct safe `Gemini is overloaded (upstream 503)` message means all permitted 503 retries were exhausted. Cloudflare's sanitized `gemini-provider-http` logs record status and attempt without raw bodies or API keys. A single PHP session-quota request can cause up to three Gemini API attempts, potentially affecting Google quota and billing.
 - HTTP **503** with `{"ok":false,"service":"paige-scene","ready":false}` means the runtime is missing one or both bindings. In Cloudflare Dashboard → Workers & Pages → `paige-video-render` → Settings → **Variables and Secrets**, confirm the two names exactly match `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN`, that their type is **Secret**, and click **Deploy** to save the production version. Never paste the values into CI logs or the public repository.
 - If the build is red, inspect the exact latest Cloudflare build log and resolve the reported issue before testing PHP.
@@ -233,7 +233,7 @@ A C4D-native project/export pipeline is a separate planned development.
   review usage in AI Studio before running client production sequences.
   There is no guaranteed spend cap just because a project was pre-funded.
 - Deployment requires **both** Cloudflare Worker and 50webs FTP publisher to
-  update. `/health.workerRevision=argon-direct-image-diagnostics-v1` indicates the
+  update. `/health.workerRevision=argon-direct-durable-object-v1` indicates the
   current Worker path; if FTP deploys first, do not test Argon until Worker revision
   matches.
 
@@ -281,29 +281,52 @@ Do not replay the paid diagnostic sequence to validate this workaround.
 
 ### Experimental Argon Direct image (`argon_direct`)
 
-This is opt-in and primary-subject only. The editor confirmation names it
-**EXPERIMENTAL**.
+This is opt-in and primary-subject only; the editor confirmation names it
+**EXPERIMENTAL**. Background interactions reject image input (see the
+investigation), so this profile does not use background mode.
 
-- **One paid call.** The 1–3 validated JPEG frames go straight to Gemini 4
-  Argon as one background interaction. Input is ordered timestamp-label text
-  items, each followed by `{type:image, data, mime_type:image/jpeg}`, primary
-  frame first. The request also carries `background:true`, `store:true`,
-  `thinking_level:medium`, the full 32,768 thinking/output allowance, the
-  same scene `response_format` schema, and the Previs prompt in
-  `system_instruction`. Text visible in the images is treated as reference
-  content, never as an instruction. PHP reserves **one** slot.
-- **Unchanged behavior.** Session-bound job ID, GET-only polling, Resume,
-  duplicate-job blocking, the 48-object `validateOutput`, and
-  preview/Accept/Discard all work as before.
-- **No retry or fallback.** A rejection returns the provider diagnostic and
-  stops; it never retries and never falls back to Flash-Lite or Previs.
-  Previs remains the proven path, and choosing it is manual.
-- **Privacy.** Unlike Previs, Google stores the reference images with the
-  interaction (paid default 55 days, or the shorter AI Studio retention
-  setting). The confirmation and help text say so.
-- **Unverified.** Google returned HTTP 400 to this combination in earlier
-  diagnostics. Follow the investigation's step-by-step live plan
-  (stage 6 → stage 7 → one direct job), with approval for each step.
+- **Flow.** PHP `argon_start` calls the Worker's `direct-start` route. The
+  Worker forwards the request body, unparsed, to a new `ArgonJob` Durable
+  Object, which validates the frames, stores them, schedules an immediate
+  alarm and returns a `do_…` job ID in well under a second. PHP keeps that ID
+  in the session as before, and `argon_status` polls it with the existing
+  GET-only flow.
+- **One paid call.** Inside the alarm, the object makes ONE *synchronous*
+  Interactions call to Gemini 4 Argon:
+  - input: ordered timestamp-label text items, each followed by
+    `{type:image, data, mime_type:image/jpeg}`, primary frame first;
+  - `store:false`, `thinking_level:medium`, the full 32,768 thinking/output
+    allowance;
+  - the scene `response_format` schema, and the Previs prompt in
+    `system_instruction`.
+
+  The call has a 12-minute deadline: Google closes non-streaming calls at
+  about 10 minutes, and alarms stop at 15. The result passes the same
+  48-object `validateOutput`. PHP reserves **one** slot.
+- **Billing safety.** Cloudflare runs alarms at least once and retries
+  uncaught exceptions. The object records `submitted` *before* calling
+  Google, never calls Google for a job already submitted, and never throws.
+  A job interrupted mid-call (for example by a Worker deploy) is reported as
+  `job_interrupted` after 16 minutes and is never resubmitted. Google's
+  documentation says dropped synchronous calls are not billed.
+- **Privacy.** Frames live in the object's storage only until the call
+  finishes. The validated scene is kept for 24 hours (PHP's job window), and
+  then the object deletes everything. With `store:false`, Google is asked
+  not to keep the request or result.
+- **Cloudflare Free plan.**
+  - The binding is `ARGON_JOBS`, with a `new_sqlite_classes` migration,
+    because SQLite-backed objects are the only kind on Free.
+  - Daily allowances are 100,000 requests and 13,000 GB-s of active time.
+    A 5-minute job uses about 38 GB-s.
+  - Free allows 10 ms of CPU per request. Waiting on Google is not CPU, and
+    the Worker forwards the body unparsed. Check `cpuTimeMs` in the logs
+    after the first live run.
+- **Failures.** Provider rejections return the sanitized diagnostic. Local
+  failures report fixed reasons such as `provider_timeout`,
+  `provider_rate_limited` or `scene_schema_mismatch`. Nothing retries or
+  falls back to Flash-Lite or Previs.
+- **Verification.** Offline Node tests and a real-workerd (Miniflare) run
+  with mocked Google pass. A live run is unverified until approved.
 
 Official API: <https://ai.google.dev/gemini-api/docs/background-execution>
 and <https://ai.google.dev/gemini-api/docs/image-understanding>.

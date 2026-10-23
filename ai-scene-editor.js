@@ -157,7 +157,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     log('Argon background job accepted by Google. Polling for completion…');
     const started=Date.now();
     let prior='';
-    while(Date.now()-started<10*60*1000){
+    while(Date.now()-started<16*60*1000){
       const result=await request('argon_status',{csrf});
       if(result.shotId!==shotId)throw Error('Argon job belongs to a different chapter');
       if(result.status!==prior){
@@ -285,7 +285,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
         if(typeof confirm==='function'&&!confirm(profile==='argon_direct'
-          ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon as a background job. Google stores the request, INCLUDING THE REFERENCE IMAGES, and the generated scene with the stored interaction (55 days by default on the paid tier, or your shorter AI Studio retention setting). Google has rejected this combination before; nothing falls back automatically. This uses one request slot and may run for several minutes.'
+          ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'
           :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'))
           return;
       }
@@ -297,7 +297,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       log('Generation profile: '+({lite_default:'Gemini 3.5 Flash-Lite',
         g38_low:'Gemini 3.8 Low',g38_medium:'Gemini 3.8 Medium',
         argon_previs:'Gemini 4 Argon Previs (paid background)',
-        argon_direct:'Gemini 4 Argon direct image (experimental paid background)'}[profile])+'.');
+        argon_direct:'Gemini 4 Argon direct image (experimental, paid)'}[profile])+'.');
       let doc;
       if(fullEnvironment){
         let assembled=[];
@@ -319,7 +319,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         status('Gemini is analyzing reference views and generating editable geometry…');
         if(argon){
           log(profile==='argon_direct'
-            ?'Sending '+frames.length+' reference frames directly to Gemini 4 Argon as one background job (one potentially billable call)…'
+            ?'Sending '+frames.length+' reference frames directly to Gemini 4 Argon through a Cloudflare job (one potentially billable call)…'
             :'Analyzing 3 reference frames with Gemini 3.5 Flash-Lite, then starting text-only Argon background geometry (up to two potentially billable calls)…');
           const start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,mode:'primary_subject'});
           argonJob={shotId:shot.id,status:start.status};

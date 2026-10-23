@@ -509,7 +509,7 @@ function argonDomHarness(ids,jpeg){
     }
   };
 }
-test('Experimental direct-image Argon discloses stored images, submits once and previews',async()=>{
+test('Experimental direct-image Argon discloses image handling, submits once and previews',async()=>{
   const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
   const ids=new Map(),actions=[];
   const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
@@ -517,9 +517,11 @@ test('Experimental direct-image Argon discloses stored images, submits once and 
   globalThis.confirm=message=>{
     assert.match(message,/EXPERIMENTAL/);
     assert.match(message,/ONE potentially billable call/);
-    assert.match(message,/INCLUDING THE REFERENCE IMAGES/);
+    assert.match(message,/Cloudflare job holds the request for up to 12 minutes/);
+    assert.match(message,/THE REFERENCE IMAGES only until Argon answers/);
+    assert.match(message,/Google is asked not to store/);
     assert.match(message,/one request slot/);
-    assert.match(message,/nothing falls back automatically/);
+    assert.match(message,/Nothing falls back automatically/);
     return true;
   };
   globalThis.document=argonDomHarness(ids,jpeg);
@@ -554,7 +556,7 @@ test('Experimental direct-image Argon discloses stored images, submits once and 
     assert.deepEqual(actions,['argon_start','argon_status']);
     assert.equal(preview?.objects[0]?.id,'direct_facade');
     assert.equal(saved,0);
-    assert.match(ids.get('aiSceneLog').textContent,/directly to Gemini 4 Argon as one background job/);
+    assert.match(ids.get('aiSceneLog').textContent,/directly to Gemini 4 Argon through a Cloudflare job/);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
