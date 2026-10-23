@@ -169,9 +169,16 @@ function safe_worker_usage($value) {
     return $usage ? $usage : null;
 }
 
+/** Fixed words for a Worker reply that never arrived; never cURL's own text. */
+function argon_transport_reason($errno, $received) {
+    if ($received) return 'size';
+    $reasons = [6 => 'dns', 7 => 'connect', 28 => 'timeout', 35 => 'tls', 51 => 'tls',
+        58 => 'tls', 60 => 'tls', 52 => 'reset', 55 => 'reset', 56 => 'reset'];
+    return isset($reasons[$errno]) ? $reasons[$errno] : 'other';
+}
 /** Fixed-target Argon background job transport (only after session+CSRF). */
 function argon_worker_call(string $endpoint, string $secret, string $action, array $body,
-                           $onRejected = null): array {
+                           $onRejected = null, array $headers = [], $onLost = null): array {
     if (!in_array($action, ['start', 'direct-start', 'status', 'output', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
     // The metadata-only check accepts an empty JSON OBJECT, not an array.
@@ -184,8 +191,8 @@ function argon_worker_call(string $endpoint, string $secret, string $action, arr
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $encoded,
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json',
-            'Authorization: Bearer ' . $secret],
+        CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json', 'Accept: application/json',
+            'Authorization: Bearer ' . $secret], $headers),
         CURLOPT_FOLLOWLOCATION => false,
         CURLOPT_CONNECTTIMEOUT => 8,
         CURLOPT_TIMEOUT => in_array($action, ['start','direct-start','diagnostic'], true) ? 45 : 30,
@@ -196,20 +203,25 @@ function argon_worker_call(string $endpoint, string $secret, string $action, arr
     if (defined('CURLOPT_PROTOCOLS')) curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
     $response = curl_exec($ch);
     $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $errno = curl_errno($ch);
     curl_close($ch);
-    if (!is_string($response) || strlen($response) > 1500000)
+    if (!is_string($response) || strlen($response) > 1500000) {
+        if ($onLost !== null) $onLost(argon_transport_reason($errno, is_string($response)));
         reject(502, 'Could not retrieve Argon Worker response');
+    }
     $value = json_decode($response, true);
     if ($status < 200 || $status >= 300) {
         $error = is_array($value) && is_string($value['error'] ?? null) ? $value['error'] : '';
         if ($action === 'output' && $status === 404 && $error === 'No saved Argon output')
             reject(404, 'This job has no saved original output: it was cut off before any output was saved, or it ran before outputs were kept.');
-        if ($onRejected !== null) $onRejected($error);
+        if ($onRejected !== null) $onRejected($error, $status);
         answer($status === 429 ? 429 : 502, with_diagnostic(
             ['ok' => false, 'error' => safe_worker_error($status, $response)], $value));
     }
-    if (!is_array($value) || ($value['ok'] ?? false) !== true)
+    if (!is_array($value) || ($value['ok'] ?? false) !== true) {
+        if ($onLost !== null) $onLost('invalid');
         reject(502, 'Invalid Argon Worker response');
+    }
     return $value;
 }
 
@@ -503,10 +515,20 @@ if ($action === 'argon_status') {
         reject(404, 'No resumable Argon job in this session');
     if (!preg_match('/^[A-Za-z0-9_-]{8,160}$/', (string) ($job['id'] ?? '')))
         reject(400, 'Invalid Argon job');
+    // A direct-image start whose reply was lost: until the Worker has the job,
+    // it is still queued. After 90 seconds no copy of that start can still be
+    // arriving, so the poll seals the job: a late start is then refused.
+    $unconfirmed = !empty($job['unconfirmed']);
+    $seal = $unconfirmed && (int) $job['created'] <= time() - 90;
     $value = argon_worker_call($workerEndpoint, $secret, 'status',
-        ['jobId' => $job['id'], 'shotId' => $job['shotId']]);
+        ['jobId' => $job['id'], 'shotId' => $job['shotId']] + ($seal ? ['seal' => true] : []),
+        $unconfirmed ? function ($error, $status) use ($job) {
+            if ($status === 404 && $error === 'No resumable Argon job')
+                answer(200, ['ok' => true, 'status' => 'queued', 'shotId' => $job['shotId']]);
+        } : null);
     if (!in_array($value['status'] ?? '', ['queued','in_progress','completed','failed'], true))
         reject(502, 'Invalid Argon job status');
+    unset($_SESSION['argon_job']['unconfirmed']);
     $_SESSION['argon_job']['status'] = $value['status'];
     answer(200, with_diagnostic(['ok' => true, 'status' => $value['status'],
         'shotId' => $job['shotId']] +
@@ -623,13 +645,31 @@ if ($action === 'argon_start') {
         reject(429, 'Session AI limit reached');
     $_SESSION['ai_calls'] = (int) ($_SESSION['ai_calls'] ?? 0) + $slots;
     // Direct image runs in the Worker's ARGON_JOBS Durable Object, which holds
-    // the long synchronous Gemini call; PHP only starts it and polls.
-    $job = argon_worker_call($workerEndpoint, $secret,
-        $workerInput['profile'] === 'argon_direct' ? 'direct-start' : 'start', $workerInput);
+    // the long synchronous Gemini call; PHP only starts it and polls. PHP names
+    // that job before calling, so a lost reply can still be found by polling
+    // and a repeated start of the same job is refused. Only a 4xx answer
+    // proves no job was created.
+    $direct = $workerInput['profile'] === 'argon_direct';
+    $key = $direct ? bin2hex(random_bytes(32)) : '';
+    $unconfirmed = function ($reason, $http) use ($shotId) {
+        answer(200, ['ok' => true, 'status' => 'queued', 'shotId' => $shotId,
+            'startUnconfirmed' => ['reason' => $reason, 'http' => $http]]);
+    };
+    if ($direct) $_SESSION['argon_job'] = ['id' => 'dk_' . $key, 'shotId' => $shotId,
+        'created' => time(), 'status' => 'queued', 'unconfirmed' => true];
+    $job = argon_worker_call($workerEndpoint, $secret, $direct ? 'direct-start' : 'start', $workerInput,
+        $direct ? function ($error, $status) use ($unconfirmed) {
+            if ($status >= 500) $unconfirmed('http', $status);
+            unset($_SESSION['argon_job']);
+        } : null,
+        $direct ? ['X-Argon-Job-Key: ' . $key] : [],
+        $direct ? function ($reason) use ($unconfirmed) { $unconfirmed($reason, null); } : null);
     if (!is_string($job['jobId'] ?? null) ||
         !preg_match('/^[A-Za-z0-9_-]{8,160}$/', $job['jobId']) ||
-        !in_array($job['status'] ?? '', ['queued','in_progress','completed','failed'], true))
+        !in_array($job['status'] ?? '', ['queued','in_progress','completed','failed'], true)) {
+        if ($direct) $unconfirmed('invalid', null);
         reject(502, 'Argon Worker returned invalid job');
+    }
     $_SESSION['argon_job'] = [
         'id' => $job['jobId'], 'shotId' => $shotId, 'created' => time(),
         'status' => $job['status']

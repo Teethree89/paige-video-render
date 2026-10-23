@@ -1109,12 +1109,14 @@ Use uncertainties to omit unsupported detail. Return only the scene JSON.`,
   }
   if(path==='/api/scene/argon/status'||path==='/api/scene/argon/output'){
     const download=path.endsWith('/output');
-    const id=payload?.jobId,shotId=payload?.shotId;
+    const id=payload?.jobId,shotId=payload?.shotId,seal=payload?.seal;
+    // Only a status poll of a PHP-named job may seal it (see ArgonJob.status).
     if(typeof id!=='string'||!ARGON_JOB_ID.test(id)||
        typeof shotId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(shotId)||
-       Object.keys(payload).some(k=>!['jobId','shotId'].includes(k)))
+       Object.keys(payload).some(k=>!['jobId','shotId','seal'].includes(k))||
+       (seal!==undefined&&(seal!==true||download||!ARGON_KEY_JOB.test(id))))
       return fail(400,'Invalid Argon job request');
-    if(ARGON_DO_JOB.test(id))return directArgonStatus(env,id,shotId,download);
+    if(ARGON_DO_JOB.test(id)||ARGON_KEY_JOB.test(id))return directArgonStatus(env,id,shotId,download,seal===true);
     let response;
     try{
       response=await fetch(ARGON_API+'/'+encodeURIComponent(id),{
@@ -1167,6 +1169,11 @@ Use uncertainties to omit unsupported detail. Return only the scene JSON.`,
 // Durable Object therefore holds ONE synchronous call open, in an alarm, while
 // PHP polls. Same inline ImageContent as passing diagnostic stage 3.
 const ARGON_DO_JOB=/^do_[0-9a-f]{64}$/;
+// A direct-image job PHP named before starting it (X-Argon-Job-Key): PHP can
+// poll it even when the start reply was lost.
+const ARGON_KEY_JOB=/^dk_[0-9a-f]{64}$/;
+const argonJobObject=(env,id)=>ARGON_KEY_JOB.test(id)
+  ?env.ARGON_JOBS.idFromName('argon-direct:'+id.slice(3)):env.ARGON_JOBS.idFromString(id.slice(3));
 // Without a requested deadline, Google ended a call that ran past about
 // 2 minutes with HTTP 5xx (live full scene, 2026-10-23); every success had
 // finished sooner. Like Google's official SDK (X-Server-Timeout, in whole
@@ -1399,7 +1406,9 @@ async function startDirectArgonJob(request,env){
   if(Number(request.headers.get('content-length')||0)>MAX_BYTES)
     return fail(413,'Invalid image request');
   if(!request.body)return fail(400,'Invalid image request');
-  const id=env.ARGON_JOBS.newUniqueId();
+  const key=request.headers.get('X-Argon-Job-Key');
+  if(key!==null&&!/^[0-9a-f]{64}$/.test(key))return fail(400,'Invalid image request');
+  const id=key?argonJobObject(env,'dk_'+key):env.ARGON_JOBS.newUniqueId();
   let response;
   // Forward the body unparsed: the Durable Object validates it, which keeps
   // this request inside the Workers Free plan's 10 ms CPU limit.
@@ -1407,14 +1416,15 @@ async function startDirectArgonJob(request,env){
     headers:{'Content-Type':'application/json'},body:request.body});}
   catch{return fail(502,'Argon direct job could not be created');}
   if(!response.ok)return response; // the object's own fixed-vocabulary error
-  return reply({ok:true,jobId:'do_'+id.toString(),status:'queued'});
+  return reply({ok:true,jobId:key?'dk_'+key:'do_'+id.toString(),status:'queued'});
 }
-async function directArgonStatus(env,id,shotId,download=false){
+async function directArgonStatus(env,id,shotId,download=false,seal=false){
   if(!env.ARGON_JOBS)return fail(503,'Argon direct job storage is not configured');
   let stub;
-  try{stub=env.ARGON_JOBS.get(env.ARGON_JOBS.idFromString(id.slice(3)));}
+  try{stub=env.ARGON_JOBS.get(argonJobObject(env,id));}
   catch{return fail(400,'Invalid Argon job request');}
-  try{return await stub.fetch('https://argon-job/'+(download?'output':'status')+'?shot='+encodeURIComponent(shotId));}
+  try{return await stub.fetch('https://argon-job/'+(download?'output':'status')+'?shot='+encodeURIComponent(shotId)+
+    (seal?'&seal=1':''));}
   catch{return fail(502,'Argon direct job status unavailable');}
 }
 export class ArgonJob {
@@ -1422,7 +1432,8 @@ export class ArgonJob {
   async fetch(request){
     const url=new URL(request.url);
     if(url.pathname==='/start'&&request.method==='POST')return this.start(request);
-    if(url.pathname==='/status'&&request.method==='GET')return this.status(url.searchParams.get('shot'));
+    if(url.pathname==='/status'&&request.method==='GET')
+      return this.status(url.searchParams.get('shot'),url.searchParams.get('seal')==='1');
     if(url.pathname==='/output'&&request.method==='GET')return this.output(url.searchParams.get('shot'));
     return fail(404,'Not found');
   }
@@ -1445,10 +1456,14 @@ export class ArgonJob {
     await this.ctx.storage.setAlarm(Date.now());
     return reply({ok:true,status:'queued'});
   }
-  async status(shotId){
+  async status(shotId,seal=false){
     const started=Date.now();
     try{
       let job=await this.ctx.storage.get('job');
+      // PHP seals a job whose start reply it lost, once no copy of that start
+      // can still arrive. The tombstone makes any later start a 409, so it can
+      // never reach Google.
+      if(!job&&seal)job=await this.finish({shotId,created:Date.now()},directFailure('start_not_received'));
       if(!job)return fail(404,'No resumable Argon job');
       if(job.shotId!==shotId)return fail(400,'Invalid Argon job request');
       // No alarm outlives its 15-minute wall limit: a job still open past that
@@ -1531,7 +1546,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-empty-scene-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-start-recovery-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');

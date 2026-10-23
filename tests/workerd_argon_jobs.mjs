@@ -56,8 +56,8 @@ const options=version=>({
   }
 });
 const mf=new Miniflare(options('0a1b2c3d-0000-4000-8000-000000000001'));
-const post=(path,body)=>mf.dispatchFetch('https://worker.test'+path,{method:'POST',
-  headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
+const post=(path,body,headers={})=>mf.dispatchFetch('https://worker.test'+path,{method:'POST',
+  headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
 // Full scene: the same single synchronous call, with the full-scene scope.
 const job={shotId:'shot_a',profile:'argon_direct',mode:'full_scene',thinking:'high',detail:'max',
   frames:[{at:2,imageDataUrl:jpeg},{at:0.5,imageDataUrl:jpeg},{at:4,imageDataUrl:jpeg}]};
@@ -79,7 +79,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-empty-scene-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-start-recovery-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
@@ -124,14 +124,33 @@ try{
   const unknown=await post('/api/scene/argon/status',{jobId:'do_'+'0'.repeat(64),shotId:'shot_a'});
   assert.equal(unknown.status,400,'malformed object id');
   assert.equal(calls.length,2);
-  // 4) A deploy mid-call: restarting workerd on a new version resets the
+  // 4) A PHP-named job (idFromName) is pollable by the name PHP chose, and a
+  // sealed name refuses a late start without reaching Google.
+  mode='ok';
+  const key='5e'.repeat(32);
+  const named=await (await post('/api/scene/argon/direct-start',job,{'X-Argon-Job-Key':key})).json();
+  assert.deepEqual(named,{ok:true,jobId:'dk_'+key,status:'queued'});
+  let namedStatus;
+  for(let i=0;i<40;i++){
+    namedStatus=await (await post('/api/scene/argon/status',{jobId:'dk_'+key,shotId:'shot_a'})).json();
+    if(namedStatus.status==='completed')break;
+    await new Promise(r=>setTimeout(r,250));
+  }
+  assert.equal(namedStatus.status,'completed');assert.equal(calls.length,3);
+  const lostKey='7f'.repeat(32);
+  const sealed=await (await post('/api/scene/argon/status',{jobId:'dk_'+lostKey,shotId:'shot_a',seal:true})).json();
+  assert.equal(sealed.diagnostic.reason,'start_not_received');
+  assert.equal((await post('/api/scene/argon/direct-start',job,{'X-Argon-Job-Key':lostKey})).status,409);
+  await new Promise(r=>setTimeout(r,500));
+  assert.equal(calls.length,3,'a sealed job never reaches Google');
+  // 5) A deploy mid-call: restarting workerd on a new version resets the
   // object while Google is still answering. The re-delivered alarm names the
   // deploy and never calls Google again (2026-10-23: a run cut off this way).
   mode='hang';
   const cut=await (await post('/api/scene/argon/direct-start',job)).json();
   const cutStatus=async()=>(await post('/api/scene/argon/status',{jobId:cut.jobId,shotId:'shot_a'})).json();
-  for(let i=0;i<40&&calls.length<3;i++)await new Promise(r=>setTimeout(r,100));
-  assert.equal(calls.length,3);assert.equal((await cutStatus()).status,'in_progress');
+  for(let i=0;i<40&&calls.length<4;i++)await new Promise(r=>setTimeout(r,100));
+  assert.equal(calls.length,4);assert.equal((await cutStatus()).status,'in_progress');
   await mf.setOptions(options('0a1b2c3d-0000-4000-8000-000000000002'));
   let after;
   for(let i=0;i<40;i++){
@@ -140,6 +159,6 @@ try{
     await new Promise(r=>setTimeout(r,250));
   }
   assert.deepEqual([after.status,after.diagnostic.reason],['failed','job_interrupted_deploy']);
-  assert.equal(calls.length,3,'never resubmitted after the deploy');
+  assert.equal(calls.length,4,'never resubmitted after the deploy');
   console.log('WORKERD TEST PASS');
 }finally{release();await mf.dispose();}

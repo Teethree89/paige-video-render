@@ -615,6 +615,22 @@ Worker. The validator now reports such an answer with code `empty` ("no
 objects in the answer") instead of `scene`, and the editor says Argon
 answered with an empty scene.
 
+### A lost start reply (`argon-start-recovery-v1`)
+
+At 12:08 EDT a Medium-thinking, Standard-detail full-scene start failed
+after 19 seconds with "Could not retrieve Argon Worker response". That is
+PHP's message when cURL gets no usable reply from the Worker. The Worker and
+the site both answered normally two minutes later. The editor never logged
+a job, because PHP stored a job only after a successful reply. If the
+request had reached the Worker, its Durable Object would have made the paid
+call with no way to poll it. Whether it did is visible only in Cloudflare's
+logs (an `argon-direct-call` line near 16:08 UTC).
+
+PHP now names the job before calling, polls that name when the reply is
+lost, and seals it after 90 seconds if it never appeared (see the setup
+guide). The cURL error is reduced to a fixed reason, so the next lost reply
+says how the connection failed.
+
 ### Status wall-time observation
 
 A supplied log records a `/status` Durable Object fetch with 555,593 ms

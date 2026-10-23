@@ -759,6 +759,16 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
         reason:'job_interrupted',codes:[],fields:[],terms:[]}}),{status:200}));
     assert.match(stopped.log,/stopped on Cloudflare, not at Google\. The job stopped during the paid call \(a Worker deploy is the usual cause\)/);
     assert.doesNotMatch(failed.log,/cut-off call/,'not for provider failures');
+    // A start whose reply was lost polls the job PHP named, and never restarts it.
+    const lostStart=await run('argon_direct',payload=>new Response(JSON.stringify(
+      payload.action==='argon_start'?{ok:true,status:'queued',shotId:'shot_a',
+        startUnconfirmed:{reason:'reset',http:null}}:
+      {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,status:'failed',
+        reason:'start_not_received',codes:[],fields:[],terms:[]}}),{status:200}));
+    assert.deepEqual(lostStart.actions,['argon_start','argon_status'],'Never a second start');
+    assert.match(lostStart.log,/Cloudflare did not confirm the start \(connection dropped\)\. Checking whether the job was created; no new paid request is sent\./);
+    assert.doesNotMatch(lostStart.log,/Paid Argon job started/);
+    assert.match(lostStart.log,/The start request never reached the job, so nothing was sent to Google\. You can start again\./);
     // Argon rejecting the job after the analysis still shows the billed analysis.
     const analysisBilled=await run('argon_previs',()=>new Response(JSON.stringify({ok:false,
       error:'Google rejected the Argon request (HTTP 400).',
