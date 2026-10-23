@@ -2125,3 +2125,47 @@ test('the 65,536 budget is strictly allowlisted and unavailable to Previs before
     assert.equal(calls,0);
   }finally{globalThis.fetch=prior;}
 });
+
+test('Add Detail uses two fixed append-only prompts and validates bounded existing geometry',async()=>{
+  const prior=globalThis.fetch,bodies=[];
+  const existing=[{id:'base',name:'Main building',layer:'structures',primitive:'box',
+    position:[0,2,0],scale:[10,4,8]}];
+  globalThis.fetch=async(url,options)=>{
+    const body=JSON.parse(options.body);bodies.push(body);
+    return completedScene();
+  };
+  const call=async extra=>{
+    const {namespace,objects}=fakeArgonJobs(env);
+    const request=await argonPost({...env,ARGON_JOBS:namespace},'/api/scene/argon/direct-start',{
+      ...directJob,mode:'full_scene',...extra});
+    if(request.status!==200)return {status:request.status};
+    const id=(await request.json()).jobId.slice(3);
+    await objects.get(id).alarm();
+    return {status:request.status};
+  };
+  try{
+    for(const pass of [1,2]){
+      const result=await call({detailPass:pass,existing});
+      assert.equal(result.status,200);
+      const b=bodies.at(-1);
+      assert.equal(b.store,false);assert.equal(b.stream,true);
+      assert.equal(b.background,undefined);
+      assert.equal(b.input.length,6);
+      assert.match(b.system_instruction,new RegExp('Pass '+pass+' of 2'));
+      assert.match(b.system_instruction,/Do NOT recreate, move, modify, or duplicate/);
+      assert.match(b.system_instruction,/Main building/);
+      assert.doesNotMatch(b.system_instruction,/Work in two stages inside this one answer/);
+    }
+    const total=bodies.length;
+    for(const payload of [
+      {detailPass:3,existing},
+      {detailPass:1,existing:[]},
+      {detailPass:1,existing:[{...existing[0],id:'!!!'}]},
+      {detailPass:1,existing:[existing[0],existing[0]]},
+      {detailPass:1,existing:[{...existing[0],scale:[999999,1,1]}]},
+      {detailPass:1,existing:Array.from({length:240},(_,i)=>({...existing[0],id:'obj'+i}))},
+      {detailPass:1,existing,mode:'primary_subject'}
+    ])assert.equal((await call(payload)).status,400);
+    assert.equal(bodies.length,total,'invalid data never reaches paid Google calls');
+  }finally{globalThis.fetch=prior;}
+});
