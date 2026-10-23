@@ -11,7 +11,7 @@ import {setupTimelineEditing} from './timeline-tools.js';
 import {evaluateCamera,curveEasing} from './animation-curves.js';
 import {setupAnimationGraph} from './animation-graph.js';
 import {sampleReferenceMedia} from './reference-frames.js';
-import {syncChapterCameraMotion} from './camera-motion-sync.js';
+import {syncChapterCameraMotion,clipPlanesForScene} from './camera-motion-sync.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
@@ -69,9 +69,11 @@ reviewGrid.material.transparent=true;reviewGrid.material.opacity=.42;
 reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
+const cameraBoundsCache=new Map();
 let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
+  cameraBoundsCache.clear();
   primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id),primitiveAnchors());
   lastPrimitiveShotId=null;
   primitiveEditor?.refresh();
@@ -232,6 +234,7 @@ async function boot(){
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
      doc.scenes.push(entry);
+     cameraBoundsCache.clear();
      primitiveWorld.setDocument(doc,sequence.shots.map(s=>s.id),primitiveAnchors());
      renderWorld();
      if(entry.objects.length)showGeneratedGeometry(entry.shotId,true);
@@ -247,7 +250,7 @@ async function boot(){
        newBounds:primitiveWorld.getBounds(entry.shotId),
        modelCamera:primitiveWorld.getCamera(entry.shotId),
        anchor:cameraSyncSession.anchor,mode,
-       aspect:viewport.clientWidth/Math.max(viewport.clientHeight,1)
+       aspect:16/9
      });
      cameraSyncPreview=proposal.sequence;
      // Leave orbit review so the editor displays the synchronized CINEMATIC
@@ -411,7 +414,16 @@ function cameraAt(t){
    return evaluateCamera(cameraSyncPreview.camera,t);
  return evaluateCamera(sequence.camera,t);
 }
-function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.near=.35;camera.far=500;camera.updateProjectionMatrix();controls.target.set(...c.t);}
+function applyCamera(){
+ if(orbitMode&&!playing)return;
+ const c=cameraAt(playhead),id=shotAt(playhead)?.id;
+ camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;
+ if(id&&!cameraBoundsCache.has(id))
+   cameraBoundsCache.set(id,primitiveWorld.getBounds(id));
+ const planes=clipPlanesForScene(c.p,c.t,id?cameraBoundsCache.get(id):null);
+ camera.near=planes.near;camera.far=planes.far;
+ camera.updateProjectionMatrix();controls.target.set(...c.t);
+}
 function seek(t,opts={}){if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
  (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
 function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
