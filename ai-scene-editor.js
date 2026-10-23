@@ -69,7 +69,7 @@ export function describeUsage(label,u) {
     n('output')&&n('output')+' output',n('total')&&n('total')+' total'].filter(Boolean);
   let line=label+' tokens: '+(parts.join(' · ')||'not reported')+'.';
   const used=(u?.thinking||0)+(u?.output||0);
-  if(Number.isInteger(u?.cap)&&u.cap>0&&used>0)
+  if(Number.isInteger(u?.thinking)&&Number.isInteger(u?.output)&&Number.isInteger(u?.cap)&&u.cap>0&&used>0)
     line+=' Thinking + output used '+used.toLocaleString('en-US')+' of '+n('cap')+
       ' ('+Math.round(used/u.cap*100)+'%).';
   return line;
@@ -182,6 +182,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
   const argonSettings=el('aiArgonSettings'),thinkingSelect=el('aiArgonThinking'),detailSelect=el('aiArgonDetail');
+  const budgetField=el('aiArgonBudgetField'),budgetSelect=el('aiArgonBudget');
   // Chrome silently dismisses window.confirm() when the tab is not in front
   // (live 2026-10-23), which reads as Cancel. Paid requests ask in the page
   // instead, in a dialog that waits for an answer; confirm() is the fallback.
@@ -205,6 +206,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   // The thinking and detail selectors apply to Argon only.
   const showArgonSettings=()=>{
     if(argonSettings)argonSettings.hidden=!['argon_previs','argon_direct'].includes(modelSelect?.value);
+    if(budgetField)budgetField.hidden=modelSelect?.value!=='argon_direct';
   };
   modelSelect?.addEventListener?.('change',showArgonSettings);
   showArgonSettings();
@@ -370,6 +372,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(modelSelect)modelSelect.disabled=busy;
     if(thinkingSelect)thinkingSelect.disabled=busy;
     if(detailSelect)detailSelect.disabled=busy;
+    if(budgetSelect)budgetSelect.disabled=busy;
     if(checkArgon)checkArgon.disabled=busy||!authenticated;
     if(smokeButton)smokeButton.disabled=busy||!authenticated;
     if(smokeReset)smokeReset.disabled=busy||!authenticated;
@@ -457,12 +460,17 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const argonFull=fullEnvironment&&profile==='argon_direct';
       const thinking=ARGON_THINKING.includes(thinkingSelect?.value)?thinkingSelect.value:'medium';
       const detail=Object.hasOwn(ARGON_DETAIL_LABELS,detailSelect?.value||'')?detailSelect.value:'standard';
-      const settings='Settings: '+thinking+' thinking, '+ARGON_DETAIL_LABELS[detail]+' detail.'+
-        (thinking==='high'||detail==='max'?' These use more of the same 32,768-token output budget; an answer cut off at it keeps only the objects it finished, and every generated token is billed.':'');
+      const longDecode=profile==='argon_direct'&&budgetSelect?.value==='100000';
+      const tokenBudget=longDecode?100000:32768;
+      const settings='Settings: '+thinking+' thinking, '+ARGON_DETAIL_LABELS[detail]+' detail. '+
+        tokenBudget.toLocaleString('en-US')+' tokens maximum for thinking + output.'+
+        (thinking==='high'||detail==='max'?' An answer cut off at the limit keeps only the objects it finished, and every generated token is billed.':'');
       if(argon){
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
-        if(!await askPaid(settings+' '+(profile==='argon_direct'
+        if(!await askPaid(settings+' '+(longDecode
+          ?'Start ONE EXPERIMENTAL paid 100k-token Argon run? Google requires background mode and stores THE REFERENCE IMAGES and generated result (paid-tier retention defaults to 55 days). Background image requests previously failed with HTTP 400; acceptance is unverified. The initial input is roughly 6.7k tokens for the tested chapter, plus up to 100,000 thinking/output tokens; a second decode hop also bills replayed input. The job may continue at Google after you close the editor. Only free status checks retry; generation never retries or falls back. The Standard prompt and scene limits are unchanged.'
+          :profile==='argon_direct'
           ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'
           :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'),
           'Start paid Argon run')){notStarted();return;}
@@ -503,7 +511,8 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           let start;
           log('Argon '+settings.charAt(0).toLowerCase()+settings.slice(1));
           try{start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,
-            mode:argonFull?'full_scene':'primary_subject',thinking,detail});}
+            mode:argonFull?'full_scene':'primary_subject',thinking,detail,
+            ...(profile==='argon_direct'?{tokenBudget}:{})});}
           catch(error){ // the analysis is billed even when Argon then rejects the job
             if(error.usage)log(describeUsage('Flash-Lite analysis',error.usage));
             throw error;

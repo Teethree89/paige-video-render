@@ -13,7 +13,7 @@ export const PROMPT_VARIANTS=Object.freeze([
 
 // Do not run concurrent captures in one JS realm: fetch is temporarily global.
 export async function captureArgonRequest({detail='standard',mode='full_scene',
-  thinking='medium',objects=[]}={}){
+  thinking='medium',objects=[],tokenBudget=32768}={}){
   assert.ok(['standard','high','max'].includes(detail));
   assert.ok(scopes.includes(mode));
   const savedFetch=globalThis.fetch,savedLog=console.log,savedWarn=console.warn;
@@ -42,7 +42,7 @@ export async function captureArgonRequest({detail='standard',mode='full_scene',
     const imageDataUrl='data:image/jpeg;base64,/9j/2Q==';
     const response=await job.fetch(new Request('https://offline.invalid/start',{
       method:'POST',body:JSON.stringify({profile:'argon_direct',shotId:'exterior',
-        mode,thinking,detail,frames:[0,.95,2.15].map(at=>({at,imageDataUrl}))})
+        mode,thinking,detail,tokenBudget,frames:[0,.95,2.15].map(at=>({at,imageDataUrl}))})
     }));
     assert.equal(response.status,200);
     await job.alarm();

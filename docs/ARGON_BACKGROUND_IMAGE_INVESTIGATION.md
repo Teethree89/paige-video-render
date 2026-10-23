@@ -663,8 +663,9 @@ above was a hypothesis, not a finding; removing that warning was insufficient.
 
 ### Post-#90 detail collapse investigation (2026-10-23, 12:57 EDT)
 
-Baseline: `1d383c6` (`main`, merged PR #90). This investigation makes **no paid
-requests and no runtime prompt, schema, token-budget, PHP or editor changes**.
+Baseline: `1d383c6` (`main`, merged PR #90). The original investigation made **no paid
+requests or runtime changes**. The later user-requested 100k experiment below
+adds an explicit budget/transport option; it leaves every scene prompt unchanged.
 The supplied runs are live evidence; the tests below use synthetic objects and
 intercept every fetch. They do not prove provider generation quality.
 
@@ -684,7 +685,10 @@ All supplied comparisons use the same exterior chapter and three high-resolution
 JPEGs: 3,300 image tokens within roughly 6.6–6.7k total input, and a 32,768
 thinking-plus-output budget. Arithmetic correction: the 10:08 run used about
 43% of that budget, not at most 32%; it still did not approach the cap. The
-12:57 run used about 15%. These are not token-limit truncations.
+12:57 run used about 15% according to the supplied counts. These figures are
+evidence against token-limit truncation only where they are complete final
+usage. They do not establish usage for a different failed/interrupted job;
+missing counts must remain unknown rather than zero.
 
 **Established failure location:** Argon produces a schema-valid but semantically
 empty answer. `runDirectArgon()` saves the original model output before
@@ -703,7 +707,7 @@ our software, not Argon's ability to generate those answers.
 | 2 | DETAIL wording changes model behavior (b) | Wording is the other original factor; demanding all resolved small features may interact with the shared instruction to omit uncertain geometry. | The specific parent-field theory is weak: Standard already says to attach parts to parent surfaces twice, and the original Maximum DETAIL paragraph did not contain that phrase. No parent identifier is required by the scene schema. It could be a wording interaction, not an unsupported-field conflict. |
 | 3 | Prompt-sensitive provider structured-decoding defect (c) | The schema permits `objects:[]`: item requirements apply only when an item exists. Structured syntax cannot enforce useful content. Provider bugs with structured output are documented/reported. | Identical schema works with High thinking and Standard detail. No matching documented Argon/Interactions 90-object limit or bug was found. Related reports use other models, APIs or tools and different failure shapes. A provider bug is possible, not verified. |
 | 4 | Budget warning, count semantics, scene ambiguity, or sampling variance (d) | Standard says fewer honest shapes for ambiguous evidence and uses repeat arrays; 71 records already represent 450 parts. Results vary between runs. | PR #90 removed the warning for High and still failed. Repeated setting-specific failures weaken pure chance. Input visibility and the successful Standard controls weaken an empty-image explanation. |
-| Ruled out as sole explanations for these runs | Thinking level, SSE transport, output-cap exhaustion, or local validation deleting everything | These were plausible earlier when settings changed together. | Both thinking settings succeed at Standard; Medium/High uses zero thinking and only 38 output tokens. Saved output is already empty before repairs. All reported token counts leave substantial capacity. |
+| Weakened as sole explanations for the recorded runs | Thinking level, SSE transport, output-cap exhaustion, or local validation deleting everything | These were plausible earlier when settings changed together. | Both thinking settings succeed at Standard; Medium/High reports zero thinking and only 38 output tokens. Saved output is already empty before repairs. Reported counts leave substantial capacity if they are complete final usage; missing or partial usage cannot rule out exhaustion for another failed job. |
 
 The rank is a working inference, not access to hidden reasoning. Do not retain
 thoughts to investigate it. PR #90's two stages are still one generation; they
@@ -974,6 +978,70 @@ These need the live steps above or action from Google:
   - https://discuss.ai.google.dev/t/get-v1beta-interactions-id-returns-400-multiple-authentication-credentials-received-for-background-interactions-aq-key-since-oct-3-4/186789
   - https://discuss.ai.google.dev/t/gemini-interactions-api-video-to-video-blobstore-400-bug-report/188709
   - https://discuss.ai.google.dev/t/regression-bug-v1beta-interactions-with-gemini-4-argon-and-video-processing-agentic-fails-asynchronously-with-invalid-argument-0-processing-call-steps-while-processing-static-succeeds/191514
+
+### User-requested 100k budget experiment (2026-10-23)
+
+After reviewing Argon's own suggested budget explanation, the user requested:
+"raise it to 100k and let’s test it." This supersedes the earlier instruction to
+keep every experiment at 32,768. There is still no new live result. In
+particular, a failed job with missing or partial usage cannot be assigned a
+final budget percentage. The editor now computes that percentage only when
+both thinking and output are reported; it never substitutes zero for an absent
+thinking count.
+
+**Implemented for review:** an explicit Direct image token-budget selector,
+32,768 default or exactly 100,000. PHP 7.0 and the Worker strictly allowlist it;
+Previs cannot select it. All scene prompts (including both Standard scopes),
+frames, resolution, response schema and geometry limits are unchanged. The
+100k request changes `max_output_tokens` to 100000, enables `background:true`
+and `store:true`, and uses a JSON acknowledgement plus GET-only status polls
+instead of holding a generation stream open. This is necessary because
+[Google documents](https://ai.google.dev/gemini-api/docs/long-decode) a 65,536
+limit without background execution, and requires stored interactions for
+background work. It also makes this a **configuration-bundle test**, not an
+isolated budget test.
+
+The earlier background-image HTTP 400 is a known risk, not a reason to claim
+this new request was already tested. The confirmation discloses stored images
+and result, default paid-tier retention of 55 days, approximately 6.7k initial
+input tokens, up to 100k thinking/output tokens, and additional replayed input
+billed across decode hops. Actual usage and image compatibility remain unknown
+until the separately confirmed run. See
+[Interactions retention](https://ai.google.dev/gemini-api/docs/interactions-overview#data-storage-and-retention).
+
+The named Durable Object preserves the submitted-before-paid-call marker. It
+makes one create POST, stores the returned interaction ID privately, removes
+its local frames, and polls that ID with GET only. A restart or repeated alarm
+cannot resubmit it. A lost create reply never retries (Google may still have
+started a job). Google may continue after the editor closes. The existing
+16-minute browser wait can be resumed within the 24-hour job window. Terminal
+`model_output` steps are joined in order, with thought/input steps discarded;
+only cumulative numeric usage is retained. The saved original text precedes
+validation, including empty/incomplete answers. The existing raw-output guard
+(160,000 characters) and geometry limits are unchanged; a very large answer
+can still hit that independent guard.
+
+**One live run after review/deployment:** exterior, same playhead/three frames,
+High thinking, High detail, 100,000 budget (to compare with the 12:57 case).
+Start it once in the editor; use only Resume/free polls thereafter. Download
+its original output and record terminal status, reported usage, object/copy
+counts and elapsed time. Do not deploy during the run.
+
+- HTTP 400 naming image/input/background: compatibility blocker persists; this
+  gives no evidence about the empty-scene cause. Stop without another paid run.
+- Complete populated scene: the new configuration can generate useful geometry;
+  a single run cannot attribute the improvement solely to token budget.
+- Complete empty scene with complete low final usage: evidence against budget
+  exhaustion for this run. Return to isolated wording/count tests only after
+  separate approval.
+- `incomplete` at the cap: budget pressure is demonstrated for this run; salvage
+  finished objects and review them. Failure without final usage is inconclusive.
+
+Offline coverage includes preserved prompts/schema/frames, strict budgets,
+consent/cancel, one create across repeated alarms, lost replies and rejections,
+GET recovery after a Worker restart, concatenated multi-step geometry, cumulative
+usage and missing usage, plus the real SQLite Durable Object in Miniflare.
+No paid call, merge or deployment was performed while preparing this change.
 
 ## Evidence and conclusion (first pass)
 

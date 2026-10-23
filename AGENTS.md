@@ -50,8 +50,9 @@ section of [docs/ARGON_BACKGROUND_IMAGE_INVESTIGATION.md](docs/ARGON_BACKGROUND_
 The two-stage High prompt also returned zero objects. The exact trigger is
 unverified; do not present a 90-object provider ceiling, parent-field conflict,
 or the removed budget warning as established causes. Standard already contains
-parent-surface instructions. Keep Standard byte-identical and the 32,768-token
-budget/schema unchanged; tests pin both complete Standard direct-image prompts.
+parent-surface instructions. Keep Standard byte-identical and the default 32,768-token
+budget/schema unchanged (the explicitly requested 100k experiment below is the
+only budget exception); tests pin both complete Standard direct-image prompts.
 `node scripts/inspect_argon_prompts.mjs` captures the request offline with dummy
 credentials, synthetic frames and a stubbed fetch. Its experiment variants are
 text for review, not editor settings or live requests. No paid call or retry is
@@ -82,3 +83,28 @@ Only the Argon adapter repairs invalid materials: preserve valid supported value
 ## Saved timeline compatibility
 
 Unlayered v1 objects and legacy `layer: "manual"`, empty or null values belong to Manual shapes and must appear under All layers; canonical output omits their layer. Unknown nonempty layers still fail validation. A saved geometry validation/build error must never replace the working project with the original timeline or overwrite its cached source. Clear partial render meshes, report the error and retain the original project for Timeline JSON export/repair. The inspector must remain usable enough to show this error without crashing startup. Video rendering uses the same chapter anchors and primitive-overrides-original visibility as the editor; layerless scenes keep their original transforms/materials.
+
+## Explicit 100k-token experiment (`argon-100k-experiment-v1`)
+
+The user requested a 100,000-token test on 2026-10-23, superseding the earlier
+blanket 32,768-token restriction for this opt-in experiment only. The editor's
+Direct image token-budget selector accepts exactly 32,768 (default) or 100,000;
+PHP and the Worker both enforce it. Previs cannot use this setting. Google's
+Interactions limit above 65,536 requires `background:true,store:true`, so the
+100k selection stores reference images at Google and the paid confirmation
+must disclose this, the larger allowance and replayed input billed across hops.
+Earlier background-image runs returned HTTP 400: acceptance remains unverified.
+Do not claim this is an isolated token-only test or a proven fix.
+
+The same named Durable Object stores its submitted marker BEFORE its single
+paid create POST. Once accepted, only its private provider interaction ID is
+kept for GET-only status polling; frames are removed from local job storage.
+This ID is a necessary exception for stored-job resumption: never expose it,
+thoughts, input echoes or provider prose. Worker restarts must not replay the
+POST. A lost create reply fails without retry. Terminal model-output steps are
+joined in order and validated through the same strict scene pipeline; usage is
+Google's cumulative numeric totals, never summed step snapshots. Missing usage
+stays unknown, and the editor must not infer zero thinking to compute a percent.
+The existing raw-output size guard and geometry limits remain in force.
+Read the investigation/setup sections for the single-run procedure. No paid
+provider run, merge or production deploy is implied by offline validation.
