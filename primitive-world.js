@@ -66,6 +66,8 @@ const light = spec => {
 
 export function createPrimitiveWorld(scene) {
   const groups=new Map();
+  // Saved primitive ID -> top-level transform node (repeat arrays share one holder).
+  const objectNodes=new Map();
   let document={schemaVersion:1,scenes:[]};
   let activeShotId=null;
 
@@ -77,7 +79,7 @@ export function createPrimitiveWorld(scene) {
         if(item.isLight)item.dispose();
       });
     }
-    groups.clear();
+    groups.clear();objectNodes.clear();
   }
   function setDocument(value,allowedShotIds=null,anchors={}) {
     const next=validatePrimitiveDocument(value,allowedShotIds);
@@ -90,7 +92,7 @@ export function createPrimitiveWorld(scene) {
       root.userData.shotId=entry.shotId;
       const anchor=anchors[entry.shotId]||[0,0,0];
       root.position.set(...anchor);
-      const layerGroups=new Map();
+      const layerGroups=new Map(),nodes=new Map();
       for(const item of entry.objects){
         const key=item.layer||'manual';
         if(!layerGroups.has(key)){
@@ -111,8 +113,10 @@ export function createPrimitiveWorld(scene) {
         // transform holding one plain mesh per copy (shared geometry and
         // material), so GLB/After Effects see ordinary nodes, not instancing.
         const holder=offsets.length===1?null:tag(new THREE.Group());
+        let directMesh=null;
         offsets.forEach((offset,index)=>{
           const mesh=tag(new THREE.Mesh(shape,material));
+          if(!holder)directMesh=mesh;
           mesh.name=holder?item.name+' '+(index+1):item.name;
           mesh.scale.set(...item.scale);
           if(holder)mesh.position.set(...offset);
@@ -125,10 +129,12 @@ export function createPrimitiveWorld(scene) {
           holder.rotation.set(...item.rotation);
           layerGroups.get(key).add(holder);
         }
+        nodes.set(item.id,holder||directMesh);
       }
       for(const spec of entry.lights||[])root.add(light(spec));
       root.visible=false;
       groups.set(entry.shotId,root);
+      objectNodes.set(entry.shotId,nodes);
       scene.add(root);
     }
     showShot(activeShotId);
@@ -146,6 +152,14 @@ export function createPrimitiveWorld(scene) {
   function showShot(shotId){
     activeShotId=shotId;
     for(const [id,root] of groups)root.visible=id===shotId;
+  }
+  function getObjectNode(shotId,objectId){
+    return objectNodes.get(shotId)?.get(objectId)||null;
+  }
+  function getPickableMeshes(shotId){
+    const root=groups.get(shotId),meshes=[];
+    root?.traverse(node=>{if(node.isMesh&&node.userData.primitiveId)meshes.push(node);});
+    return meshes;
   }
   function getSceneForExport(shotId){
     const root=groups.get(shotId);
@@ -172,5 +186,6 @@ export function createPrimitiveWorld(scene) {
   }
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
-  return {setDocument,showShot,hasObjects,getBounds,getCamera,getSceneForExport,getDocument,dispose};
+  return {setDocument,showShot,hasObjects,getBounds,getCamera,getObjectNode,getPickableMeshes,
+    getSceneForExport,getDocument,dispose};
 }
