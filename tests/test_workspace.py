@@ -77,7 +77,7 @@ class WorkspaceTests(unittest.TestCase):
         for required in ('argon-detail.js', 'ai-generation-overlay.js'):
             self.assertIn(required, manifest)
         dependency_pattern = re.compile(
-            r"""(?:\\bfrom\\s*|\\bimport\\s*(?:\\(\\s*)?)['"]([.]/[^'"]+\\.js)['"]"""
+            r"""(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)['"]([.]/[^'"]+\.js)['"]"""
         )
         for filename in sorted(manifest):
             if not filename.endswith('.js'):
