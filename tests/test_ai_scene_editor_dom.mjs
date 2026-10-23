@@ -1218,7 +1218,7 @@ test('three automatic paid retries wait 15 seconds and stop after four attempts 
     assert.match(recovered.message,/up to THREE automatic paid retries/);
     assert.match(recovered.message,/15-second pause before each retry/);
     assert.match(recovered.message,/At most FOUR total attempts/);
-    assert.match(recovered.message,/under 10,000 tokens/);
+    assert.match(recovered.message,/strictly below 10,000 tokens/);
     assert.match(recovered.log,/Starting automatic paid Argon retry 3\/3/);
     const early=await run({successOn:2});
     assert.equal(early.starts.length,2);assert.deepEqual(early.waits,[15000]);
