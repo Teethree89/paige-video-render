@@ -239,3 +239,23 @@ html,body{font-size:14px}
 .curve-handle-fields label{display:flex;flex-direction:column;color:#92b5bd;font-size:9px;gap:5px}
 .curve-handle-fields input{width:100%;min-width:0;padding:7px;border-radius:5px;border:1px solid #446071;background:#0d2030;color:#f3ffff;font:11px ui-monospace,monospace}
 #curveGraphStatus{min-height:20px;margin:1px 0 0}
+
+/* Regenerated geometry ↔ camera-motion alignment. This is a local, reversible
+   stage that cannot incur AI API charges or mutate camera keys before Accept. */
+.camera-sync-panel[hidden]{display:none!important}
+.camera-sync-panel{margin:13px 0;padding:13px 12px 12px;border:1px solid #36716f;
+  background:linear-gradient(145deg,#11303b 0%,#172538 100%);border-radius:9px}
+.camera-sync-panel .section-label{color:#99f2e5;margin-bottom:7px}
+.camera-sync-panel .field-help{color:#a2c9cb;font-size:11px;line-height:1.6}
+.camera-sync-panel .field{margin:12px 0 10px;font-size:11px}
+.camera-sync-panel select{width:100%;padding:11px 9px;border-radius:7px;
+  border:1px solid #48737a;background:#091f2c;color:#edffff}
+.camera-sync-panel #aiCameraSyncPreview{border:1px solid #66b3ac;
+  background:#215258;color:#e6fffa;padding:11px 9px}
+.camera-sync-panel #aiCameraSyncPreview:hover:not(:disabled){background:#2c6267}
+.camera-sync-panel .checkbox-field{display:flex;gap:8px;align-items:flex-start;
+  margin:13px 0;font-size:11px;line-height:1.5;color:#d0f1ee}
+.camera-sync-panel #aiCameraSyncApply{flex:0 0 auto;width:16px;height:16px;
+  margin:0;accent-color:#80eada}
+.camera-sync-panel #aiCameraSyncStatus{padding:10px;background:#0a2530;
+  border:1px solid #315967;border-radius:6px;min-height:44px;overflow-wrap:anywhere}
