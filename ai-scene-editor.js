@@ -81,8 +81,17 @@ const ARGON_DETAIL_LABELS=Object.freeze({standard:'Standard',high:'High',max:'Ma
 const JOB_STOPS=Object.freeze({
   job_interrupted_deploy:'The Worker was redeployed during the paid call; a deploy restarts running jobs, which cut the call off. Wait until a deploy has finished before starting a paid run.',
   job_interrupted:'The job stopped during the paid call (a Worker deploy is the usual cause).',
-  job_not_started:'The job never started, so nothing was sent to Google.'
+  job_not_started:'The job never started, so nothing was sent to Google.',
+  start_not_received:'The start request never reached the job, so nothing was sent to Google. You can start again.'
 });
+// PHP's fixed reasons for a start whose reply never arrived (startUnconfirmed).
+const LOST_START=Object.freeze({dns:'name lookup failed',connect:'connection failed',
+  timeout:'timed out',tls:'secure connection failed',reset:'connection dropped',
+  size:'reply too large',invalid:'unreadable reply',other:'no reply'});
+function describeLostStart(lost){
+  if(lost?.reason==='http'&&Number.isInteger(lost.http))return 'HTTP '+lost.http;
+  return Object.hasOwn(LOST_START,lost?.reason||'')?LOST_START[lost.reason]:'no reply';
+}
 // Worker reasons for an HTTP 5xx answer from Google (providerStatusReason).
 const SERVER_FAILURES=Object.freeze(['provider_internal','provider_deadline','provider_gateway','provider_unavailable','provider_capacity']);
 // The Worker's fixed repair codes (ARGON_REPAIR_CODES), in plain words.
@@ -502,7 +511,10 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           if(start.usage)log(describeUsage('Flash-Lite analysis',start.usage));
           argonJob={shotId:shot.id,status:start.status};
           if(waitInfo)waitInfo.textContent='Argon background job submitted';
-          log('Paid Argon job started. You may resume it after a page refresh.');
+          if(start.startUnconfirmed)
+            log('Cloudflare did not confirm the start ('+describeLostStart(start.startUnconfirmed)+
+              '). Checking whether the job was created; no new paid request is sent. You may resume it after a page refresh.');
+          else log('Paid Argon job started. You may resume it after a page refresh.');
           doc=await pollArgon(shot.id);
           argonJob={shotId:shot.id,status:'completed'};
         }else{

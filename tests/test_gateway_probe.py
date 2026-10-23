@@ -356,13 +356,104 @@ function argon_worker_call($endpoint, $secret, $action, $body) {
                             'shotId': 'draft_001', 'usage': {'input': 5210, 'output': 812}})
 
     @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
+    def test_lost_direct_start_reply_is_polled_by_php_name_then_sealed(self):
+        php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
+        start = php.index("$argonProfiles = ['argon_previs', 'argon_direct'];")
+        end = php.index("if (in_array($workerInput['profile'] ?? '', $argonProfiles, true))", start)
+        status = php[php.index("if ($action === 'argon_status') {"):
+                     php.index("if ($action !== 'generate' && $action !== 'argon_start')")]
+        helpers = php[php.index("function safe_worker_diagnostic("):
+                      php.index("/** Fixed-target Argon background job transport")]
+        # The real start and status routes with a scripted Worker transport:
+        # no web server, private config, credentials or network.
+        harness = "<?php\n" + helpers + '''
+$case = json_decode(stream_get_contents(STDIN), true);
+$_SESSION = $case['session'];
+$action = $case['action']; $workerEndpoint = 'unused'; $secret = 'unused';
+$workerInput = ['profile' => 'argon_direct', 'mode' => 'full_scene'];
+$shotId = 'exterior'; $sent = [];
+function answer($status, $body) {
+    global $sent;
+    echo json_encode(['status' => $status, 'session' => $_SESSION, 'sent' => $sent, 'body' => $body]);
+    exit;
+}
+function reject($status, $message) { answer($status, ['error' => $message]); }
+function argon_worker_call($endpoint, $secret, $action, $body, $onRejected = null,
+                           $headers = [], $onLost = null) {
+    global $case, $sent;
+    $sent[] = ['action' => $action, 'body' => $body, 'headers' => $headers];
+    $reply = $case['worker'];
+    if ($reply['kind'] === 'lost') { if ($onLost !== null) $onLost('reset'); reject(502, 'lost'); }
+    if ($reply['kind'] === 'rejected') {
+        if ($onRejected !== null) $onRejected($reply['error'], $reply['http']);
+        answer(502, ['ok' => false]);
+    }
+    return $reply['value'];
+}
+'''
+        import tempfile
+        def run(folder, case):
+            script = pathlib.Path(folder) / "argon-lost.php"
+            script.write_text(harness + php[start:end] + status)
+            result = subprocess.run(["php", str(script)], input=json.dumps(case),
+                                    text=True, capture_output=True, check=True)
+            return json.loads(result.stdout)
+        with tempfile.TemporaryDirectory() as folder:
+            # A start whose reply never arrives: PHP already named the job.
+            lost = run(folder, {'action': 'argon_start', 'session': {'ai_calls': 0},
+                                'worker': {'kind': 'lost'}})
+            self.assertEqual(lost['status'], 200)
+            self.assertEqual(lost['body'], {'ok': True, 'status': 'queued', 'shotId': 'exterior',
+                'startUnconfirmed': {'reason': 'reset', 'http': None}})
+            job = lost['session']['argon_job']
+            self.assertRegex(job['id'], r'^dk_[0-9a-f]{64}$')
+            self.assertTrue(job['unconfirmed'])
+            self.assertEqual(lost['session']['ai_calls'], 1, 'the slot stays reserved')
+            self.assertEqual(lost['sent'][0]['headers'], ['X-Argon-Job-Key: ' + job['id'][3:]])
+            # A second start is refused while the first is unresolved.
+            again = run(folder, {'action': 'argon_start', 'session': lost['session'],
+                                 'worker': {'kind': 'lost'}})
+            self.assertEqual((again['status'], again['sent']), (409, []))
+            # Not there yet: still queued, and the poll does not seal.
+            missing = {'kind': 'rejected', 'http': 404, 'error': 'No resumable Argon job'}
+            early = run(folder, {'action': 'argon_status', 'session': lost['session'], 'worker': missing})
+            self.assertEqual(early['body'], {'ok': True, 'status': 'queued', 'shotId': 'exterior'})
+            self.assertEqual(early['sent'][0]['body'], {'jobId': job['id'], 'shotId': 'exterior'})
+            # After 90 seconds the poll seals it, and the Worker's answer is final.
+            old = dict(lost['session'], argon_job=dict(job, created=job['created'] - 91))
+            sealed = run(folder, {'action': 'argon_status', 'session': old, 'worker': {'kind': 'ok',
+                'value': {'ok': True, 'status': 'failed', 'diagnostic': {'phase': 'job', 'http': None,
+                    'status': 'failed', 'codes': [], 'reason': 'start_not_received', 'fields': [], 'terms': []}}}})
+            self.assertEqual(sealed['sent'][0]['body'], {'jobId': job['id'], 'shotId': 'exterior', 'seal': True})
+            self.assertEqual(sealed['body']['diagnostic']['reason'], 'start_not_received')
+            self.assertNotIn('unconfirmed', sealed['session']['argon_job'])
+            self.assertEqual(sealed['session']['argon_job']['status'], 'failed')
+            # A job found by its name is confirmed and never sealed later.
+            found = run(folder, {'action': 'argon_status', 'session': old, 'worker': {'kind': 'ok',
+                'value': {'ok': True, 'status': 'in_progress'}}})
+            self.assertNotIn('unconfirmed', found['session']['argon_job'])
+            # A Worker 5xx may still have created the job; a 4xx proves it did not.
+            for http, kept in ((502, True), (400, False)):
+                answered = run(folder, {'action': 'argon_start', 'session': {'ai_calls': 0},
+                    'worker': {'kind': 'rejected', 'http': http, 'error': 'Invalid image request'}})
+                self.assertEqual('argon_job' in answered['session'], kept)
+                if kept:
+                    self.assertEqual(answered['body']['startUnconfirmed'], {'reason': 'http', 'http': 502})
+            # A confirmed reply stores the Worker's job id as before.
+            ok = run(folder, {'action': 'argon_start', 'session': {'ai_calls': 0}, 'worker': {'kind': 'ok',
+                'value': {'ok': True, 'jobId': 'dk_' + 'a' * 64, 'status': 'queued'}}})
+            self.assertEqual(ok['body'], {'ok': True, 'status': 'queued', 'shotId': 'exterior'})
+            self.assertEqual(ok['session']['argon_job']['id'], 'dk_' + 'a' * 64)
+            self.assertNotIn('unconfirmed', ok['session']['argon_job'])
+
+    @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
     def test_php_forwards_only_revalidated_provider_diagnostics(self):
         php = (pathlib.Path(__file__).resolve().parents[1] / "scene-proxy.php").read_text()
         helpers = php[php.index("function safe_worker_diagnostic("):
                       php.index("/** Fixed-target Argon background job transport")]
         # Worker rejections forward only re-validated tokens, after the hook.
         transport = php[php.index("function argon_worker_call("):php.index("function is_https()")]
-        self.assertIn("if ($onRejected !== null) $onRejected($error);", transport)
+        self.assertIn("if ($onRejected !== null) $onRejected($error, $status);", transport)
         self.assertIn("['ok' => false, 'error' => safe_worker_error($status, $response)], $value));",
                       transport)
         harness = "<?php\n" + helpers + '''

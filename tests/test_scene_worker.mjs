@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-empty-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-start-recovery-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-empty-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-start-recovery-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -592,6 +592,7 @@ function fakeArgonJobs(jobEnv){
   return {objects,namespace:{
     newUniqueId:()=>id((++counter).toString(16).padStart(64,'a')),
     idFromString(hex){if(!/^[0-9a-f]{64}$/.test(hex))throw TypeError('Invalid id');return id(hex);},
+    idFromName:name=>id(createHash('sha256').update(name).digest('hex')),
     get:objectId=>({fetch:(url,init={})=>object(objectId.toString())
       .fetch(new Request(url,{...init,...(init.body?{duplex:'half'}:{})}))})
   }};
@@ -601,9 +602,53 @@ const directJob={...sample,profile:'argon_direct',mode:'primary_subject',
 const completedScene=()=>new Response(JSON.stringify({id:'v1_sync',status:'completed',steps:[
   {type:'user_input',content:[{type:'image',data:'PRIVATE_FRAME'}]},
   {type:'model_output',content:[{type:'text',text:JSON.stringify(scene)}]}]}));
-const doPost=(jobsEnv,path,body)=>worker.fetch(new Request('https://example.workers.dev'+path,{
-  method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+const doPost=(jobsEnv,path,body,headers={})=>worker.fetch(new Request('https://example.workers.dev'+path,{
+  method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json',...headers},
   body:JSON.stringify(body)}),jobsEnv);
+test('A PHP-named direct job is found after a lost start reply, and a sealed one never starts',async()=>{
+  const prior=globalThis.fetch;let calls=0;
+  globalThis.fetch=async()=>{calls++;return completedScene();};
+  const {objects,namespace}=fakeArgonJobs(env),jobsEnv={...env,ARGON_JOBS:namespace};
+  const key='ab'.repeat(32),jobId='dk_'+key,status=body=>doPost(jobsEnv,'/api/scene/argon/status',
+    {jobId,shotId:'draft_001',...body}).then(async r=>[r.status,await r.json()]);
+  try{
+    // Before the start arrives the job is simply missing; an unsealed poll creates nothing.
+    assert.deepEqual(await status(),[404,{ok:false,error:'No resumable Argon job'}]);
+    assert.ok([...objects.values()].every(job=>job.ctx.storage.data.size===0));
+    const started=await (await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob,
+      {'X-Argon-Job-Key':key})).json();
+    assert.deepEqual(started,{ok:true,jobId,status:'queued'},'PHP already knows this id');
+    // The same start again (a retried upload) is refused before any paid call.
+    assert.equal((await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob,
+      {'X-Argon-Job-Key':key})).status,409);
+    const job=[...objects.values()].find(item=>item.ctx.storage.data.has('job'));
+    await job.alarm();
+    assert.equal(calls,1);
+    assert.deepEqual((await status({seal:true}))[1],{ok:true,status:'completed',proposal:scene},
+      'a seal never touches a job that exists');
+    assert.deepEqual(await (await doPost(jobsEnv,'/api/scene/argon/output',{jobId,shotId:'draft_001'})).json(),
+      {ok:true,output:JSON.stringify(scene),partial:false});
+    // A start that never arrived: the 90-second seal leaves a tombstone, and a
+    // late copy of the start is then a 409 that reaches nobody.
+    const lostKey='cd'.repeat(32),lost=body=>doPost(jobsEnv,'/api/scene/argon/status',
+      {jobId:'dk_'+lostKey,shotId:'draft_001',...body}).then(r=>r.json());
+    const sealed=await lost({seal:true});
+    assert.deepEqual([sealed.status,sealed.diagnostic.reason],['failed','start_not_received']);
+    assert.equal((await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob,
+      {'X-Argon-Job-Key':lostKey})).status,409);
+    assert.equal((await lost()).diagnostic.reason,'start_not_received');
+    assert.equal(calls,1,'nothing more reached Google');
+    // Only PHP-named status polls may seal; keys must be 64 hex characters.
+    for(const body of [{jobId:'do_'+'b'.repeat(64),shotId:'draft_001',seal:true},
+      {jobId,shotId:'draft_001',seal:1},{jobId,shotId:'draft_001',seal:false}])
+      assert.equal((await doPost(jobsEnv,'/api/scene/argon/status',body)).status,400);
+    assert.equal((await doPost(jobsEnv,'/api/scene/argon/output',{jobId,shotId:'draft_001',seal:true})).status,400);
+    for(const bad of ['AB'.repeat(32),'ab'.repeat(31),'zz'.repeat(32)])
+      assert.equal((await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob,
+        {'X-Argon-Job-Key':bad})).status,400);
+    assert.equal(calls,1);
+  }finally{globalThis.fetch=prior;}
+});
 test('Argon repairs unsupported materials without relaxing geometry validation or mutating the original',()=>{
   const materials=['custom shader',null,{color:'#abc',metalness:5,roughness:null,
     emissive:'#f80',emissiveIntensity:99,opacity:-1},
