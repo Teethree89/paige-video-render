@@ -34,7 +34,8 @@ test('portable export refuses missing original source, not a JSON-only fallback'
 });
 test('ZIP reader rejects traversal, corruption, unexpected entries and compression',async()=>{
  const bad=zipFiles([{name:'../traversal.txt',data:'x'}]);
- assert.throws(()=>readStoredZip(await bad.arrayBuffer()),/Unsafe file path/);
+ const unsafe=await bad.arrayBuffer();
+ assert.throws(()=>readStoredZip(unsafe),/Unsafe file path/);
  const good=zipFiles([{name:'paige-project.json',data:'{}'}]);
  const bytes=new Uint8Array(await good.arrayBuffer());
  bytes[45]^=0xff;
