@@ -23,7 +23,7 @@ export function shapeSummary(item){
     parts.push(Math.round(item.material.opacity*100)+'% opacity');
   return parts.join(' · ');
 }
-export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world}) {
+export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world,onSelectionChange=()=>{}}) {
   let selectedId=null,previousShot=null;
   const editor=el('primitiveEditor'),objectSelect=el('primitiveObjectSelect');
   const layerFilter=el('primitiveLayerFilter');
@@ -45,7 +45,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       edit(entry,doc,shot);
       onDocumentChange(validatePrimitiveDocument(doc,allowed()));
       status.textContent='Scene changes saved in your editable timeline.';
-      refresh();
+      refresh();onSelectionChange(selectedId);
     }catch(err){status.textContent='Change rejected: '+err.message;console.error(err);}
   }
   function refresh(){
@@ -114,8 +114,20 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     if(existing && !confirm('Replace the current shot\'s primitives with an example room blockout?'))return;
     apply(entry=>{entry.objects=makeExampleBlockout(shot.id).objects;selectedId='rack_0_0';});
   });
-  layerFilter.addEventListener('change',()=>{selectedId=null;refresh();});
-  objectSelect.addEventListener('change',()=>{selectedId=objectSelect.value||null;refresh();});
+  function selectObject(id,{notify=false}={}){
+    const shot=getActiveShot();
+    const entry=shot?sceneFor(getPrimitiveDocument(),shot.id):null;
+    const valid=entry?.objects.some(item=>item.id===id);
+    selectedId=valid?id:null;
+    if(valid&&layerFilter.value!=='all'&&
+       !entry.objects.find(item=>item.id===id&&
+         (item.layer||'manual')===layerFilter.value))layerFilter.value='all';
+    refresh();
+    if(notify)onSelectionChange(selectedId);
+    return valid||!id;
+  }
+  layerFilter.addEventListener('change',()=>{selectedId=null;refresh();onSelectionChange(null);});
+  objectSelect.addEventListener('change',()=>selectObject(objectSelect.value||null,{notify:true}));
   el('primitiveName').addEventListener('change',event=>apply(entry=>{
     const item=entry.objects.find(o=>o.id===selectedId);if(item)item.name=event.target.value;
   }));
@@ -180,5 +192,5 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     finally{button.disabled=false;refresh();}
   });
   refresh();
-  return {refresh};
+  return {refresh,selectObject,getSelectedId:()=>selectedId};
 }
