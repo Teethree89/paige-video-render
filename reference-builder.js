@@ -227,6 +227,21 @@ export function setupReferenceBuilder({onApply}){
     transport.textContent='Ⅱ Pause sequence';transport.setAttribute('aria-pressed','true');
     render();previewFrame=requestAnimationFrame(tick);
   });
+  el('rbSplitVideo').addEventListener('click',()=>{
+    stopSequence();
+    const item=current(),asset=assetFor(item);
+    if(!item||item.kind!=='video'||!asset){say('Select a linked video clip to split.');return;}
+    const at=rounded(video.currentTime);
+    if(!Number.isFinite(at)||at<=item.sourceIn+.5||at>=item.sourceOut-.5){
+      say('Move the source preview playhead at least half a second inside the clip before splitting.');return;
+    }
+    const index=items.findIndex(i=>i.id===item.id),last=item.sourceOut;
+    const second={...item,id:newId('ref'),sourceIn:at,sourceOut:last,
+      duration:rounded(last-at),name:item.name+' · 2'};
+    item.sourceOut=at;item.duration=rounded(at-item.sourceIn);
+    items.splice(index+1,0,second);selectedId=second.id;render();
+    say('Split into two scenes; both reference the same original local video.');
+  });
   el('rbName').addEventListener('input',event=>{const item=current();if(!item)return;item.name=event.target.value.slice(0,100);const row=list.querySelector('.rb-scene.active strong');if(row)row.textContent=item.name;});
   el('rbName').addEventListener('change',render);
   el('rbFit').addEventListener('change',event=>{const item=current();if(item){item.fit=event.target.value;render();}});
