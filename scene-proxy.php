@@ -150,7 +150,7 @@ function with_diagnostic(array $payload, $workerValue): array {
 function safe_worker_repairs($value) {
     if (!is_array($value)) return null;
     $repairs = [];
-    foreach (['json', 'truncated', 'scene', 'shot_id', 'scenes_merged', 'object_cap', 'object', 'id',
+    foreach (['json', 'truncated', 'scene', 'empty', 'shot_id', 'scenes_merged', 'object_cap', 'object', 'id',
         'duplicate_id', 'primitive', 'transform', 'scale', 'material', 'repeat', 'footprint',
         'name', 'scene_copies', 'light', 'light_cap', 'camera', 'other'] as $code) {
         if (isset($value[$code]) && is_int($value[$code]) && $value[$code] > 0 && $value[$code] <= 100000)
