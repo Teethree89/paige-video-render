@@ -265,6 +265,7 @@ async function boot(){
    }
  });
  setupVideoImport({onApply:({timeline,videoUrl})=>{
+   if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.())throw Error('Finish the active AI job or proposal before replacing the timeline');
    if(!validSequence(timeline))throw Error('Generated timeline is invalid');
    endGeometryReview();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;
    referenceVideo.pause();referenceVideo.src=videoUrl;referenceVideo.load();
@@ -276,7 +277,7 @@ async function boot(){
  }});
  referenceBuilder=setupReferenceBuilder({getSequence:()=>sequence,onApply:({timeline})=>{
    if(!validSequence(timeline))throw Error('Reference Builder created an invalid timeline');
-   if(aiSceneEditor?.hasPending?.())throw Error('Accept or discard the current AI proposal first');
+   if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.())throw Error('Finish the active AI job or proposal before changing the timeline');
    endGeometryReview();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;
    referenceVideo.pause();
    aiSceneEditor?.reset();sequence=timeline;syncPrimitiveWorld();
@@ -469,8 +470,8 @@ document.addEventListener('pointerdown',event=>{
  if(!event.target.closest('.timeline-export-picker'))showExportMenu(false);
 });
 document.addEventListener('keydown',event=>{if(event.key==='Escape')showExportMenu(false);});
-el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;endGeometryReview();aiSceneEditor?.reset();sequence=structuredClone(originalSequence);syncPrimitiveWorld();referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;referenceBuilder?.loadFromSequence(null);timelineHistory?.reset(sequence);selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal(false);};
-el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));endGeometryReview();aiSceneEditor?.reset();sequence=data;timelineHistory?.reset(sequence);referenceBuilder?.loadFromSequence(data);syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
+el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.()){alert('Finish the current AI job or proposal before resetting.');return;}if(!confirm('Reset all camera and text edits to the original timeline?'))return;endGeometryReview();aiSceneEditor?.reset();sequence=structuredClone(originalSequence);syncPrimitiveWorld();referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;referenceBuilder?.loadFromSequence(null);timelineHistory?.reset(sequence);selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal(false);};
+el('loadBtn').onclick=()=>{if(!ready)return;if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.()){alert('Finish the current AI job or proposal before importing.');return;}el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.())throw Error('Finish the active AI job or proposal first');let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));endGeometryReview();aiSceneEditor?.reset();sequence=data;timelineHistory?.reset(sequence);referenceBuilder?.loadFromSequence(data);syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
 el('showRef').onchange=e=>{if(sequence.referenceSequence){syncReferenceMedia(playhead);return;}referenceVideo.style.display=e.target.checked?'block':'none';if(!e.target.checked)referenceVideo.pause();else if(playing)referenceVideo.play().catch(()=>{});};
 referenceVideo.addEventListener('loadedmetadata',()=>{if(sequence?.referenceSequence)syncReferenceMedia(playhead);else try{referenceVideo.currentTime=playhead;}catch(e){}});
 window.addEventListener('keydown',e=>{const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
