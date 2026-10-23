@@ -1093,16 +1093,15 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
     const confirmed=await run('ok');
     assert.deepEqual(confirmed.actions,['argon_start','argon_status']);
     assert.doesNotMatch(confirmed.ids.get('aiSceneLog').textContent,/not started/);
-    const longCancelled=await run('cancel','100000');
-    assert.deepEqual(longCancelled.actions,[]);
-    const disclosure=longCancelled.ids.get('aiConfirmText').textContent;
-    assert.match(disclosure,/100,000 tokens maximum for thinking \+ output/);
-    assert.match(disclosure,/stores THE REFERENCE IMAGES/);
-    assert.match(disclosure,/55 days/);assert.match(disclosure,/roughly 6.7k/);
-    assert.match(disclosure,/second decode hop also bills replayed input/);
-    assert.match(disclosure,/previously failed with HTTP 400/);
-    assert.doesNotMatch(disclosure,/not to store|up to 12 minutes/);
-    const longConfirmed=await run('ok','100000');
+    const largeCancelled=await run('cancel','65536');
+    assert.deepEqual(largeCancelled.actions,[]);
+    const disclosure=largeCancelled.ids.get('aiConfirmText').textContent;
+    assert.match(disclosure,/65,536 tokens maximum for thinking \+ output/);
+    assert.match(disclosure,/same single synchronous call as the default/);
+    assert.match(disclosure,/Google asked not to store the request or result/);
+    assert.match(disclosure,/up to 65,536 generated tokens can be billed/);
+    assert.doesNotMatch(disclosure,/stores THE REFERENCE IMAGES|55 days|background|replayed/);
+    const longConfirmed=await run('ok','65536');
     assert.deepEqual(longConfirmed.actions,['argon_start','argon_status'],'one explicit paid start, no fallback');
     longConfirmed.ids.get('aiSceneModel').value='argon_previs';
     await longConfirmed.ids.get('aiSceneModel').fire('change');
@@ -1115,8 +1114,8 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
 });
 
 test('missing thinking usage is unknown, not a zero-token budget measurement',()=>{
-  assert.doesNotMatch(describeUsage('Argon',{output:38,cap:100000}),/Thinking \+ output used|0 thinking/);
-  assert.match(describeUsage('Argon',{thinking:0,output:38,cap:100000}),/0 thinking/);
-  assert.match(describeUsage('Argon',{thinking:72000,output:10000,cap:100000}),/82,000 of 100,000 \(82%\)/);
+  assert.doesNotMatch(describeUsage('Argon',{output:38,cap:65536}),/Thinking \+ output used|0 thinking/);
+  assert.match(describeUsage('Argon',{thinking:0,output:38,cap:65536}),/0 thinking/);
+  assert.match(describeUsage('Argon',{thinking:40000,output:12000,cap:65536}),/52,000 of 65,536 \(79%\)/);
   assert.equal(describeUsage('Argon',undefined),'Argon tokens: not reported.');
 });

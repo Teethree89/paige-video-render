@@ -25,11 +25,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-100k-experiment-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-65k-budget-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-100k-experiment-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-65k-budget-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -2074,115 +2074,51 @@ test('an answer cut off at the token limit keeps its complete objects, on both p
   }finally{globalThis.fetch=prior;}
 });
 
-test('100k is an explicit stored background experiment with unchanged prompts, frames and schema',async()=>{
+test('65,536 is the same streamed, unstored request with only the allowance doubled',async()=>{
   for(const detail of ['standard','high','max']){
     for(const mode of ['full_scene','primary_subject']){
       const baseline=(await captureArgonRequest({detail,mode})).body;
-      const long=(await captureArgonRequest({detail,mode,tokenBudget:100000})).body;
-      const {stream,...expected}=baseline;
-      assert.equal(stream,true);
-      assert.deepEqual(long,{...expected,background:true,store:true,
-        generation_config:{...baseline.generation_config,max_output_tokens:100000}});
+      const large=(await captureArgonRequest({detail,mode,tokenBudget:65536})).body;
+      assert.deepEqual(large,{...baseline,generation_config:{...baseline.generation_config,max_output_tokens:65536}});
+      assert.deepEqual([large.store,large.stream,large.background],[false,true,undefined],
+        'above 65,536 Google needs a stored background job, which rejects images');
     }
   }
 });
 
-test('100k jobs submit once, survive a Worker restart, join output hops and keep cumulative usage private',async()=>{
-  const prior=globalThis.fetch,logs=captureUsageLogs(),calls=[];
-  const id='v1_long_PRIVATE_id',output=JSON.stringify(scene),cut=output.length>>1;
-  const {objects,namespace}=fakeArgonJobs(env),jobsEnv={...env,ARGON_JOBS:namespace};
-  let pollMode='network';
-  globalThis.fetch=async(url,opts={})=>{
-    calls.push({url,method:opts.method});
-    if(opts.method==='POST'){
-      const body=JSON.parse(opts.body);
-      assert.equal(body.generation_config.max_output_tokens,100000);
-      assert.equal(body.background,true);assert.equal(body.store,true);assert.equal(body.stream,undefined);
-      return new Response(JSON.stringify({id,status:'queued',input:'PRIVATE_FRAME',thought:'PRIVATE_THOUGHT'}));
-    }
-    assert.equal(opts.method,'GET');assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions/'+id);
-    if(pollMode==='network')throw Error('PRIVATE_NETWORK');
-    if(pollMode==='wrong_id')return new Response(JSON.stringify({id:'different',status:'completed'}));
-    if(pollMode==='running')return new Response(JSON.stringify({id,status:'in_progress',
-      usage:{total_thought_tokens:65000},steps:[{type:'thought',content:[{type:'text',text:'PRIVATE_THOUGHT'}]}]}));
-    return new Response(JSON.stringify({id,status:'completed',usage:{total_input_tokens:78936,
-      total_thought_tokens:72000,total_output_tokens:10000,total_tokens:160936,private:'PRIVATE_USAGE'},steps:[
-      {type:'user_input',content:[{type:'text',text:'PRIVATE_FRAME'}]},
-      {type:'thought',content:[{type:'text',text:'PRIVATE_THOUGHT'}]},
-      {type:'model_output',content:[{type:'text',text:output.slice(0,cut)}],usage:{total_thought_tokens:65000}},
-      {type:'model_output',content:[{type:'text',text:output.slice(cut)}],usage:{total_thought_tokens:72000}}
-    ]}));
+test('a 65,536 job is one streamed call whose usage is measured against its own allowance',async()=>{
+  const prior=globalThis.fetch,logs=captureUsageLogs();let calls=0;
+  const output=JSON.stringify(scene);
+  globalThis.fetch=async(_url,opts)=>{
+    calls++;
+    const body=JSON.parse(opts.body);
+    assert.equal(body.generation_config.max_output_tokens,65536);assert.equal(body.stream,true);
+    return streamed([{event_type:'step.start',index:0,step:{type:'model_output'}},
+      {event_type:'step.delta',index:0,delta:{type:'text',text:output}},
+      {event_type:'step.stop',index:0,usage:{total_input_tokens:6612,total_thought_tokens:40000,
+        total_output_tokens:12000,total_tokens:58612}},
+      {event_type:'interaction.completed',interaction:{status:'completed'}}]);
   };
+  const {objects,namespace}=fakeArgonJobs(env),jobsEnv={...env,ARGON_JOBS:namespace};
   try{
-    const start=await (await argonPost(jobsEnv,'/api/scene/argon/direct-start',
-      {...directJob,tokenBudget:100000})).json();
-    const original=objects.get(start.jobId.slice(3));await original.alarm();await original.alarm();
-    assert.equal(calls.length,1);assert.equal(await original.ctx.storage.get('request'),undefined);
-    const stored=await original.ctx.storage.get('job');assert.equal(stored.state,'background');
-    assert.equal(stored.interactionId,id);
-    assert.ok(!JSON.stringify([...original.ctx.storage.data]).includes('PRIVATE_THOUGHT'));
-    const restarted=new ArgonJob(original.ctx,{...env,CF_VERSION_METADATA:{id:'abc123'}});
-    await restarted.alarm();assert.equal(calls.length,1,'cleanup alarms never create or poll');
-    assert.equal((await restarted.status('wrong_shot')).status,400);assert.equal(calls.length,1);
-    assert.equal((await restarted.status('draft_001')).status,502);
-    pollMode='wrong_id';assert.equal((await restarted.status('draft_001')).status,502);
-    pollMode='running';assert.deepEqual(await (await restarted.status('draft_001')).json(),{ok:true,status:'in_progress'});
-    assert.equal((await restarted.ctx.storage.get('job')).state,'background');
-    pollMode='done';
-    const result=await (await restarted.status('draft_001')).json();
-    assert.deepEqual(result,{ok:true,status:'completed',proposal:scene,
-      usage:{input:78936,thinking:72000,output:10000,total:160936,cap:100000}});
-    const count=calls.length;
-    assert.deepEqual(await (await restarted.status('draft_001')).json(),result);
-    assert.deepEqual(await (await restarted.output('draft_001')).json(),{ok:true,output,partial:false});
-    await restarted.alarm();assert.equal(calls.length,count);
-    assert.equal(calls.filter(c=>c.method==='POST').length,1);
-    assert.ok(!JSON.stringify(result).includes('PRIVATE'));
-    assert.ok(logs.all.every(line=>!line.includes('PRIVATE')));
-    assert.equal(logs.lines.length,1,'final cumulative usage logged once, never summed across hops');
+    const start=await (await argonPost(jobsEnv,'/api/scene/argon/direct-start',{...directJob,tokenBudget:65536})).json();
+    const job=objects.get(start.jobId.slice(3));await job.alarm();await job.alarm();
+    assert.equal(calls,1,'a repeated alarm never resubmits');
+    assert.deepEqual(await (await job.status('draft_001')).json(),{ok:true,status:'completed',proposal:scene,
+      usage:{input:6612,thinking:40000,output:12000,total:58612,cap:65536}});
   }finally{globalThis.fetch=prior;logs.restore();}
 });
 
-test('100k creation errors, missing IDs and lost replies never replay; failed jobs retain only reported usage',async()=>{
-  const prior=globalThis.fetch,logs=captureUsageLogs();
-  try{
-    for(const outcome of ['reject','lost','missing_id','empty','incomplete','failed_no_usage']){
-      let calls=0;
-      globalThis.fetch=async()=>{
-        calls++;
-        if(outcome==='lost')throw Error('PRIVATE_LOST_REPLY');
-        if(outcome==='reject')return new Response(JSON.stringify({error:{code:'invalid_request',
-          message:'The agent does not support image input modality. PRIVATE_PROSE'}}),{status:400});
-        if(outcome==='missing_id')return new Response(JSON.stringify({status:'queued'}));
-        return new Response(JSON.stringify({status:outcome==='empty'?'completed':outcome==='incomplete'?'incomplete':'failed',
-          ...(outcome==='failed_no_usage'?{}:{usage:{total_output_tokens:38}}),
-          steps:[{type:'model_output',content:[{type:'text',text:'{"schemaVersion":1,"scenes":[{"shotId":"draft_001","objects":[]}]}'}]}]}));
-      };
-      const {objects,namespace}=fakeArgonJobs(env),jobsEnv={...env,ARGON_JOBS:namespace};
-      const start=await (await argonPost(jobsEnv,'/api/scene/argon/direct-start',{...directJob,tokenBudget:100000})).json();
-      const job=objects.get(start.jobId.slice(3));await job.alarm();await job.alarm();
-      const result=await (await job.status('draft_001')).json();
-      assert.equal(result.status,'failed',outcome);assert.equal(calls,1);
-      if(outcome==='empty')assert.deepEqual(result.diagnostic.codes,['empty']);
-      if(outcome==='incomplete')assert.equal(result.diagnostic.reason,'incomplete_output');
-      if(['empty','incomplete'].includes(outcome))assert.deepEqual(result.usage,{output:38,cap:100000});
-      else assert.equal(result.usage,undefined,'unknown usage is not zero');
-      assert.ok(!JSON.stringify(result).includes('PRIVATE'));
-    }
-    assert.ok(logs.all.every(line=>!line.includes('PRIVATE')));
-  }finally{globalThis.fetch=prior;logs.restore();}
-});
-
-test('the 100k budget is strictly allowlisted and unavailable to Previs before any paid request',async()=>{
+test('the 65,536 budget is strictly allowlisted and unavailable to Previs before any paid request',async()=>{
   const prior=globalThis.fetch;let calls=0;
   globalThis.fetch=async()=>{calls++;throw Error('must not call');};
   try{
-    for(const tokenBudget of [100001,65536,0,null,'100000',true,{},[]]){
+    for(const tokenBudget of [100000,100001,65535,0,null,'65536',true,{},[]]){
       const {namespace}=fakeArgonJobs(env);
       assert.equal((await argonPost({...env,ARGON_JOBS:namespace},'/api/scene/argon/direct-start',
         {...directJob,tokenBudget})).status,400);
     }
-    for(const tokenBudget of [32768,100000])assert.equal((await argonPost(env,'/api/scene/argon/start',
+    for(const tokenBudget of [32768,65536])assert.equal((await argonPost(env,'/api/scene/argon/start',
       {...sample,profile:'argon_previs',mode:'primary_subject',tokenBudget})).status,400);
     assert.equal(calls,0);
   }finally{globalThis.fetch=prior;}

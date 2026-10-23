@@ -1043,6 +1043,30 @@ GET recovery after a Worker restart, concatenated multi-step geometry, cumulativ
 usage and missing usage, plus the real SQLite Durable Object in Miniflare.
 No paid call, merge or deployment was performed while preparing this change.
 
+### 100k result and the 65,536 replacement (`argon-65k-budget-v1`)
+
+The one live 100k run (2026-10-23 14:22 EDT: exterior, High thinking, High
+detail) failed at create in about 7 seconds: HTTP 400, reason
+`unrecognized_message`, code `invalid_request`. Per the plan above, this means
+the background-plus-image blocker persists, and it says nothing about the
+empty-scene cause. No second paid run was made.
+
+The budget question is now tested without background execution. Google
+allows up to 65,536 output tokens synchronously, so the selector's
+experimental value is 65,536. That is the same streamed `store:false`
+request with inline images as the default; only `max_output_tokens` changes,
+which makes it an isolated budget test. The stored-background code path
+(create acknowledgement, private interaction ID, GET polling) was removed.
+It could only ever fail for image input.
+
+Expected evidence from one run (exterior, High thinking, High detail,
+65,536):
+- A populated scene: the allowance changes Argon's answer, and High detail
+  can work at this budget.
+- An empty scene with low final usage: the budget is not the cause; use a
+  separate add-detail pass or Standard detail.
+- `incomplete` at the cap: budget pressure; the finished objects are kept.
+
 ## Evidence and conclusion (first pass)
 
 Baseline: `b3f687f` (`main`, PR #69). The supplied live diagnostic results are:

@@ -460,16 +460,16 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const argonFull=fullEnvironment&&profile==='argon_direct';
       const thinking=ARGON_THINKING.includes(thinkingSelect?.value)?thinkingSelect.value:'medium';
       const detail=Object.hasOwn(ARGON_DETAIL_LABELS,detailSelect?.value||'')?detailSelect.value:'standard';
-      const longDecode=profile==='argon_direct'&&budgetSelect?.value==='100000';
-      const tokenBudget=longDecode?100000:32768;
+      const largeBudget=profile==='argon_direct'&&budgetSelect?.value==='65536';
+      const tokenBudget=largeBudget?65536:32768;
       const settings='Settings: '+thinking+' thinking, '+ARGON_DETAIL_LABELS[detail]+' detail. '+
         tokenBudget.toLocaleString('en-US')+' tokens maximum for thinking + output.'+
         (thinking==='high'||detail==='max'?' An answer cut off at the limit keeps only the objects it finished, and every generated token is billed.':'');
       if(argon){
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
-        if(!await askPaid(settings+' '+(longDecode
-          ?'Start ONE EXPERIMENTAL paid 100k-token Argon run? Google requires background mode and stores THE REFERENCE IMAGES and generated result (paid-tier retention defaults to 55 days). Background image requests previously failed with HTTP 400; acceptance is unverified. The initial input is roughly 6.7k tokens for the tested chapter, plus up to 100,000 thinking/output tokens; a second decode hop also bills replayed input. The job may continue at Google after you close the editor. Only free status checks retry; generation never retries or falls back. The Standard prompt and scene limits are unchanged.'
+        if(!await askPaid(settings+' '+(largeBudget
+          ?'Start ONE EXPERIMENTAL paid 65,536-token Argon direct-image run? It is the same single synchronous call as the default (reference JPEGs sent inline, Google asked not to store the request or result); only the thinking + output allowance is doubled, so up to 65,536 generated tokens can be billed. Nothing retries or falls back. The Standard prompt and scene limits are unchanged.'
           :profile==='argon_direct'
           ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'
           :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'),
