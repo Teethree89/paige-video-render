@@ -1,5 +1,16 @@
 // Decorative, non-metric generation visualization. Argon provides phases,
 // not percent complete/ETA. Never present animation as measured progress.
+// Low-frequency coherent group motion plus independent drift gently suspends
+// each dot in an airy 3D cloud without obscuring the PAIGE letterforms.
+export function airyParticleOffset(ms,seed,letter,reduced=false){
+  if(reduced)return {x:0,y:0,z:0};
+  const t=ms*.001;
+  return {
+    x:2.4*Math.sin(t*.27+letter*1.4)+1.5*Math.sin(t*(.35+seed*.004)+seed*.73),
+    y:2.5*Math.cos(t*.23+letter*.9)+1.7*Math.sin(t*(.30+seed*.003)+seed*1.09),
+    z:5.5*Math.sin(t*.28+seed*.51)+2*Math.cos(t*.19+letter*1.3)
+  };
+}
 export function createArgonOverlay(root=globalThis.document){
   const overlay=root?.getElementById?.('argonParticleOverlay');
   const canvas=root?.getElementById?.('argonParticleCanvas');
@@ -14,7 +25,7 @@ export function createArgonOverlay(root=globalThis.document){
   const ctx=canvas.getContext('2d',{alpha:true});
   if(!ctx)return {show(){},step(){},phase(){},hide(){}};
   let active=false,frame=0,start=0,operation=0,stepNumber=1,steps=1,phaseName='queued';
-  let particles=[],mouse={x:-99999,y:-99999},size={w:0,h:0},prior=0;
+  let particles=[],mouse={x:-99999,y:-99999},size={w:0,h:0};
   const raf=globalThis.requestAnimationFrame?.bind(globalThis);
   const cancel=globalThis.cancelAnimationFrame?.bind(globalThis);
   const reduced=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches===true;
@@ -49,14 +60,16 @@ export function createArgonOverlay(root=globalThis.document){
       if(pixels[(y*820+x)*4+3]>120)spots.push({x,y});
     }
     const stride=Math.max(1,Math.ceil(spots.length/1750));
-    particles=spots.filter((_,i)=>i%stride===0).map((p,i)=>({
-      tx:(p.x-410)*Math.min(w*.00105,1.15),
-      ty:(p.y-100)*Math.min(h*.00145,1.2),
-      z:Math.sin(i*21.91)*22,
-      x:(Math.sin(i*76.97)*w*.48),y:(Math.cos(i*31.57)*h*.42),
-      vx:0,vy:0,vz:0,dz:0,letter:Math.max(0,Math.min(4,Math.floor(p.x/164))),
-      size:.65+Math.abs(Math.sin(i*14.19))*1.05
-    }));
+    particles=spots.filter((_,i)=>i%stride===0).map((p,i)=>{
+      const tx=(p.x-410)*Math.min(w*.00105,1.15);
+      const ty=(p.y-100)*Math.min(h*.00145,1.2);
+      return {tx,ty,z:Math.sin(i*21.91)*22,
+        x:reduced?tx:Math.sin(i*76.97)*w*.48,
+        y:reduced?ty:Math.cos(i*31.57)*h*.42,
+        vx:0,vy:0,vz:0,dz:0,seed:i%137,
+        letter:Math.max(0,Math.min(4,Math.floor(p.x/164))),
+        size:.65+Math.abs(Math.sin(i*14.19))*1.05};
+    });
   }
   function paint(now){
     if(!active||overlay.hidden||!raf)return;
@@ -72,15 +85,17 @@ export function createArgonOverlay(root=globalThis.document){
     const cx=w/2,cy=h*.47;
     const maxDist=110;
     for(let i=0;i<particles.length;i++){
-      const p=particles[i],enabled=p.letter<visible,tx=enabled?p.tx:p.tx*1.7;
-      const ty=enabled?p.ty:p.ty*1.7;
+      const p=particles[i],enabled=p.letter<visible;
+      const float=airyParticleOffset(now,p.seed,p.letter,reduced);
+      const tx=enabled?p.tx+float.x:p.tx*1.7;
+      const ty=enabled?p.ty+float.y:p.ty*1.7;
       const px=cx+p.x,py=cy+p.y,dx=px-mouse.x,dy=py-mouse.y;
       const dist=Math.hypot(dx,dy)||1;
       // Pointer disturbance forms a shallow 3D spherical shell, not just
       // a flat ripple. On leave each dot springs back to its letter.
-      const closeness=dist<maxDist?Math.sqrt(1-(dist/maxDist)**2):0;
+      const closeness=!reduced&&dist<maxDist?Math.sqrt(1-(dist/maxDist)**2):0;
       const push=closeness**2*18;
-      p.vz=(p.vz+((closeness*78)-p.dz)*.035)*.84;
+      p.vz=(p.vz+((closeness*78+float.z)-p.dz)*.035)*.84;
       p.dz+=p.vz;
       const perspective=320/(320-(p.z+p.dz)*.55);
       const ax=(tx-p.x)*(reduced?.3:.033)+(dx/dist)*push;
@@ -95,7 +110,7 @@ export function createArgonOverlay(root=globalThis.document){
       ctx.fill();
     }
     tickTime();
-    prior=now;frame=raf(paint);
+    frame=raf(paint);
   }
   function animate(){if(!active||overlay.hidden||!raf)return;
     if(frame&&cancel)cancel(frame);frame=raf(paint);}

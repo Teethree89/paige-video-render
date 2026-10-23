@@ -4,6 +4,7 @@ import {buildWorld} from './world.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {shotAnchorMap,restoreSavedPrimitiveWorld} from './primitive-preview.js';
+import {createGenerationSounds} from './generation-sounds.js';
 const $=id=>document.getElementById(id);
 const out=$('output'), ctx=out.getContext('2d',{alpha:false});
 const source=document.createElement('canvas');
@@ -11,6 +12,13 @@ const renderer=new THREE.WebGLRenderer({canvas:source,antialias:true,preserveDra
 renderer.setPixelRatio(1);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.35;
 const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(50,16/9,.35,500);const world=buildWorld(scene),draftWorld=createDraftWorld(scene),primitiveWorld=createPrimitiveWorld(scene);
 let seq,modelCount=0,frameRequest=0,previewing=false,recording=false,previewStart=0,previewTime=0,recorder=null;
+const generationSounds=createGenerationSounds();
+let exportFinalized=false;
+const finalExportSound=outcome=>{
+ if(exportFinalized)return;
+ exportFinalized=true;
+ void generationSounds.play(outcome);
+};
 const lerp=(a,b,u)=>a+(b-a)*u, ease=u=>u*u*(3-2*u), clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function modelId(id){return id==='hallreturn'?'hall':id==='finale'?'exterior':id;}
 function shotAt(t){return seq.shots.find((s,i)=>t>=s.start&&(t<s.end||i===seq.shots.length-1))||seq.shots[0];}
@@ -51,14 +59,61 @@ function animationLoop(now){if(!seq)return;if(recording){previewTime=clamp((now-
 $('size').onchange=()=>{if(!recording)resize();};$('captions').onchange=()=>{if(!recording)render(previewTime);};
 $('preview').onclick=()=>{if(recording)return;previewing=!previewing;if(previewing){if(previewTime>=seq.duration)previewTime=0;previewStart=performance.now()-previewTime*1000;}$('preview').textContent=previewing?'Pause preview':'Preview / Pause';};
 $('export').onclick=()=>{
- if(!seq||recording)return;if(typeof MediaRecorder==='undefined'||!out.captureStream){alert('Use a recent version of Chrome or Edge for browser video recording.');return;}
- const choice=chosenType();if(!choice){alert('Your browser does not support MediaRecorder video encoding.');return;}
- const [mime,ext]=choice;const stream=out.captureStream(Number($('fps').value));const chunks=[];
- try{recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:out.width>=1920?15000000:9000000});}catch(error){alert('Unable to start encoder: '+error.message);stream.getTracks().forEach(t=>t.stop());return;}
- recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};recorder.onerror=e=>{console.error(e);$('status').textContent='Recorder failed; check browser permissions and console.';};
- recorder.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:mime});const link=document.createElement('a'),u=URL.createObjectURL(blob);link.href=u;link.download=`Atoms-to-AI-${$('captions').checked?'titles':'clean'}-${out.width}x${out.height}.${ext}`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(u),300000);$('status').textContent=`Saved ${ext.toUpperCase()} (${(blob.size/1048576).toFixed(1)} MB). ${ext==='webm'?'Use convert_to_mp4 to make an H.264 MP4.':'MP4 is ready to import into After Effects.'}`;$('export').disabled=false;$('preview').disabled=false;$('size').disabled=false;$('fps').disabled=false;$('captions').disabled=false;};
- previewing=false;previewTime=0;resize();render(0);$('export').disabled=true;$('preview').disabled=true;$('size').disabled=true;$('fps').disabled=true;$('captions').disabled=true;$('progress').value=0;
- recorder.start(500);recording=true;previewStart=performance.now();$('status').textContent='Recording started…';
+ if(!seq||recording)return;
+ if(typeof MediaRecorder==='undefined'||!out.captureStream){
+   alert('Use a recent version of Chrome or Edge for browser video recording.');return;
+ }
+ const choice=chosenType();
+ if(!choice){alert('Your browser does not support MediaRecorder video encoding.');return;}
+ generationSounds.arm(); // prime sound on the export click, long before onstop
+ exportFinalized=false;
+ const [mime,ext]=choice,stream=out.captureStream(Number($('fps').value)),chunks=[];
+ let failed=false;
+ const unlock=()=>{$('export').disabled=false;$('preview').disabled=false;
+   $('size').disabled=false;$('fps').disabled=false;$('captions').disabled=false;};
+ try{
+   recorder=new MediaRecorder(stream,{mimeType:mime,
+     videoBitsPerSecond:out.width>=1920?15000000:9000000});
+ }catch(error){
+   alert('Unable to start encoder: '+error.message);
+   stream.getTracks().forEach(t=>t.stop());finalExportSound('failed');return;
+ }
+ recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+ recorder.onerror=e=>{
+   console.error(e);failed=true;recording=false;
+   $('status').textContent='Recorder failed; check browser permissions and console.';
+   finalExportSound('failed'); // onstop can still arrive; never play success too
+   unlock();
+ };
+ recorder.onstop=()=>{
+   stream.getTracks().forEach(t=>t.stop());
+   try{
+     if(failed)throw Error('Recorder failed; no valid export created.');
+     const blob=new Blob(chunks,{type:mime});
+     if(!blob.size)throw Error('Recorder produced an empty video.');
+     const link=document.createElement('a'),u=URL.createObjectURL(blob);
+     link.href=u;
+     link.download=`Atoms-to-AI-${$('captions').checked?'titles':'clean'}-${out.width}x${out.height}.${ext}`;
+     document.body.append(link);link.click();link.remove();
+     setTimeout(()=>URL.revokeObjectURL(u),300000);
+     $('status').textContent=`Saved ${ext.toUpperCase()} (${(blob.size/1048576).toFixed(1)} MB). ${ext==='webm'?'Use convert_to_mp4 to make an H.264 MP4.':'MP4 is ready to import into After Effects.'}`;
+     finalExportSound('success');
+   }catch(error){
+     $('status').textContent='Video export failed: '+error.message;
+     finalExportSound('failed');
+   }finally{recording=false;unlock();}
+ };
+ previewing=false;previewTime=0;resize();render(0);
+ $('export').disabled=true;$('preview').disabled=true;
+ $('size').disabled=true;$('fps').disabled=true;$('captions').disabled=true;$('progress').value=0;
+ try{
+   recorder.start(500);recording=true;previewStart=performance.now();
+   $('status').textContent='Recording started…';
+ }catch(error){
+   stream.getTracks().forEach(t=>t.stop());recording=false;unlock();
+   $('status').textContent='Unable to start recording: '+error.message;
+   finalExportSound('failed');
+ }
 };
 async function boot(){let original=await fetch('./timeline.json').then(r=>{if(!r.ok)throw Error('timeline.json missing');return r.json();});let cached=null;try{cached=JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')||'null');}catch(e){}seq=(cached&&cached.duration>0&&Array.isArray(cached.camera)&&Array.isArray(cached.text)&&Array.isArray(cached.shots))?cached:original;
  const geometryError=restoreSavedPrimitiveWorld(primitiveWorld,seq,shotAnchorMap(seq,cameraAt));
