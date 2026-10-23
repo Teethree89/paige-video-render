@@ -115,8 +115,9 @@ function safe_worker_diagnostic($value) {
     // Workers older than argon-diagnostic-terms-v1 send no terms.
     $terms = $value['terms'] ?? [];
     $reason = $value['reason'] ?? null;
+    $http = $value['http'] ?? null;
     if (!in_array($value['phase'] ?? null, ['create', 'poll', 'job'], true) ||
-        !in_array($value['http'] ?? null, [null, 400, 422], true) ||
+        ($http !== null && (!is_int($http) || $http < 400 || $http > 599)) ||
         !in_array($value['status'] ?? null, [null, 'failed', 'cancelled', 'incomplete',
             'requires_action', 'budget_exceeded'], true) ||
         !is_string($reason) || !preg_match('/^[a-z][a-z_]{0,47}$/D', $reason) ||

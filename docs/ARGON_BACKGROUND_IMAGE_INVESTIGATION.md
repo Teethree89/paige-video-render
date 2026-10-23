@@ -512,6 +512,34 @@ Worker. Missing values mean the previous defaults.
   complete object still fails as `incomplete_output`. All generated tokens
   are billed either way.
 
+### Stream and connection recovery (`argon-stream-recovery-v1`)
+
+A later full-scene run at 9:32 AM (medium thinking, Maximum detail) reported
+`provider_unavailable` after about 129 seconds. The UI did not retain the
+exact HTTP status. Earlier console reports included `ERR_CONNECTION_REFUSED`;
+the failed request URL was not supplied, so that does not locate the failure
+at Google or prove a host keep-alive issue. The 8:44 success completed in
+96 seconds and did not test requests longer than the suspected boundary.
+
+Direct image now requests SSE on the same single stateless call. Its reader
+implements the official Interactions event schema, bounds input/output, keeps
+only model-output text and numeric cumulative usage, and requires a terminal
+status before validation. Incomplete token-limit output uses the existing
+salvage path. Error events, malformed streams and transport interruptions
+fail without a paid retry. `argon-direct-call` records time to headers;
+`argon-direct-response` records total response time. Exact HTTP error status
+now survives PHP, and 502 has its own `provider_gateway` classification.
+
+Free browser status polls receive a 40-second deadline and exponential
+backoff (6.5/13/26/30 seconds), including repeated HTTP 5xx, inside the
+16-minute view window. Auth/input failures and terminal jobs stop.
+
+Offline tests cover split UTF-8/SSE frames, partial terminal events, output
+snapshots, token-limit salvage, stream errors/EOF, usage privacy, dropped
+polls, stalled checks and gateway recovery without a second paid call.
+A mocked streamed response also runs in workerd. A live run beyond two
+minutes remains unverified; no paid reproduction was launched for this fix.
+
 ### Remaining blockers
 
 These need the live steps above or action from Google:

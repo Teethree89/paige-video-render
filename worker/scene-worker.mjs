@@ -1148,6 +1148,90 @@ function directFailure(reason){
   console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
   return {state:'failed',diagnostic};
 }
+// Interactions SSE contract: step.start identifies model_output, step.delta
+// carries its text, and interaction.completed may contain only status/usage.
+// Never collect thoughts, input echoes, event IDs, or continuation tokens.
+class ArgonStreamError extends Error {
+  constructor(reason,usage,diagnostic){super(reason);this.usage=usage;this.diagnostic=diagnostic;}
+}
+async function readArgonStream(response){
+  const reader=response.body?.getReader();
+  if(!reader)throw new ArgonStreamError('invalid_provider_response');
+  const decoder=new TextDecoder('utf-8',{fatal:true}),steps=new Map();
+  let buffer='',bytes=0,chars=0,usage=null,finished=null;
+  const fail=reason=>{throw new ArgonStreamError(reason,usage);};
+  const count=value=>{const next=argonUsage(value,ARGON_MAX_OUTPUT_TOKENS);
+    if(next)usage={...usage,...next};};
+  const text=value=>{
+    if(typeof value!=='string')fail('invalid_provider_response');
+    chars+=value.length;
+    if(chars>ARGON_MAX_OUTPUT_CHARS)fail('no_usable_scene');
+    return value;
+  };
+  const consume=block=>{
+    const data=block.split(/\r\n|\r|\n/).filter(line=>line.startsWith('data:'))
+      .map(line=>line.slice(5).replace(/^ /,'')).join('\n');
+    if(!data)return; // SSE comments/keep-alives have no data field.
+    let event;
+    try{event=JSON.parse(data);}catch{fail('invalid_provider_response');}
+    count(event?.metadata?.total_usage);
+    if(event?.event_type==='step.stop')count(event.usage); // cumulative, not step_usage
+    if(event?.event_type==='step.start'){
+      if(!Number.isInteger(event.index)||event.index<0||steps.has(event.index)||steps.size>=64)
+        fail('invalid_provider_response');
+      steps.set(event.index,{type:event.step?.type,text:event.step?.type==='model_output'
+        ?text(argonOutputText({steps:[event.step]})):''});
+    }else if(event?.event_type==='step.delta'){
+      const step=steps.get(event.index);
+      if(step?.type==='model_output'&&event.delta?.type==='text')step.text+=text(event.delta.text);
+    }else if(event?.event_type==='error'){
+      const diagnostic={...argonProviderDiagnostic(event.error,'job',null,'failed'),reason:'provider_stream_error'};
+      throw new ArgonStreamError('provider_stream_error',usage,diagnostic);
+    }else if(event?.event_type==='interaction.completed'){
+      const end=event.interaction;
+      if(!['completed','incomplete','failed','cancelled','requires_action'].includes(end?.status))
+        fail('invalid_provider_response');
+      count(end.usage);
+      // A final snapshot replaces deltas, rather than duplicating the answer.
+      const snapshot=argonOutputText(end);
+      const output=snapshot||[...steps].sort(([a],[b])=>a-b)
+        .filter(([,s])=>s.type==='model_output').map(([,s])=>s.text).join('');
+      if(output.length>ARGON_MAX_OUTPUT_CHARS)fail('no_usable_scene');
+      finished={status:end.status,steps:[{type:'model_output',content:[{type:'text',text:output}]}]};
+    }
+  };
+  try{
+    while(!finished){
+      const {value,done}=await reader.read();
+      if(done)break;
+      bytes+=value.byteLength;
+      if(bytes>16*ARGON_MAX_OUTPUT_CHARS)fail('invalid_provider_response');
+      let scanFrom=Math.max(0,buffer.length-3);
+      buffer+=decoder.decode(value,{stream:true});
+      const separator=/\r\n\r\n|\n\n|\r\r|\r\n\n|\n\r\n/g;
+      let boundary;
+      while(!finished){
+        // Search only new bytes and a possible split delimiter, rather than
+        // repeatedly scanning a large event delivered in tiny chunks.
+        separator.lastIndex=scanFrom;
+        if(!(boundary=separator.exec(buffer)))break;
+        const block=buffer.slice(0,boundary.index);
+        buffer=buffer.slice(boundary.index+boundary[0].length);
+        scanFrom=0;
+        consume(block);
+      }
+      if(buffer.length>4*ARGON_MAX_OUTPUT_CHARS)fail('invalid_provider_response');
+    }
+    if(!finished)fail('provider_stream_interrupted');
+    return {interaction:finished,usage};
+  }catch(error){
+    if(error instanceof ArgonStreamError)throw error;
+    throw new ArgonStreamError('provider_stream_interrupted',usage);
+  }finally{
+    try{await reader.cancel();}catch{}
+    reader.releaseLock();
+  }
+}
 function providerStatusReason(status){
   if(status===429)return 'provider_rate_limited';
   if(status===401||status===403)return 'provider_permission';
@@ -1155,6 +1239,7 @@ function providerStatusReason(status){
   if(status===503)return 'provider_capacity';
   if(status===500)return 'provider_internal';
   if(status===504)return 'provider_deadline';
+  if(status===502)return 'provider_gateway';
   return status>=500?'provider_unavailable':'provider_refused';
 }
 // Never throws; every outcome is a stored state with fixed-vocabulary reasons.
@@ -1163,10 +1248,10 @@ async function runDirectArgon(env,{shotId,content,mode,thinking='medium',detail=
   try{
     response=await fetch(ARGON_API,{method:'POST',redirect:'manual',
       signal:AbortSignal.timeout(ARGON_DIRECT_TIMEOUT_MS),
-      headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY,
+      headers:{'Content-Type':'application/json','Accept':'text/event-stream','x-goog-api-key':env.GEMINI_API_KEY,
         'Api-Revision':ARGON_REVISION,'X-Server-Timeout':String(ARGON_SERVER_TIMEOUT_S)},
       // store:false: the interaction is not stored for later retrieval.
-      body:JSON.stringify({model:ARGON_MODEL,store:false,
+      body:JSON.stringify({model:ARGON_MODEL,store:false,stream:true,
         generation_config:{thinking_level:thinking,max_output_tokens:ARGON_MAX_OUTPUT_TOKENS},
         response_format:{type:'text',mime_type:'application/json',schema:ARGON_SCENE_SCHEMA},
         // A job stored before scopes existed has no mode: primary subject.
@@ -1203,7 +1288,7 @@ Return only the scene JSON.`,
   if(!response.ok){
     // The reason names the HTTP status; the error body adds only its
     // fixed-vocabulary codes and terms (e.g. DEADLINE_EXCEEDED), never prose.
-    const diagnostic={phase:'job',http:null,status:'failed',codes:[],
+    const diagnostic={phase:'job',http:response.status,status:'failed',codes:[],
       reason:providerStatusReason(response.status),fields:[],terms:[]};
     try{
       const parsed=argonProviderDiagnostic((await response.json())?.error,'job');
@@ -1212,10 +1297,25 @@ Return only the scene JSON.`,
     console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
     return {state:'failed',diagnostic};
   }
-  let interaction;
-  try{interaction=await response.json();}catch{return directFailure('invalid_provider_response');}
+  let interaction,streamUsage=null;
+  try{
+    if(response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()==='text/event-stream'){
+      const result=await readArgonStream(response);
+      interaction=result.interaction;streamUsage=result.usage;
+    }else interaction=await response.json(); // tolerate a JSON answer to the SAME call
+  }catch(error){
+    const diagnostic=error instanceof ArgonStreamError?error.diagnostic:null;
+    const outcome=diagnostic?{state:'failed',diagnostic}:
+      directFailure(error instanceof ArgonStreamError?error.message:'invalid_provider_response');
+    if(diagnostic)console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
+    return withUsage(outcome,logUsage(ARGON_DIRECT_PROFILE,'geometry',
+      error instanceof ArgonStreamError?error.usage:null));
+  }finally{
+    console.log('argon-direct-response',JSON.stringify({http:response.status,
+      seconds:Math.round((Date.now()-started)/1000)}));
+  }
   // Logged once: the alarm reaches this point at most once per job.
-  const usage=logUsage(ARGON_DIRECT_PROFILE,'geometry',argonUsage(interaction?.usage,ARGON_MAX_OUTPUT_TOKENS));
+  const usage=logUsage(ARGON_DIRECT_PROFILE,'geometry',streamUsage||argonUsage(interaction?.usage,ARGON_MAX_OUTPUT_TOKENS));
   const output=argonOutputText(interaction);
   // Cut off at the token limit: keep what finished, if anything did.
   const incomplete=interaction?.status==='incomplete'&&!!output;
@@ -1341,7 +1441,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-detail-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-stream-recovery-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');

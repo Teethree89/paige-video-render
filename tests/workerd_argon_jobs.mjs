@@ -36,10 +36,21 @@ const mf=new Miniflare({
     await new Promise(r=>setTimeout(r,1500)); // a slow model: longer than the start request
     if(mode==='reject')return new Response(JSON.stringify({error:{code:'invalid_request',
       message:'The agent does not support image input modality. PRIVATE_DETAIL'}}),{status:400});
-    return new Response(JSON.stringify({id:'v1_sync',status:'completed',
-      usage:{total_input_tokens:1800,total_thought_tokens:9120,total_output_tokens:11204,total_tokens:22124,
-        input_tokens_by_modality:[{modality:'image',tokens:1200}],private_metadata:'PRIVATE_USAGE'},steps:[
-      {type:'model_output',content:[{type:'text',text:JSON.stringify(scene)}]}]}));
+    const frame=event=>'data: '+JSON.stringify(event)+'\n\n';
+    const output=JSON.stringify(scene),encoder=new TextEncoder();
+    return new Response(new ReadableStream({async start(controller){
+      controller.enqueue(encoder.encode(frame({event_type:'step.start',index:0,step:{type:'model_output'}})));
+      await new Promise(r=>setTimeout(r,250));
+      controller.enqueue(encoder.encode(frame({event_type:'step.delta',index:0,
+        delta:{type:'text',text:output.slice(0,100)}})));
+      await new Promise(r=>setTimeout(r,250));
+      controller.enqueue(encoder.encode(frame({event_type:'step.delta',index:0,
+        delta:{type:'text',text:output.slice(100)}})+frame({event_type:'step.stop',index:0,
+        usage:{total_input_tokens:1800,total_thought_tokens:9120,total_output_tokens:11204,total_tokens:22124,
+          input_tokens_by_modality:[{modality:'image',tokens:1200}],private_metadata:'PRIVATE_USAGE'}})+
+        frame({event_type:'interaction.completed',interaction:{id:'v1_sync',status:'completed'}})));
+      controller.close();
+    }}),{headers:{'Content-Type':'text/event-stream'}});
   }
 });
 const post=(path,body)=>mf.dispatchFetch('https://worker.test'+path,{method:'POST',
@@ -63,7 +74,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-detail-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-stream-recovery-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
@@ -76,6 +87,7 @@ try{
   assert.equal(calls[0].key,'do-not-print-secret');assert.equal(calls[0].revision,'2026-05-20');
   assert.equal(calls[0].deadline,'690');
   assert.equal(sent.store,false);assert.equal(sent.background,undefined);
+  assert.equal(sent.stream,true);
   assert.match(sent.system_instruction,/SCOPE: FULL SCENE/);
   assert.match(sent.system_instruction,/DETAIL: MAXIMUM/);
   assert.equal(sent.generation_config.thinking_level,'high');
