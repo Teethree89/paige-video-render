@@ -151,6 +151,26 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
   const argonSettings=el('aiArgonSettings'),thinkingSelect=el('aiArgonThinking'),detailSelect=el('aiArgonDetail');
+  // Chrome silently dismisses window.confirm() when the tab is not in front
+  // (live 2026-10-23), which reads as Cancel. Paid requests ask in the page
+  // instead, in a dialog that waits for an answer; confirm() is the fallback.
+  const askPaid=(message,label)=>{
+    const dialog=el('aiConfirm');
+    if(typeof dialog?.showModal!=='function')
+      return Promise.resolve(typeof confirm==='function'&&confirm(message));
+    el('aiConfirmText').textContent=message;
+    el('aiConfirmOk').textContent=label;
+    return new Promise(resolve=>{
+      const closed=()=>{dialog.removeEventListener('close',closed);resolve(dialog.returnValue==='ok');};
+      dialog.returnValue='';
+      dialog.addEventListener('close',closed);
+      dialog.showModal();
+    });
+  };
+  const notStarted=()=>{
+    log('Paid request not started: the confirmation was cancelled or dismissed. Nothing was sent.');
+    status('Not started. Nothing was sent or billed.');
+  };
   // The thinking and detail selectors apply to Argon only.
   const showArgonSettings=()=>{
     if(argonSettings)argonSettings.hidden=!['argon_previs','argon_direct'].includes(modelSelect?.value);
@@ -391,10 +411,10 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(argon){
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
-        if(typeof confirm==='function'&&!confirm(settings+' '+(profile==='argon_direct'
+        if(!await askPaid(settings+' '+(profile==='argon_direct'
           ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'
-          :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.')))
-          return;
+          :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'),
+          'Start paid Argon run')){notStarted();return;}
       }
       log('Preparing reference frames from the selected chapter…');
       status('Sampling the selected playhead frame and two chapter context frames…');
@@ -483,10 +503,11 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     const isPoll=smoke.state==='running';
     const step=smoke.step;
     if(!isPoll){
-      if(typeof confirm!=='function'||!confirm(
+      if(!await askPaid(
         (smoke.state==='failed'?'Retry':'Run')+' paid Argon diagnostic '+
         (step+1)+'/'+smokeNames.length+': '+smokeNames[step]+
-        '? This submits exactly one additional potentially billable API request. No client footage is sent.'))return;
+        '? This submits exactly one additional potentially billable API request. No client footage is sent.',
+        'Run paid diagnostic')){notStarted();return;}
     }
     busy=true;ui();
     try{
@@ -527,8 +548,8 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   });
   smokeReset?.addEventListener('click',async()=>{
     if(busy||!authenticated||smoke.state==='running')return;
-    if(typeof confirm!=='function'||!confirm(
-      'Restart Argon diagnostics from stage 1? This resets progress; new submissions can incur charges.'))return;
+    if(!await askPaid('Restart Argon diagnostics from stage 1? This resets progress; new submissions can incur charges.',
+      'Restart diagnostics'))return;
     busy=true;ui();
     try{
       const session=await readServerSession();
