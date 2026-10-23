@@ -6,6 +6,8 @@ import {buildAfterEffectsPackage} from './ae-package-export.js';
 import {setupVideoImport} from './video-import.js';
 import {setupReferenceBuilder} from './reference-builder.js';
 import {referenceAt} from './reference-sequence.js';
+import {createTimelineHistory,checkTimeline} from './timeline-operations.js';
+import {setupTimelineEditing} from './timeline-tools.js';
 import {sampleReferenceMedia} from './reference-frames.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
@@ -64,7 +66,7 @@ reviewGrid.material.transparent=true;reviewGrid.material.opacity=.42;
 reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
-let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null;
+let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
   primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id),primitiveAnchors());
@@ -145,6 +147,7 @@ async function boot(){
  let original=await fetch('./timeline.json').then(r=>{if(!r.ok)throw new Error('timeline.json not found');return r.json();});
  let cached=null;try{const raw=localStorage.getItem('atoms-ai-sequence-v1');if(raw)cached=JSON.parse(raw);}catch(e){}
  originalSequence=original;sequence=validSequence(cached)?cached:structuredClone(original);
+ timelineHistory=createTimelineHistory(sequence);
  const geometryError=restoreSavedPrimitiveWorld(primitiveWorld,sequence,primitiveAnchors());
  if(geometryError){
    console.warn('Saved primitive geometry could not be loaded; project retained',geometryError);
@@ -267,6 +270,7 @@ async function boot(){
    aiSceneEditor?.reset();sequence=timeline;syncPrimitiveWorld();refreshAll();seek(0);saveLocal();
    el('saveStatus').textContent='● VIDEO DRAFT SAVED · SOURCE LOCAL';
   referenceBuilder?.loadFromSequence(null);
+  timelineHistory?.reset(sequence);
  }});
  referenceBuilder=setupReferenceBuilder({onApply:({timeline})=>{
    if(!validSequence(timeline))throw Error('Reference Builder created an invalid timeline');
@@ -281,6 +285,23 @@ async function boot(){
  }});
  referenceBuilder.loadFromSequence(sequence);
  if(sequence.referenceSequence)syncReferenceMedia(playhead);
+ timelineEditing=setupTimelineEditing({
+   getSequence:()=>sequence,getShotId:()=>shotAt(playhead),
+   canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
+   sourceDuration:id=>referenceBuilder?.sourceForShot(id)?.mediaDuration??null,
+   canUndo:()=>timelineHistory?.canUndo===true,canRedo:()=>timelineHistory?.canRedo===true,
+   onCommit:(doc,time)=>{
+     setPlaying(false);endGeometryReview();
+     validatePrimitiveDocument(doc.primitiveScenes,doc.shots.map(s=>s.id));
+     checkTimeline(doc);
+     sequence=doc;referenceBuilder.loadFromSequence(sequence);
+     syncPrimitiveWorld();selection=null;refreshAll();
+     seek(time===null?Math.min(playhead,sequence.duration):Math.min(time,sequence.duration));
+     saveLocal();
+   },
+   onUndo:()=>applyHistory(timelineHistory?.undo?.()),
+   onRedo:()=>applyHistory(timelineHistory?.redo?.())
+ });
 }
 function validSequence(s){return !!(s&&Number.isFinite(s.duration)&&s.duration>0&&Array.isArray(s.shots)&&s.shots.length&&Array.isArray(s.camera)&&s.camera.length&&Array.isArray(s.text));}
 function syncReferenceMedia(time){
@@ -314,7 +335,17 @@ function syncReferenceMedia(time){
  }
  return true;
 }
-function saveLocal(){try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));}catch(e){}el('saveStatus').textContent='● SAVED LOCALLY';}
+function applyHistory(doc){
+ if(!doc)return;
+ setPlaying(false);endGeometryReview();sequence=doc;
+ referenceBuilder?.loadFromSequence(sequence);syncPrimitiveWorld();selection=null;
+ refreshAll();seek(Math.min(playhead,sequence.duration));saveLocal(false);
+}
+function saveLocal(record=true){
+ if(record)timelineHistory?.record(sequence);
+ try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));}catch(e){}
+ el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();
+}
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
 function cameraAt(t){let keys=sequence.camera.slice().sort((a,b)=>a.at-b.at);let first=keys[0];if(t<=first.at)return first;for(let i=0;i<keys.length-1;i++){let a=keys[i],b=keys[i+1];if(t>=a.at&&t<b.at){if(b.cut)return a;let u=ease(clamp((t-a.at)/(b.at-a.at),0,1));return{p:a.p.map((v,j)=>lerp(v,b.p[j],u)),t:a.t.map((v,j)=>lerp(v,b.t[j],u)),fov:lerp(a.fov,b.fov,u)};}}return keys[keys.length-1];}
 function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.near=.35;camera.far=500;camera.updateProjectionMatrix();controls.target.set(...c.t);}
@@ -337,9 +368,9 @@ function rebuildOverlayDom(){el('overlayLayer').replaceChildren();overlayEls.cle
 function refreshPlayhead(){el('playhead').style.left=atPercent(playhead);el('clock').innerHTML=`${fmt(playhead)} <span>/</span> ${fmt(sequence.duration)}`;}
 function renderTimeline(){let ruler=el('ruler'),shotTrack=el('shotTrack'),camTrack=el('cameraTrack'),textTrack=el('textTrack');ruler.replaceChildren();shotTrack.replaceChildren();camTrack.replaceChildren();textTrack.replaceChildren();
  for(let sec=0;sec<=sequence.duration;sec+=5){let tick=document.createElement('span');tick.className='ruler-tick';tick.style.left=atPercent(sec);tick.textContent=`${String(sec).padStart(2,'0')}s`;ruler.append(tick);}
- for(let s of sequence.shots){let d=document.createElement('div');d.className='shot-item '+(s.tone==='amber'?'amber':s.tone==='purple'?'purple':'');d.style.left=atPercent(s.start);d.style.width=((s.end-s.start)/sequence.duration*100)+'%';d.textContent=s.name;d.title=`${fmt(s.start)} · ${s.name}`;d.onclick=e=>{e.stopPropagation();selection=null;orbitMode=false;controls.enabled=false;renderInspector();seek(s.start+.01);};shotTrack.append(d);}
- for(let key of sequence.camera){let d=document.createElement('div');d.className='key-marker '+(key.cut?'cut-key ':'')+(selection?.type==='camera'&&selection.id===key.id?'selected':'');d.style.left=atPercent(key.at);d.title=`Camera ${fmt(key.at)}${key.cut?' · CUT':''}`;d.onclick=e=>{e.stopPropagation();select('camera',key.id);seek(key.at);};camTrack.append(d);}
- for(let tx of sequence.text){let d=document.createElement('div');d.className='text-item '+(tx.size==='hero'?'hero-text ':'')+(selection?.type==='text'&&selection.id===tx.id?'selected':'');d.style.left=atPercent(tx.start);d.style.width=((tx.end-tx.start)/sequence.duration*100)+'%';d.title=tx.value.replaceAll('\n',' ')+' ('+fmt(tx.start)+')';d.textContent=tx.value.replaceAll('\n',' ');d.onclick=e=>{e.stopPropagation();select('text',tx.id);seek(Math.min(tx.start+.5,tx.end-.04));};textTrack.append(d);}
+ for(let s of sequence.shots){let d=document.createElement('div');d.className='shot-item '+(s.tone==='amber'?'amber':s.tone==='purple'?'purple':'');d.style.left=atPercent(s.start);d.style.width=((s.end-s.start)/sequence.duration*100)+'%';d.dataset.shotId=s.id;d.textContent=s.name;const rh=document.createElement('span');rh.className='chapter-resize-handle';rh.title='Drag to resize chapter';d.append(rh);d.title=`${fmt(s.start)} · ${s.name}`;d.onclick=e=>{e.stopPropagation();selection=null;orbitMode=false;controls.enabled=false;renderInspector();seek(s.start+.01);};shotTrack.append(d);}
+ for(let key of sequence.camera){let d=document.createElement('div');d.dataset.editId=key.id;d.className='key-marker '+(key.cut?'cut-key ':'')+(selection?.type==='camera'&&selection.id===key.id?'selected':'');d.style.left=atPercent(key.at);d.title=`Camera ${fmt(key.at)}${key.cut?' · CUT':''}`;d.onclick=e=>{e.stopPropagation();select('camera',key.id);seek(key.at);};camTrack.append(d);}
+ for(let tx of sequence.text){let d=document.createElement('div');d.dataset.editId=tx.id;d.className='text-item '+(tx.size==='hero'?'hero-text ':'')+(selection?.type==='text'&&selection.id===tx.id?'selected':'');d.style.left=atPercent(tx.start);d.style.width=((tx.end-tx.start)/sequence.duration*100)+'%';d.title=tx.value.replaceAll('\n',' ')+' ('+fmt(tx.start)+')';d.textContent=tx.value.replaceAll('\n',' ');const rh=document.createElement('span');rh.className='text-resize-handle';rh.title='Drag to adjust overlay duration';d.append(rh);d.onclick=e=>{e.stopPropagation();select('text',tx.id);seek(Math.min(tx.start+.5,tx.end-.04));};textTrack.append(d);}
  el('keyCount').textContent=String(sequence.camera.length);el('textCount').textContent=String(sequence.text.length);}
 function renderChapters(){let parent=el('chapterList');parent.replaceChildren();for(let s of sequence.shots){let d=document.createElement('button');d.className='chapter-item';d.dataset.shot=s.id;const time=document.createElement('span');time.className='chapter-time';time.textContent=fmt(s.start).slice(0,5);const dot=document.createElement('span');dot.className='chapter-dot '+(s.tone==='amber'?'amber':s.tone==='purple'?'purple':'');let label=document.createElement('span');label.textContent=s.name;d.append(time,dot,label);d.onclick=()=>{selection=null;orbitMode=false;controls.enabled=false;renderInspector();seek(s.start+.001);};parent.append(d);}renderShotName();}
 function refreshAll(){renderTimeline();renderChapters();rebuildOverlayDom();renderInspector();refreshPlayhead();}
@@ -431,8 +462,8 @@ document.addEventListener('pointerdown',event=>{
  if(!event.target.closest('.timeline-export-picker'))showExportMenu(false);
 });
 document.addEventListener('keydown',event=>{if(event.key==='Escape')showExportMenu(false);});
-el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;endGeometryReview();aiSceneEditor?.reset();sequence=structuredClone(originalSequence);syncPrimitiveWorld();referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;referenceBuilder?.loadFromSequence(null);selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();};
-el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));endGeometryReview();aiSceneEditor?.reset();sequence=data;referenceBuilder?.loadFromSequence(data);syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
+el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(!confirm('Reset all camera and text edits to the original timeline?'))return;endGeometryReview();aiSceneEditor?.reset();sequence=structuredClone(originalSequence);syncPrimitiveWorld();referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;referenceBuilder?.loadFromSequence(null);timelineHistory?.reset(sequence);selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal(false);};
+el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));endGeometryReview();aiSceneEditor?.reset();sequence=data;timelineHistory?.reset(sequence);referenceBuilder?.loadFromSequence(data);syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
 el('showRef').onchange=e=>{if(sequence.referenceSequence){syncReferenceMedia(playhead);return;}referenceVideo.style.display=e.target.checked?'block':'none';if(!e.target.checked)referenceVideo.pause();else if(playing)referenceVideo.play().catch(()=>{});};
 referenceVideo.addEventListener('loadedmetadata',()=>{if(sequence?.referenceSequence)syncReferenceMedia(playhead);else try{referenceVideo.currentTime=playhead;}catch(e){}});
 window.addEventListener('keydown',e=>{const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
