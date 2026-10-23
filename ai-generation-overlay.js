@@ -28,7 +28,7 @@ export function createArgonOverlay(root=globalThis.document){
   const label=()=>{if(stage)stage.textContent=stepNumber===1?'Generating base scene':
     'Adding detail · pass '+(stepNumber-1)+' of 2';
     if(detail)detail.textContent=phases[phaseName]||phases.waiting;
-    if(meter){meter.style.width='34%';meter.setAttribute?.('aria-label',
+    if(meter){meter.setAttribute?.('aria-label',
       'Step '+stepNumber+' of '+steps+', progress unknown');}
     if(reopen)reopen.textContent='Generation running · '+stepNumber+'/'+steps+' · Show overlay';
   };
@@ -54,7 +54,7 @@ export function createArgonOverlay(root=globalThis.document){
       ty:(p.y-100)*Math.min(h*.00145,1.2),
       z:Math.sin(i*21.91)*22,
       x:(Math.sin(i*76.97)*w*.48),y:(Math.cos(i*31.57)*h*.42),
-      vx:0,vy:0,letter:Math.max(0,Math.min(4,Math.floor(p.x/164))),
+      vx:0,vy:0,vz:0,dz:0,letter:Math.max(0,Math.min(4,Math.floor(p.x/164))),
       size:.65+Math.abs(Math.sin(i*14.19))*1.05
     }));
   }
@@ -76,14 +76,20 @@ export function createArgonOverlay(root=globalThis.document){
       const ty=enabled?p.ty:p.ty*1.7;
       const px=cx+p.x,py=cy+p.y,dx=px-mouse.x,dy=py-mouse.y;
       const dist=Math.hypot(dx,dy)||1;
-      const push=dist<maxDist?(1-dist/maxDist)**2*18:0;
+      // Pointer disturbance forms a shallow 3D spherical shell, not just
+      // a flat ripple. On leave each dot springs back to its letter.
+      const closeness=dist<maxDist?Math.sqrt(1-(dist/maxDist)**2):0;
+      const push=closeness**2*18;
+      p.vz=(p.vz+((closeness*78)-p.dz)*.035)*.84;
+      p.dz+=p.vz;
+      const perspective=320/(320-(p.z+p.dz)*.55);
       const ax=(tx-p.x)*(reduced?.3:.033)+(dx/dist)*push;
       const ay=(ty-p.y)*(reduced?.3:.033)+(dy/dist)*push;
       p.vx=(p.vx+ax)*.82;p.vy=(p.vy+ay)*.82;
       p.x+=p.vx;p.y+=p.vy;
       const glow=.6+.4*Math.sin(now*.0015+i*2.1);
-      const radius=Math.max(.35,p.size*(1+p.z/150))*(dist<maxDist?1.65:1);
-      ctx.beginPath();ctx.arc(cx+p.x,cy+p.y,radius,0,Math.PI*2);
+      const radius=Math.max(.35,p.size*perspective)*(dist<maxDist?1.7:1);
+      ctx.beginPath();ctx.arc(cx+p.x*perspective,cy+p.y*perspective,radius,0,Math.PI*2);
       ctx.fillStyle=i%8===0?'rgba(116,255,229,'+(.55+.35*glow)+')':
         'rgba(208,243,247,'+(.43+.44*glow)+')';
       ctx.fill();
