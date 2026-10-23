@@ -150,7 +150,9 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
           finite(m.emissiveIntensity,'emissiveIntensity',0,10);
       }
       if(m.opacity!=null)material.opacity=finite(m.opacity,'opacity',.05,1);
-      const layer=item.layer;
+      // Older exports can spell the unlayered/manual bucket explicitly.
+      // Canonical v1 data still represents it by the absence of a layer.
+      const layer=item.layer==null||item.layer===''||item.layer==='manual'?undefined:item.layer;
       if(layer!==undefined&&!ENVIRONMENT_LAYERS.includes(layer))fail(id+' has unsupported environment layer');
       const repeat=item.repeat==null?undefined:repeatSpec(item.repeat,id);
       instances+=repeat?repeat.count[0]*repeat.count[1]*repeat.count[2]:1;

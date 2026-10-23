@@ -1,6 +1,19 @@
 // Pure placement helpers: Gemini emits shot-local geometry (origin near 0),
 // while authored shot cameras may target different absolute world coordinates.
 // Never change saved primitive positions or cinematic camera keyframes.
+// A bad saved scene must not replace the working project with the starter
+// timeline. Keep the source intact for export/repair and clear partial meshes.
+export function restoreSavedPrimitiveWorld(world,sequence,anchors={}) {
+  const allowed=sequence.shots.map(shot=>shot.id);
+  try{
+    world.setDocument(sequence.primitiveScenes,allowed,anchors);
+    return null;
+  }catch(error){
+    world.setDocument(undefined,allowed,anchors);
+    return error;
+  }
+}
+
 export function shotAnchorMap(sequence, cameraAt) {
   return Object.fromEntries(sequence.shots.map(shot => {
     const at = Math.min(shot.end - 0.001, shot.start + 0.01);

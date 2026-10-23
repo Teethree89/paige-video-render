@@ -72,6 +72,8 @@ The format grew additively and keeps `schemaVersion: 1`: a document written befo
 
 The editor's shape dropdown adds all nine primitives (an extrusion starts as an L footprint). The inspector's **Layer** picker moves an object between *Manual shapes* (no `layer`) and the four environment layers; Gemini 4 Argon assigns a layer to every object it returns. Fields without their own inputs (copies, footprint, glow, opacity) are listed read-only next to the shape, the shot label counts lights, and all of them stay intact through every edit and duplicate and are changed through Export/Import JSON. Z-fighting cleanup compares every field when it removes exact duplicates and never moves a repeated object or uses one as a host.
 
+Earlier scenes without layers remain visible under **All layers** and **Manual shapes**. Explicit legacy `layer: "manual"`, `""` and `null` values normalize to an omitted layer; other unsupported layer names remain invalid. The layer filter lists editable primitives, while the seven original linked GLB models are managed separately in the model tools. A scene that cannot be loaded shows an error and retains the saved project for **Export timeline → Timeline JSON**, instead of silently replacing it with the starter timeline. The video renderer applies the same chapter placement and original-model replacement as the editor.
+
 Shot-specific objects render **only during that shot**. When a draft shot has one or more primitive objects, the generic Phase 1 guide blockout hides automatically. The original hand-built models remain unchanged. Each shot can export its own binary GLB.
 
 ## Validation / safety for future AI

@@ -10,7 +10,7 @@ import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
-import {shotAnchorMap,fitDistance} from './primitive-preview.js';
+import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld} from './primitive-preview.js';
 import {foldHelpText} from './help-toggles.js';
 
 foldHelpText();
@@ -134,9 +134,11 @@ async function boot(){
  let original=await fetch('./timeline.json').then(r=>{if(!r.ok)throw new Error('timeline.json not found');return r.json();});
  let cached=null;try{const raw=localStorage.getItem('atoms-ai-sequence-v1');if(raw)cached=JSON.parse(raw);}catch(e){}
  originalSequence=original;sequence=validSequence(cached)?cached:structuredClone(original);
- try{syncPrimitiveWorld();}catch(error){
-   console.warn('Invalid cached primitive scenes: using original sequence',error);
-   sequence=structuredClone(originalSequence);syncPrimitiveWorld();
+ const geometryError=restoreSavedPrimitiveWorld(primitiveWorld,sequence,primitiveAnchors());
+ if(geometryError){
+   console.warn('Saved primitive geometry could not be loaded; project retained',geometryError);
+   el('errorBanner').hidden=false;
+   el('errorBanner').textContent='Saved geometry could not be loaded. Your timeline and saved objects are retained; export Timeline JSON for a backup. '+geometryError.message;
  }
  refreshAll();seek(0,{force:true});ready=true;
  if(sequence.videoIntake){referenceVideo.style.display='none';el('showRef').checked=false;el('saveStatus').textContent='● REATTACH SOURCE VIDEO';}

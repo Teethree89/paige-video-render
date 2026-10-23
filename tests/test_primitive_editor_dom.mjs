@@ -115,6 +115,28 @@ test('primitive inspector initializes and adds editable scene geometry without c
     sequence.primitiveScenes.scenes[0].lights=[{type:'point',color:'#ffcc88',intensity:20,position:[0,4,0]}];
     editor.refresh();
     assert.match(dom.getElementById('primitiveShotLabel').textContent,/· 4 object\(s\) · 1 light\(s\)$/);
+    // Loading/filtering older saved generations must not hide unlayered or
+    // explicitly manual objects, or write a replacement scene to the timeline.
+    sequence.primitiveScenes={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[
+      {...shape,id:'legacy'}, {...shape,id:'explicit_manual',layer:'manual'},
+      {...shape,id:'empty_layer',layer:null}, {...shape,id:'layered',layer:'structures'}]}]};
+    const saved=structuredClone(sequence),filter=dom.getElementById('primitiveLayerFilter');
+    const listed=()=>select.children.slice(1).map(option=>option.value);
+    filter.value='all';await filter.fire('change');
+    assert.deepEqual(listed(),['legacy','explicit_manual','empty_layer','layered']);
+    filter.value='manual';await filter.fire('change');
+    assert.deepEqual(listed(),['legacy','explicit_manual','empty_layer']);
+    filter.value='structures';await filter.fire('change');assert.deepEqual(listed(),['layered']);
+    filter.value='all';await filter.fire('change');
+    assert.equal(listed().length,4);assert.deepEqual(sequence,saved);
+    // A rejected saved scene is reported without crashing startup or erasing it.
+    sequence.primitiveScenes.scenes[0].objects[0].primitive='script';
+    const rejected=structuredClone(sequence);
+    assert.doesNotThrow(()=>editor.refresh());
+    assert.match(dom.getElementById('primitiveStatus').textContent,/Export Timeline JSON/);
+    assert.match(dom.getElementById('primitiveShotLabel').textContent,/saved geometry unavailable/);
+    assert.equal(select.children[0].textContent,'Saved geometry could not be loaded');
+    assert.deepEqual(sequence,rejected);
   } finally {
     if(previousDocument===undefined)delete globalThis.document;
     else globalThis.document=previousDocument;
