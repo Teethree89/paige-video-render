@@ -308,6 +308,35 @@ most 12 minutes, with idempotent at-least-once handling. See
 `argon_direct` request described above is retired. Stages 6–7 still probe
 the background combination.
 
+### First successful live run (2026-10-22, about 8:38 PM EDT)
+
+`argon_direct`, on Worker `argon-direct-durable-object-v1`, returned **32
+validated editable objects** for shot 01 "Night campus exterior": building
+mass, roof slab, entrance block with window bands, and site strips. The
+z-fighting cleanup adjusted 15 overlapping surfaces, and the result was
+previewed and accepted.
+
+This is the pipeline the investigation set out to build: video → 3 frames →
+Argon observes the frames directly → validated editable geometry →
+Three.js. It has succeeded once.
+
+Two follow-ups shipped in the next PR (`argon-direct-quality-v1`):
+
+- **Manual resumes were needed.** The job itself completed; the editor
+  stopped polling when a status check failed, as happens on iOS Safari when
+  the screen locks or the tab is backgrounded. Polling now retries free
+  status checks: dropped requests without limit within the window, and HTTP
+  errors up to three in a row. It wakes when the tab is visible again and
+  never resubmits.
+- **Quality was below the hand-built scenes.** Those were manually coded
+  procedural geometry and GLBs, while AI output is at most 48 objects of five
+  primitive types with flat colors. Two cheap levers are now applied to the
+  direct path only: `resolution:"high"` per frame (documented
+  `ImageContent` field) and guidance to spend 36–48 parts on visible detail
+  matched to the first frame. The largest remaining lever is a richer
+  primitive vocabulary (roof wedges, extrusions, repeated arrays). That is a
+  schema/editor/export change and has not been started.
+
 ### Remaining blockers
 
 These need the live steps above or action from Google:

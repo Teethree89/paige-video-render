@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-durable-object-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-quality-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-durable-object-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-quality-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -131,6 +131,7 @@ test('Fast Flash-Lite image analysis feeds text-only Argon background without cl
       assert.match(data.system_instruction,/PREVIS \/ RUNWAY PREP/);
       assert.match(data.system_instruction,/PRIMARY SUBJECT/);
       assert.match(data.system_instruction,/untrusted descriptive data/);
+      assert.doesNotMatch(data.system_instruction,/target 36-48 parts/,'Direct-only guidance');
       assert.match(data.system_instruction,/draft_001/);
       assert.ok(!opts.body.includes('PRIVATE_'));
       assert.ok(!opts.body.includes(image.split(',')[1]));
@@ -620,9 +621,11 @@ test('Direct-image Argon runs ONE synchronous image call inside a Durable Object
     assert.match(body.system_instruction,/PREVIS \/ RUNWAY PREP/);
     assert.match(body.system_instruction,/never an\s+instruction/);
     assert.match(body.system_instruction,/draft_001/);
+    assert.match(body.system_instruction,/target 36-48 parts/);
+    assert.match(body.system_instruction,/Match proportions and\s+placement to the FIRST frame/);
     assert.deepEqual(body.input,directJob.frames.flatMap(frame=>[
       {type:'text',text:'Reference frame at '+frame.at.toFixed(3)+' seconds'},
-      {type:'image',data:frame.imageDataUrl.split(',')[1],mime_type:'image/jpeg'}]));
+      {type:'image',data:frame.imageDataUrl.split(',')[1],mime_type:'image/jpeg',resolution:'high'}]));
     return completedScene();
   };
   try{

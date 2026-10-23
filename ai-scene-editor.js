@@ -20,6 +20,17 @@ async function request(action,data={}) {
   }
   return result;
 }
+// Waits between status checks, but returns early when a backgrounded tab is
+// shown again, so a resumed phone checks immediately.
+function pollPause(ms) {
+  return new Promise(resolve=>{
+    const doc=globalThis.document;
+    const done=()=>{clearTimeout(timer);doc?.removeEventListener?.('visibilitychange',wake);resolve();};
+    const wake=()=>{if(doc?.visibilityState==='visible')done();};
+    const timer=setTimeout(done,ms);
+    doc?.addEventListener?.('visibilitychange',wake);
+  });
+}
 // Fixed provider tokens already validated by the Worker and PHP; never prose.
 export function describeDiagnostic(d) {
   const list=value=>Array.isArray(value)?value.filter(x=>typeof x==='string').join(', '):'';
@@ -153,29 +164,45 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(waitInfo)waitInfo.textContent='';
     }
   }
+  // Status checks are free and never resubmit a paid job, so they are safe to
+  // retry. A phone that locks or backgrounds the tab makes them fail mid-wait:
+  // network errors retry until the window ends; HTTP errors stop after three
+  // in a row, because a repeated answer is real rather than transient.
   async function pollArgon(shotId){
-    log('Argon background job accepted by Google. Polling for completion…');
+    log('Argon job accepted. Polling for completion (status checks are free and never resubmit)…');
     const started=Date.now();
-    let prior='';
-    while(Date.now()-started<16*60*1000){
-      const result=await request('argon_status',{csrf});
-      if(result.shotId!==shotId)throw Error('Argon job belongs to a different chapter');
-      if(result.status!==prior){
-        prior=result.status;
-        log('Argon background status: '+result.status+'.');
+    let prior='',httpErrors=0,interrupted=false;
+    while(true){
+      let result=null;
+      try{result=await request('argon_status',{csrf});httpErrors=0;}
+      catch(error){
+        if([401,403,404].includes(error.status))throw error;
+        if(error.status&&++httpErrors>=3)throw error;
+        if(!interrupted)log('Status check interrupted ('+error.message+'). Retrying without a new paid request…');
+        interrupted=true;
       }
-      if(result.status==='completed'){
-        if(!result.proposal)throw Error('Argon completed without valid geometry');
-        log('Argon model output received and validated by the Worker.');
-        return result.proposal;
+      if(result){
+        interrupted=false;
+        if(result.shotId!==shotId)throw Error('Argon job belongs to a different chapter');
+        if(result.status!==prior){
+          prior=result.status;
+          log('Argon job status: '+result.status+'.');
+        }
+        if(result.status==='completed'){
+          if(!result.proposal)throw Error('Argon completed without valid geometry');
+          log('Argon model output received and validated by the Worker.');
+          return result.proposal;
+        }
+        if(result.status==='failed')throw Object.assign(
+          Error('Argon job failed on the provider. No geometry was returned.'),{diagnostic:result.diagnostic});
+        if(!['queued','in_progress'].includes(result.status))throw Error('Unrecognized Argon status');
+        status('Argon '+result.status.replace('_',' ')+' — waiting for editable geometry…');
       }
-      if(result.status==='failed')throw Object.assign(
-        Error('Argon job failed on the provider. No geometry was returned.'),{diagnostic:result.diagnostic});
-      if(!['queued','in_progress'].includes(result.status))throw Error('Unrecognized Argon status');
-      if(waitInfo)waitInfo.textContent='Argon processing on Google: '+
+      // Checked after a poll, so a tab resumed after the window still polls once.
+      if(Date.now()-started>=16*60*1000)break;
+      if(waitInfo)waitInfo.textContent='Argon processing: '+
         Math.floor((Date.now()-started)/1000)+'s elapsed';
-      status('Argon '+result.status.replace('_',' ')+' — waiting for editable geometry…');
-      await new Promise(resolve=>setTimeout(resolve,5000));
+      await pollPause(result?5000:Math.min(30000,5000*(httpErrors+1)));
     }
     throw Error('Argon is still processing. Use Resume previous Argon job later; do not resubmit a paid request.');
   }
@@ -461,7 +488,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(!session.authenticated){sessionEnded();return;}
       csrf=session.csrf;argonJob=session.argonJob;
       if(!argonJob||argonJob.shotId!==shot.id)throw Error('No Argon job for this chapter');
-      log('Resuming existing paid Argon background job without starting another request.');
+      log('Resuming existing paid Argon job without starting another request.');
       const proposal=await pollArgon(shot.id);
       argonJob={shotId:shot.id,status:'completed'};
       showProposal(proposal,shot);

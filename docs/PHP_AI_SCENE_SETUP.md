@@ -30,7 +30,7 @@ Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wra
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
-- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-direct-durable-object-v1` identifies the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile run by the `ArgonJob` Durable Object, and sanitized provider diagnostics (with `terms`) for Argon rejections. `/health.argonDirectJobs` is `true` only when the deployed Worker has its `ARGON_JOBS` binding. The existing three Flash profiles and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
+- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-direct-quality-v1` identifies the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile run by the `ArgonJob` Durable Object, and sanitized provider diagnostics (with `terms`) for Argon rejections. `/health.argonDirectJobs` is `true` only when the deployed Worker has its `ARGON_JOBS` binding. The existing three Flash profiles and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
 - Lite and 3.8 Low retain at most **one additional** Gemini request on HTTP 500/502/503/504 (700ms pause, one shared 45s deadline). Medium can make **up to three total attempts**, with a roughly 1s then 2s delay and bounded jitter, **only if the second attempt also returns HTTP 503**. Other upstream 5xx stop after two attempts. Every attempt shares Medium's 70s deadline, and retries never start with less than 10s remaining. HTTP 429, permission and malformed-request failures never retry. The editor's HTTP 502 may represent PHP relaying provider 5xx; the distinct safe `Gemini is overloaded (upstream 503)` message means all permitted 503 retries were exhausted. Cloudflare's sanitized `gemini-provider-http` logs record status and attempt without raw bodies or API keys. A single PHP session-quota request can cause up to three Gemini API attempts, potentially affecting Google quota and billing.
 - HTTP **503** with `{"ok":false,"service":"paige-scene","ready":false}` means the runtime is missing one or both bindings. In Cloudflare Dashboard → Workers & Pages → `paige-video-render` → Settings → **Variables and Secrets**, confirm the two names exactly match `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN`, that their type is **Secret**, and click **Deploy** to save the production version. Never paste the values into CI logs or the public repository.
 - If the build is red, inspect the exact latest Cloudflare build log and resolve the reported issue before testing PHP.
@@ -233,7 +233,7 @@ A C4D-native project/export pipeline is a separate planned development.
   review usage in AI Studio before running client production sequences.
   There is no guaranteed spend cap just because a project was pre-funded.
 - Deployment requires **both** Cloudflare Worker and 50webs FTP publisher to
-  update. `/health.workerRevision=argon-direct-durable-object-v1` indicates the
+  update. `/health.workerRevision=argon-direct-quality-v1` indicates the
   current Worker path; if FTP deploys first, do not test Argon until Worker revision
   matches.
 
@@ -294,11 +294,14 @@ investigation), so this profile does not use background mode.
 - **One paid call.** Inside the alarm, the object makes ONE *synchronous*
   Interactions call to Gemini 4 Argon:
   - input: ordered timestamp-label text items, each followed by
-    `{type:image, data, mime_type:image/jpeg}`, primary frame first;
+    `{type:image, data, mime_type:image/jpeg, resolution:high}`, primary
+    frame first;
   - `store:false`, `thinking_level:medium`, the full 32,768 thinking/output
     allowance;
   - the scene `response_format` schema, and the Previs prompt in
-    `system_instruction`.
+    `system_instruction`, plus direct-only guidance to spend 36–48 parts on
+    visible detail (facade bays, windows, roof edges, entrances, site
+    elements) matched to the first frame.
 
   The call has a 12-minute deadline: Google closes non-streaming calls at
   about 10 minutes, and alarms stop at 15. The result passes the same
@@ -325,8 +328,15 @@ investigation), so this profile does not use background mode.
   failures report fixed reasons such as `provider_timeout`,
   `provider_rate_limited` or `scene_schema_mismatch`. Nothing retries or
   falls back to Flash-Lite or Previs.
-- **Verification.** Offline Node tests and a real-workerd (Miniflare) run
-  with mocked Google pass. A live run is unverified until approved.
+- **Polling.** Status checks are free and never resubmit, so the editor
+  keeps polling through dropped requests (for example when a phone locks or
+  backgrounds the tab) and up to two transient HTTP errors in a row. It checks
+  again as soon as the tab is visible. A lost session (401/403), a missing job
+  (404) or a `failed` status stops polling at once.
+- **Verification.** Offline Node tests and a real-workerd (Miniflare) CI step
+  with mocked Google pass. **First live success:** 2026-10-22, 32 validated
+  objects for "Night campus exterior". That run needed manual resumes, which
+  the polling change above addresses.
 
 Official API: <https://ai.google.dev/gemini-api/docs/background-execution>
 and <https://ai.google.dev/gemini-api/docs/image-understanding>.

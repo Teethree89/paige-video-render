@@ -489,7 +489,7 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
     assert.equal(pollCount,1);
     assert.equal(preview?.objects[0]?.id,'client_building');
     assert.equal(saved,0);
-    assert.match(ids.get('aiSceneLog').textContent,/Argon background status: completed/);
+    assert.match(ids.get('aiSceneLog').textContent,/Argon job status: completed/);
     assert.match(ids.get('aiSceneLog').textContent,/Z-fighting cleanup/);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
@@ -605,6 +605,66 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
     globalThis.fetch=oldFetch;
+  }
+});
+test('Argon polling survives a backgrounded phone and never resubmits the paid job',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldTimeout=globalThis.setTimeout;
+  const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
+    id:'resumed_block',name:'Resumed block',primitive:'box',position:[0,1,0],rotation:[0,0,0],
+    scale:[2,2,2],material:{color:'#223344',metalness:0,roughness:.6}}]}]};
+  const reply=(status,body)=>({status,body});
+  const inProgress=reply(200,{ok:true,status:'in_progress',shotId:'shot_a'});
+  const done=reply(200,{ok:true,status:'completed',shotId:'shot_a',proposal:scene});
+  const workerDown=reply(502,{ok:false,error:'The AI Worker could not complete the request (upstream status 502).'});
+  // iOS Safari reports a request cut off by locking or backgrounding as this.
+  const dropped=()=>new TypeError('Load failed');
+  const run=async replies=>{
+    const ids=new Map(),actions=[],delays=[];let preview=null,n=0;
+    globalThis.document=argonDomHarness(ids,jpeg);
+    globalThis.setTimeout=(fn,ms)=>{delays.push(ms);queueMicrotask(fn);return 0;};
+    globalThis.fetch=async(url,options={})=>{
+      if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,
+        csrf:'test-csrf',argonJob:{shotId:'shot_a',status:'in_progress'}}),{status:200});
+      actions.push(JSON.parse(options.body).action);
+      const next=replies[n++];
+      if(next instanceof Error)throw next;
+      return new Response(JSON.stringify(next.body),{status:next.status});
+    };
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:entry=>{preview=entry;},onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    await ids.get('aiSceneResumeArgon').fire('click');
+    return {preview,actions,delays,log:ids.get('aiSceneLog').textContent};
+  };
+  try{
+    // Dropped and transient checks retry; the job's result still arrives.
+    const recovered=await run([dropped(),workerDown,inProgress,done]);
+    assert.equal(recovered.preview?.objects[0]?.id,'resumed_block');
+    assert.deepEqual(recovered.actions,Array(4).fill('argon_status'),'Polling only; nothing resubmitted');
+    assert.deepEqual(recovered.delays,[5000,10000,5000],'Backs off after an HTTP error');
+    assert.equal(recovered.log.split('Status check interrupted (Load failed)').length-1,1);
+    assert.match(recovered.log,/Argon job status: in_progress/);
+    assert.match(recovered.log,/Argon job status: completed/);
+    // Network drops have no retry limit inside the window.
+    const offline=await run([...Array(6)].map(dropped).concat([done]));
+    assert.equal(offline.preview?.objects[0]?.id,'resumed_block');
+    assert.equal(offline.actions.length,7);
+    // Three identical HTTP errors in a row are a real answer: stop.
+    const broken=await run([workerDown,workerDown,workerDown,done]);
+    assert.equal(broken.preview,null);
+    assert.equal(broken.actions.length,3);
+    assert.deepEqual(broken.delays,[10000,15000]);
+    assert.match(broken.log,/Argon resume: The AI Worker could not complete the request/);
+    // A lost session is never retried.
+    const signedOut=await run([reply(401,{ok:false,error:'Sign in before generating a scene'}),done]);
+    assert.equal(signedOut.actions.length,1);
+    assert.equal(signedOut.preview,null);
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+    globalThis.fetch=oldFetch;globalThis.setTimeout=oldTimeout;
   }
 });
 test('Paid Argon disallows layered environment before spending or sampling video',async()=>{
