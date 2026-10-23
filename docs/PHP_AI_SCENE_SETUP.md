@@ -463,14 +463,29 @@ to their cap are visible:
   (<https://ai.google.dev/gemini-api/docs/pricing>). Prices are not built
   into the code, so they cannot go stale there.
 
-### Optional 65,536-token Direct image test
+### 65,536-token budget for High and Maximum detail
 
-Direct image offers **Argon token budget → 65,536 · experimental, same
-synchronous call**. The default remains 32,768; Previs is unchanged. It tests
-whether a larger allowance lets Argon attempt High or Maximum detail instead
-of answering with an empty scene. Only `max_output_tokens` changes: the same
-streamed `store:false` request, inline high-resolution frames, prompt,
-schema and scene limits. Usage reports the 65,536 cap.
+Direct image offers **Argon token budget → 65,536 · for High and Maximum
+detail**. Choosing High or Maximum detail selects it automatically, and
+Standard selects 32,768; either can still be changed by hand. Previs has no
+budget choice. Only `max_output_tokens` changes: the same streamed
+`store:false` request, inline high-resolution frames, prompt, schema and
+scene limits. Usage reports the 65,536 cap. The budget is a ceiling; Google
+bills only the tokens Argon generates.
+
+Live results (2026-10-23, exterior, full scene):
+
+| Thinking, detail | Budget | Objects | Parts | Thinking + output |
+|---|---|---|---|---|
+| any, High or Maximum | 32,768 | 0 or about 1 (4 completed runs) | — | 0–43% |
+| Medium, High | 65,536 | 117 | 560 | 19,161 (29%) |
+| Medium, Maximum | 65,536 | 106 | 654 | 11,042 (17%) |
+| High, Maximum | 65,536 | 153 | 737 | 27,587 (42%) |
+
+One earlier High/Maximum attempt at 65,536 failed without a recorded log.
+Even the successful runs used less than 32,768 tokens, so Argon did not run
+out of room at the smaller budget: it appears to plan against the limit it is
+given and gave up on a High or Maximum answer that would not fit comfortably.
 
 65,536 is Google's largest allowance without background execution. A
 100,000-token version used `background:true,store:true` and was rejected at

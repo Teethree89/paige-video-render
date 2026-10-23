@@ -649,10 +649,15 @@ test('Argon Direct image rebuilds a full scene in ONE call, with layers and ligh
     assert.equal(ids.get('aiArgonSettings').hidden,true);
     ids.get('aiSceneModel').value='argon_direct';await ids.get('aiSceneModel').fire('change');
     assert.equal(ids.get('aiArgonSettings').hidden,false);
+    assert.equal(ids.get('aiArgonBudget').value,'32768','Standard keeps the default budget');
     ids.get('aiArgonThinking').value='high';ids.get('aiArgonDetail').value='max';
+    await ids.get('aiArgonDetail').fire('change');
+    // Live: High and Maximum came back empty at 32,768 and worked at 65,536.
+    assert.equal(ids.get('aiArgonBudget').value,'65536');
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(payloads[0].thinking,'high');assert.equal(payloads[0].detail,'max');
-    assert.match(confirmed,/^Settings: high thinking, Maximum detail\. 32,768 tokens maximum for thinking \+ output/);
+    assert.equal(payloads[0].tokenBudget,65536);
+    assert.match(confirmed,/^Settings: high thinking, Maximum detail\. 65,536 tokens maximum for thinking \+ output/);
     assert.match(ids.get('aiSceneLog').textContent,/Argon settings: high thinking, Maximum detail\./);
     // One paid start, never the four Flash passes.
     assert.deepEqual(payloads.map(p=>p.action),['argon_start','argon_status']);
@@ -1097,9 +1102,9 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
     assert.deepEqual(largeCancelled.actions,[]);
     const disclosure=largeCancelled.ids.get('aiConfirmText').textContent;
     assert.match(disclosure,/65,536 tokens maximum for thinking \+ output/);
-    assert.match(disclosure,/same single synchronous call as the default/);
-    assert.match(disclosure,/Google asked not to store the request or result/);
-    assert.match(disclosure,/up to 65,536 generated tokens can be billed/);
+    assert.match(disclosure,/The thinking \+ output ceiling is 65,536 tokens instead of 32,768, on the same call/);
+    assert.match(disclosure,/Google is asked not to store the request or result/);
+    assert.match(disclosure,/Google bills only the tokens Argon generates, up to 65,536/);
     assert.doesNotMatch(disclosure,/stores THE REFERENCE IMAGES|55 days|background|replayed/);
     const longConfirmed=await run('ok','65536');
     assert.deepEqual(longConfirmed.actions,['argon_start','argon_status'],'one explicit paid start, no fallback');
@@ -1109,6 +1114,32 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
   }finally{
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
+    globalThis.fetch=oldFetch;
+  }
+});
+
+test('each detail level selects the budget it worked with, and the budget can still be changed',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch;
+  const ids=new Map();
+  globalThis.document=argonDomHarness(ids,'unused');
+  globalThis.fetch=async()=>new Response(JSON.stringify({ok:true,authenticated:true,csrf:'c',argonJob:null}));
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>null,getPlayheadTime:()=>2,onPreview:()=>{},onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    const detail=ids.get('aiArgonDetail'),budget=ids.get('aiArgonBudget');
+    assert.equal(budget.value,'32768');
+    for(const [level,expected] of [['high','65536'],['standard','32768'],['max','65536']]){
+      detail.value=level;await detail.fire('change');
+      assert.equal(budget.value,expected,level);
+    }
+    // A manual choice after the detail change is kept by other setting changes.
+    budget.value='32768';
+    ids.get('aiSceneModel').value='argon_direct';await ids.get('aiSceneModel').fire('change');
+    assert.equal(budget.value,'32768');
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     globalThis.fetch=oldFetch;
   }
 });

@@ -210,6 +210,16 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   };
   modelSelect?.addEventListener?.('change',showArgonSettings);
   showArgonSettings();
+  // Each detail level selects the budget it worked with live (2026-10-23):
+  // High and Maximum came back empty at 32,768 and returned 106 to 153
+  // objects at 65,536; Standard keeps 32,768. The budget is a ceiling (only
+  // generated tokens are billed) and can still be changed afterwards.
+  const recommendBudget=()=>{
+    if(budgetSelect&&detailSelect)
+      budgetSelect.value=['high','max'].includes(detailSelect.value)?'65536':'32768';
+  };
+  detailSelect?.addEventListener?.('change',recommendBudget);
+  recommendBudget();
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
   const resumeArgon=el('aiSceneResumeArgon');
   const downloadArgon=el('aiSceneDownloadArgon');
@@ -468,10 +478,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(argon){
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
-        if(!await askPaid(settings+' '+(largeBudget
-          ?'Start ONE EXPERIMENTAL paid 65,536-token Argon direct-image run? It is the same single synchronous call as the default (reference JPEGs sent inline, Google asked not to store the request or result); only the thinking + output allowance is doubled, so up to 65,536 generated tokens can be billed. Nothing retries or falls back. The Standard prompt and scene limits are unchanged.'
-          :profile==='argon_direct'
-          ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'
+        if(!await askPaid(settings+' '+(profile==='argon_direct'
+          ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'+
+            (largeBudget?' The thinking + output ceiling is 65,536 tokens instead of 32,768, on the same call; Google bills only the tokens Argon generates, up to 65,536.':'')
           :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'),
           'Start paid Argon run')){notStarted();return;}
       }

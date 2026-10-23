@@ -51,8 +51,8 @@ The two-stage High prompt also returned zero objects. The exact trigger is
 unverified; do not present a 90-object provider ceiling, parent-field conflict,
 or the removed budget warning as established causes. Standard already contains
 parent-surface instructions. Keep Standard byte-identical and the default 32,768-token
-budget/schema unchanged (the explicitly requested 65,536-token experiment below
-is the only budget exception); tests pin both complete Standard direct-image prompts.
+budget/schema unchanged (High and Maximum select the 65,536-token budget below,
+the only budget exception); tests pin both complete Standard direct-image prompts.
 `node scripts/inspect_argon_prompts.mjs` captures the request offline with dummy
 credentials, synthetic frames and a stubbed fetch. Its experiment variants are
 text for review, not editor settings or live requests. No paid call or retry is
@@ -96,8 +96,14 @@ Direct image token-budget selector accepts exactly 32,768 (default) or 65,536;
 PHP and the Worker both enforce it, and Previs cannot use it. The 65,536 run
 is the SAME streamed `store:false` call with inline images: only
 `max_output_tokens` changes, and usage reports that cap. Never reintroduce a
-background path for image input, and never claim the budget is the cause of
-empty scenes until a live 65,536 run shows it. The existing raw-output size
-guard, 12-minute call deadline and geometry limits remain in force.
+background path for image input. Live result (2026-10-23, exterior, full
+scene): every High or Maximum run at 32,768 came back empty, while at 65,536
+Medium/High returned 117 objects, Medium/Maximum 106 and High/Maximum 153
+(42% of the budget at most); one earlier High/Maximum attempt at 65,536 failed
+without a recorded log. Choosing High or Maximum detail therefore selects
+65,536 in the editor, and Standard selects 32,768 (Standard's request stays
+byte-identical); the user can still change it. The budget is a ceiling: only
+generated tokens are billed. The existing raw-output size guard, 12-minute
+call deadline and geometry limits remain in force.
 Read the investigation/setup sections for the single-run procedure. No paid
 provider run, merge or production deploy is implied by offline validation.

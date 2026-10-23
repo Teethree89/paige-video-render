@@ -1067,6 +1067,29 @@ Expected evidence from one run (exterior, High thinking, High detail,
   separate add-detail pass or Standard detail.
 - `incomplete` at the cap: budget pressure; the finished objects are kept.
 
+### 65,536 results: High and Maximum work (2026-10-23)
+
+| Time (EDT) | Thinking, detail | Budget | Duration | Thinking | Output | Result |
+|---|---|---|---|---|---|---|
+| 14:48 | Medium, High | 65,536 | 2:56 | 0 | 19,161 | 117 objects, 560 parts, 8 lights |
+| 14:57 | Medium, Maximum | 65,536 | 2:08 | 0 | 11,042 | 106 objects, 654 parts, 8 lights |
+| (before 15:03) | High, Maximum | 65,536 | — | — | — | failed; log not recorded |
+| 15:03 | High, Maximum | 65,536 | 5:52 | 3,292 | 24,295 | 153 objects, 737 parts, 8 lights (accepted) |
+
+Every High or Maximum run at 32,768 had come back empty or nearly empty:
+Medium/High at 12:34 and High/High at 12:57, which used the same two-stage
+prompt as these runs. So the budget, which is the only setting those runs
+share, is the evident trigger. No run changed only the budget: the 12:34 run
+used the older prompt, and the 12:57 run used High thinking. Every
+successful run used less than 32,768 tokens (at most 27,587), so Argon was
+not cut off at the smaller budget. It appears to plan against the
+`max_output_tokens` it is given and declines a High or Maximum answer that
+would not fit comfortably, which is Argon's own explanation.
+
+The editor now selects 65,536 when High or Maximum detail is chosen, and
+32,768 for Standard, whose request stays byte-identical. The 3:05 status
+check that dropped mid-run recovered without a second paid request.
+
 ## Evidence and conclusion (first pass)
 
 Baseline: `b3f687f` (`main`, PR #69). The supplied live diagnostic results are:
