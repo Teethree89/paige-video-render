@@ -220,6 +220,20 @@
               <button id="aiSceneDownloadArgon" type="button" class="wide secondary" hidden>Download original Argon output</button>
               <p class="field-help">Download the latest job's original scene response, even if validation failed. New direct-image jobs keep this output privately for 24 hours; download it before starting another job. Unsupported materials use a neutral fallback in the preview. Older failed direct-image jobs have no saved original output.</p>
               <button id="aiSceneInspect" type="button" class="wide secondary" hidden>View proposed shapes in 3D ↗</button>
+              <section id="aiCameraSyncPanel" class="camera-sync-panel" aria-label="Align chapter camera with generated geometry" hidden>
+                <div class="section-label">SYNC CAMERA MOTION · LOCAL / FREE</div>
+                <p class="field-help">Retarget this chapter's existing dolly, pan and orbit movement to the regenerated scene's actual 3D size. Your original camera keys remain unchanged until you accept the proposal.</p>
+                <label class="field">Framing
+                  <select id="aiCameraSyncMode">
+                    <option value="motion" selected>Preserve original motion &amp; framing</option>
+                    <option value="fit">Fit the entire regenerated scene</option>
+                    <option value="model-view">Align motion with model's suggested starting view</option>
+                  </select>
+                </label>
+                <button id="aiCameraSyncPreview" type="button" class="wide secondary">Sync &amp; preview camera motion</button>
+                <label class="checkbox-field"><input id="aiCameraSyncApply" type="checkbox" disabled> Apply synchronized camera keys when accepting geometry</label>
+                <p id="aiCameraSyncStatus" class="field-help" role="status">Available after the geometry preview appears. No extra Gemini requests or charges.</p>
+              </section>
               <button id="aiSceneCleanup" type="button" class="wide secondary" hidden>Re-run z-fighting cleanup on preview</button>
               <div class="primitive-buttons">
                 <button id="aiSceneAccept" type="button" class="secondary" hidden>Accept proposed geometry</button>
