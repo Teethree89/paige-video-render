@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-start-recovery-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-detail-stages-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-start-recovery-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-detail-stages-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -1921,6 +1921,9 @@ test('Argon thinking and detail settings reach Google, change the prompt and are
     assert.match(body.system_instruction,/at most 120 objects, 8 lights/);
     assert.match(body.system_instruction,/Target 80 to 120 objects/);
     assert.doesNotMatch(body.system_instruction,/DETAIL:/);
+    // Standard is the prompt of the live 69-, 71- and 85-object scenes, unchanged.
+    assert.match(body.system_instruction,/and complete: an unfinished answer is discarded\./);
+    assert.doesNotMatch(body.system_instruction,/BUDGET_END|two stages|Never return an empty/);
     // Chosen settings: stored with the job and sent to Google.
     const job=await direct({mode:'full_scene',thinking:'high',detail:'max'});
     body=bodies.at(-1);
@@ -1928,13 +1931,19 @@ test('Argon thinking and detail settings reach Google, change the prompt and are
     assert.equal(body.generation_config.max_output_tokens,32768,'the token budget never changes');
     assert.match(body.system_instruction,/at most 180 objects, 8 lights/);
     assert.match(body.system_instruction,/DETAIL: MAXIMUM/);
-    assert.match(body.system_instruction,/Target 140 to 180 objects/);
+    // Live: High and Maximum answered with empty scenes, so they build on the
+    // Standard scene in the same answer and rule out an empty one.
+    assert.match(body.system_instruction,/every main mass, about 80 to 120 objects\. Then keep\s+adding finer attached parts, as DETAIL above asks, until about 140 to 180 objects\./);
+    assert.match(body.system_instruction,/Never return an empty objects array/);
+    assert.match(body.system_instruction,/cut off at the output limit keeps only the\s+objects it finished/);
+    assert.doesNotMatch(body.system_instruction,/discarded|BUDGET_END/);
     assert.equal(job.ctx.storage.data.get('request'),undefined,'frames removed after the call');
     await direct({mode:'primary_subject',thinking:'minimal',detail:'high'});
     body=bodies.at(-1);
     assert.equal(body.generation_config.thinking_level,'minimal');
     assert.match(body.system_instruction,/DETAIL: HIGH/);
-    assert.match(body.system_instruction,/Target 80 to 130 objects/);
+    assert.match(body.system_instruction,/about 48 to 96 objects\. Then keep[\s\S]*until about 80 to 130 objects\./);
+    assert.match(body.system_instruction,/Never return an empty objects array/);
     // Previs uses the same settings for its background geometry call.
     const previs=await argonPost(env,'/api/scene/argon/start',{...sample,profile:'argon_previs',
       mode:'primary_subject',thinking:'low',detail:'high'});
