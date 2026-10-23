@@ -150,3 +150,72 @@ test('GLB export keeps shared copies, glass and glow', async () => {
   assert.ok(glb.byteLength>1000);
   world.dispose();
 });
+
+test('viewport picking resolves each repeated copy to one editable holder ID',()=>{
+  const {world,root,of}=build();
+  const holder=world.getObjectNode('s1','windows');
+  assert.equal(holder,root.getObjectByName('Windows'));
+  assert.ok(holder.isGroup);
+  assert.equal(world.getObjectNode('s1','box').isMesh,true);
+  assert.equal(world.getObjectNode('s1','unknown'),null);
+  assert.equal(world.getObjectNode('other','windows'),null);
+  const pickables=world.getPickableMeshes('s1');
+  assert.equal(pickables.length,18);
+  assert.ok(pickables.every(node=>node.userData.primitiveId));
+  assert.ok(of('windows').every(node=>pickables.includes(node)));
+  assert.equal(world.getPickableMeshes('other').length,0);
+  holder.position.x+=3;
+  assert.equal(holder.position.x,13);
+  assert.equal(of('windows')[0].position.x,-3,'the repeated children do not need to be edited individually');
+  const copy=world.getSceneForExport('s1');
+  assert.ok(copy.getObjectByName('Windows'),'export continues using ordinary nodes');
+});
+
+test('pinned Three.js TransformControls attach to saved primitives and toggle orbit safely',async()=>{
+  const {setupSceneObjectEditing}=await import('../scene-object-edit.js');
+  const {world}=build(),scene=new THREE.Scene();
+  // The real world object is already parented to its own scene; its existing
+  // meshes can be referenced by TransformControls without reparenting it.
+  const camera=new THREE.PerspectiveCamera(50,1,.1,1000);
+  camera.position.set(0,5,30);camera.lookAt(0,0,0);
+  const listeners=new Map();
+  const canvas={
+    style:{},addEventListener(type,fn){listeners.set(type,fn);},
+    removeEventListener(type){listeners.delete(type);},
+    getBoundingClientRect(){return {left:0,top:0,width:800,height:600}},
+    setPointerCapture(){},releasePointerCapture(){}
+  };
+  const ids=new Map();
+  const oldDocument=globalThis.document;
+  globalThis.document={getElementById(id){
+    if(!ids.has(id))ids.set(id,{
+      hidden:false,disabled:false,textContent:'',classList:{toggle(){}},
+      addEventListener(){},setAttribute(){}
+    });
+    return ids.get(id);
+  }};
+  const orbit={enabled:false};
+  let enters=0,exits=0,selection=null,deletes=0;
+  try{
+    const editor=setupSceneObjectEditing({
+      scene,camera,canvas,orbitControls:orbit,world,
+      getActiveShot:()=>({id:'s1'}),getDocument:()=>document,
+      onEnter:()=>{enters++;return true;},onExit:()=>{exits++;orbit.enabled=false;},
+      onSelect:id=>selection=id,onDelete:()=>{deletes++;},
+      onTransform:()=>assert.fail('Do not persist transforms on selection'),
+      onStatus:()=>{}
+    });
+    assert.equal(editor.active,false);
+    assert.equal(editor.setActive(true),true);
+    assert.equal(editor.active,true);assert.equal(orbit.enabled,true);
+    assert.equal(editor.select('windows'),true);
+    assert.equal(editor.selectedId,'windows');assert.equal(selection,'windows');
+    assert.equal(editor.setMode('rotate'),undefined);
+    assert.equal(editor.select('unknown'),false);
+    assert.equal(editor.deleteSelected(),true);assert.equal(deletes,1);
+    assert.equal(editor.selectedId,null);
+    assert.equal(editor.setActive(false),true);
+    assert.equal(editor.active,false);assert.equal(enters,1);assert.equal(exits,1);
+    editor.dispose();
+  }finally{globalThis.document=oldDocument;world.dispose();}
+});

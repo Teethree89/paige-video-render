@@ -73,6 +73,11 @@ test('primitive inspector initializes and adds editable scene geometry without c
     const shape=sequence.primitiveScenes.scenes[0].objects[0];
     assert.equal(shape.primitive,'box');
     assert.equal(dom.getElementById('primitiveFields').hidden,false);
+    assert.equal(typeof editor.selectObject,'function');
+    assert.equal(editor.selectObject('missing'),false);
+    assert.equal(editor.selectObject(shape.id),true);
+    assert.equal(editor.getSelectedId(),shape.id);
+
     // Input updates must round-trip through validated scene JSON.
     const x=fields.find(x=>x.dataset.prim==='position.0');
     x.value='6.5';
