@@ -1,4 +1,5 @@
 import {buildReferenceTimeline,validateReferenceItems} from './reference-sequence.js';
+import {mountReferenceBuilderUI} from './reference-builder-ui.js';
 
 const el=id=>document.getElementById(id);
 const rounded=n=>Math.round(n*1000)/1000;
@@ -40,6 +41,7 @@ async function loadVideoMetadata(url){
 let counter=0;
 const newId=prefix=>prefix+'_'+Date.now().toString(36)+'_'+(++counter).toString(36);
 export function setupReferenceBuilder({onApply}){
+  mountReferenceBuilderUI();
   const modal=el('referenceBuilderModal'),status=el('rbStatus'),
     list=el('rbScenes'),image=el('rbImage'),video=el('rbVideo'),
     fileInput=el('rbFiles'),relinkInput=el('rbRelink');
@@ -171,7 +173,7 @@ export function setupReferenceBuilder({onApply}){
   el('referenceBuilderOpenBtn').addEventListener('click',()=>{modal.hidden=false;render();});
   el('rbClose').addEventListener('click',()=>{modal.hidden=true;video.pause();});
   modal.addEventListener('click',event=>{if(event.target===modal){modal.hidden=true;video.pause();}});
-  el('rbName').addEventListener('input',event=>{const item=current();if(!item)return;item.name=event.target.value.slice(0,100);render();});
+  el('rbName').addEventListener('input',event=>{const item=current();if(!item)return;item.name=event.target.value.slice(0,100);const row=list.querySelector('.rb-scene.active strong');if(row)row.textContent=item.name;});
   el('rbFit').addEventListener('change',event=>{const item=current();if(item){item.fit=event.target.value;render();}});
   const onTimingChange=()=>{
     const item=current();if(!item)return;
