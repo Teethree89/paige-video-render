@@ -680,7 +680,7 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
         reason:'provider_deadline',codes:['DEADLINE_EXCEEDED'],fields:[],terms:[]}}),{status:200}));
     assert.deepEqual(deadline.actions,['argon_start','argon_status']);
     assert.match(deadline.log,/reason provider_deadline · code DEADLINE_EXCEEDED/);
-    assert.match(deadline.log,/Google's server could not finish this request\. Per Google's billing FAQ/);
+    assert.match(deadline.log,/The provider request returned a server error\. Google's billing FAQ/);
     assert.doesNotMatch(failed.log,/billing FAQ/,'not for other failures');
     // A finished scene with no usable part names the rule that rejected it.
     const unusable=await run('argon_direct',payload=>new Response(JSON.stringify(
@@ -719,13 +719,18 @@ test('Argon polling survives a backgrounded phone and never resubmits the paid j
   const run=async replies=>{
     const ids=new Map(),actions=[],delays=[];let preview=null,n=0;
     globalThis.document=argonDomHarness(ids,jpeg);
-    globalThis.setTimeout=(fn,ms)=>{delays.push(ms);queueMicrotask(fn);return 0;};
+    let pollDeadline;
+    globalThis.setTimeout=(fn,ms)=>{
+      if(ms===40000){pollDeadline=fn;return oldTimeout(fn,ms);}
+      delays.push(ms);queueMicrotask(fn);return 0;
+    };
     globalThis.fetch=async(url,options={})=>{
       if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,
         csrf:'test-csrf',argonJob:{shotId:'shot_a',status:'in_progress'}}),{status:200});
       actions.push(JSON.parse(options.body).action);
       const next=replies[n++];
       if(next instanceof Error)throw next;
+      if(typeof next==='function')return next(options,pollDeadline);
       return new Response(JSON.stringify(next.body),{status:next.status});
     };
     const shot={id:'shot_a',start:0,end:6};
@@ -741,26 +746,41 @@ test('Argon polling survives a backgrounded phone and never resubmits the paid j
     const recovered=await run([dropped(),workerDown,inProgress,done]);
     assert.equal(recovered.preview?.objects[0]?.id,'resumed_block');
     assert.deepEqual(recovered.actions,Array(4).fill('argon_status'),'Polling only; nothing resubmitted');
-    assert.deepEqual(recovered.delays,[6500,13000,6500],'Backs off after an HTTP error');
-    assert.equal(recovered.log.split('Status check interrupted (Load failed)').length-1,1);
+    assert.deepEqual(recovered.delays,[6500,13000,6500],'Backs off across network and HTTP errors');
+    assert.equal(recovered.log.split('Status check interrupted (Connection to the editor server was interrupted)').length-1,1);
     assert.match(recovered.log,/Argon job status: in_progress/);
     assert.match(recovered.log,/Argon job status: completed/);
     // Network drops have no retry limit inside the window.
     const offline=await run([...Array(6)].map(dropped).concat([done]));
     assert.equal(offline.preview?.objects[0]?.id,'resumed_block');
     assert.equal(offline.actions.length,7);
-    // Three identical HTTP errors in a row are a real answer: stop.
-    const broken=await run([workerDown,workerDown,workerDown,done]);
-    assert.equal(broken.preview,null);
-    assert.equal(broken.actions.length,3);
-    assert.deepEqual(broken.delays,[13000,19500]);
-    assert.match(broken.log,/Argon resume: The AI Worker could not complete the request/);
+    // Even a longer gateway outage recovers the SAME job, with capped backoff.
+    const broken=await run([...Array(6)].fill(workerDown).concat([done]));
+    assert.equal(broken.preview?.objects[0]?.id,'resumed_block');
+    assert.equal(broken.actions.length,7);
+    assert.deepEqual(broken.delays,[6500,13000,26000,30000,30000,30000]);
+    assert.match(broken.log,/Argon job status: completed/);
     // A paid result the Worker could not use reports its tokens once, not per check.
     const unusable=reply(502,{ok:false,error:'Provider scene did not match the editor schema',
       usage:{input:1800,thinking:9120,output:11204,total:22124,cap:32768}});
-    const wasted=await run([unusable,unusable,unusable]);
+    const wasted=await run([unusable,unusable,unusable,done]);
+    assert.equal(wasted.actions.length,1,'A finished paid validation failure is terminal');
     assert.equal(wasted.log.split('Argon tokens: 1,800 input · 9,120 thinking').length-1,1);
     assert.match(wasted.log,/used 20,324 of 32,768 \(62%\)/);
+    // A hanging status request times out, then a free poll recovers the job.
+    const timedOut=await run([(options,expire)=>new Promise((_resolve,reject)=>{
+      options.signal.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')));
+      expire();
+    }),done]);
+    assert.equal(timedOut.preview?.objects[0]?.id,'resumed_block');
+    assert.deepEqual(timedOut.actions,['argon_status','argon_status']);
+    assert.match(timedOut.log,/Editor status check timed out/);
+    const badBody=await run([()=>new Response('<html>gateway</html>'),done]);
+    assert.equal(badBody.preview?.objects[0]?.id,'resumed_block');
+    assert.match(badBody.log,/unreadable status response/);
+    const refused=await run([new TypeError('net::ERR_CONNECTION_REFUSED'),done]);
+    assert.equal(refused.preview?.objects[0]?.id,'resumed_block');
+    assert.deepEqual(refused.actions,['argon_status','argon_status']);
     // A lost session is never retried.
     const signedOut=await run([reply(401,{ok:false,error:'Sign in before generating a scene'}),done]);
     assert.equal(signedOut.actions.length,1);

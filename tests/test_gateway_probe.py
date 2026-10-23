@@ -387,7 +387,9 @@ echo json_encode(array_map(static function ($value) {
             {"diagnostic": {**valid, "terms": "image"}},
             {"diagnostic": {**valid, "reason": "PRIVATE prose reason"}},
             {"diagnostic": {**valid, "phase": "upload"}},
-            {"diagnostic": {**valid, "http": 500}},
+            {"diagnostic": {**valid, "http": 200}},
+            {"diagnostic": {**valid, "http": "502"}},
+            {"diagnostic": {**valid, "http": 600}},
             {"diagnostic": {**valid, "status": "PRIVATE"}},
             {"diagnostic": "PRIVATE string"},
             {"error": "no diagnostic"},
@@ -399,6 +401,11 @@ echo json_encode(array_map(static function ($value) {
             script.write_text(harness)
             result = subprocess.run(["php", str(script)], input=json.dumps(cases),
                                     text=True, capture_output=True, check=True)
+            # Exact upstream error statuses now survive the PHP boundary.
+            statuses = [400, 401, 402, 403, 404, 408, 422, 429, 500, 502, 503, 504, 524]
+            accepted = subprocess.run(["php", str(script)], input=json.dumps([
+                {"diagnostic": {**valid, "phase": "job", "http": status}}
+                for status in statuses]), text=True, capture_output=True, check=True)
         output = json.loads(result.stdout)
         self.assertEqual(output[0], {"ok": False, "diagnostic": valid})
         self.assertEqual(output[1], {"ok": False, "diagnostic": valid}, "extra keys dropped")
@@ -408,6 +415,7 @@ echo json_encode(array_map(static function ($value) {
         for rejected in output[4:]:
             self.assertEqual(rejected, {"ok": False})
         self.assertNotIn("PRIVATE", result.stdout)
+        self.assertEqual([v["diagnostic"]["http"] for v in json.loads(accepted.stdout)], statuses)
 
     @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
     def test_php_forwards_only_numeric_token_usage(self):

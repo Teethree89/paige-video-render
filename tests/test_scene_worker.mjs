@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-detail-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-stream-recovery-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-detail-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-stream-recovery-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -604,6 +604,83 @@ const completedScene=()=>new Response(JSON.stringify({id:'v1_sync',status:'compl
 const doPost=(jobsEnv,path,body)=>worker.fetch(new Request('https://example.workers.dev'+path,{
   method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
   body:JSON.stringify(body)}),jobsEnv);
+const sse=event=>'data: '+JSON.stringify(event)+'\r\n\r\n';
+function streamed(events,{drop=false}={}){
+  const bytes=new TextEncoder().encode(': keep-alive\r\n\r\n'+events.map(sse).join(''));
+  let at=0;
+  return new Response(new ReadableStream({pull(controller){
+    if(at>=bytes.length){
+      if(drop)controller.error(new TypeError('PRIVATE connection refused'));
+      else controller.close();
+      return;
+    }
+    // Deliberately split SSE fields, CRLFs and multibyte UTF-8 characters.
+    const end=Math.min(at+7,bytes.length);
+    controller.enqueue(bytes.slice(at,end));at=end;
+  }}),{headers:{'Content-Type':'text/event-stream; charset=utf-8'}});
+}
+test('direct-image streaming keeps only model output, terminal status and numeric usage, without replay',async()=>{
+  const oldFetch=globalThis.fetch,oldWarn=console.warn,oldLog=console.log,logs=[];
+  console.warn=console.log=(...args)=>logs.push(args);
+  const run=async respond=>{
+    const {objects,namespace}=fakeArgonJobs(env),jobsEnv={...env,ARGON_JOBS:namespace};let calls=0;
+    globalThis.fetch=async(_url,opts)=>{
+      calls++;assert.equal(JSON.parse(opts.body).stream,true);
+      assert.equal(opts.headers.Accept,'text/event-stream');return respond();
+    };
+    const started=await (await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob)).json();
+    const job=objects.get(started.jobId.slice(3));
+    await job.alarm();await job.alarm();
+    const status=await (await doPost(jobsEnv,'/api/scene/argon/status',
+      {jobId:started.jobId,shotId:'draft_001'})).json();
+    assert.equal(calls,1);assert.equal(await job.ctx.storage.get('request'),undefined);
+    assert.ok(!JSON.stringify(status).includes('PRIVATE'));
+    return status;
+  };
+  const usage={total_input_tokens:1800,total_output_tokens:400,total_thought_tokens:123,
+    total_tokens:2323,private_metadata:'PRIVATE'};
+  const start={event_type:'step.start',index:2,step:{type:'model_output'}};
+  const delta=text=>({event_type:'step.delta',index:2,delta:{type:'text',text}});
+  const end=status=>({event_type:'interaction.completed',interaction:{id:'PRIVATE_ID',status}});
+  try{
+    const unicode=structuredClone(scene);unicode.scenes[0].objects[0].name='Café 🏠';
+    const output=JSON.stringify(unicode),split=output.indexOf('Café')+4;
+    const result=await run(()=>streamed([
+      {event_type:'interaction.created',interaction:{id:'PRIVATE_ID',status:'in_progress'}},
+      {event_type:'step.start',index:0,step:{type:'thought'}},
+      {event_type:'step.delta',index:0,delta:{type:'text',text:'PRIVATE thoughts'}},
+      {event_type:'step.start',index:1,step:{type:'user_input',content:[{type:'text',text:'PRIVATE_FRAME'}]}},
+      start,delta(output.slice(0,split)),{...delta(output.slice(split)),metadata:{total_usage:usage}},
+      {event_type:'step.stop',index:2,usage},end('completed')
+    ]));
+    assert.equal(result.status,'completed');assert.deepEqual(result.proposal,unicode);
+    assert.deepEqual(result.usage,{input:1800,thinking:123,output:400,total:2323,cap:32768});
+    // The optional final snapshot is authoritative; never append it twice.
+    const snapshot=await run(()=>streamed([start,delta(output),
+      {...end('completed'),interaction:{status:'completed',steps:[{type:'model_output',
+        content:[{type:'text',text:JSON.stringify(scene)}]}]}}]));
+    assert.deepEqual(snapshot.proposal,scene);
+    const cut=JSON.stringify(scene).slice(0,-3)+',{"id":"unfinished';
+    const incomplete=await run(()=>streamed([start,delta(cut),end('incomplete')]));
+    assert.equal(incomplete.status,'completed');assert.equal(incomplete.repairs.truncated,1);
+    assert.equal(incomplete.proposal.scenes[0].objects[0].id,'box_1');
+    // EOF or a network error never masquerades as a completed paid result.
+    for(const drop of [false,true]){
+      const broken=await run(()=>streamed([start,{...delta(output),metadata:{total_usage:usage}}],{drop}));
+      assert.equal(broken.status,'failed');
+      assert.equal(broken.diagnostic.reason,'provider_stream_interrupted');
+      assert.equal(broken.usage.output,400);
+    }
+    const error=await run(()=>streamed([start,{...delta(output),metadata:{total_usage:usage}},
+      {event_type:'error',error:{code:'deadline_exceeded',message:'PRIVATE server deadline'}}]));
+    assert.equal(error.diagnostic.reason,'provider_stream_error');
+    assert.deepEqual(error.diagnostic.codes,['deadline_exceeded']);
+    assert.equal(error.usage.thinking,123);
+    const huge=await run(()=>streamed([start,delta('x'.repeat(160001)),end('completed')]));
+    assert.equal(huge.diagnostic.reason,'no_usable_scene');
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
+  }finally{globalThis.fetch=oldFetch;console.warn=oldWarn;console.log=oldLog;}
+});
 test('Direct-image Argon runs ONE synchronous image call inside a Durable Object alarm',async()=>{
   const prior=globalThis.fetch,oldTimeout=AbortSignal.timeout;const timeouts=[];let calls=0;
   AbortSignal.timeout=ms=>{timeouts.push(ms);return oldTimeout.call(AbortSignal,ms);};
@@ -621,9 +698,10 @@ test('Direct-image Argon runs ONE synchronous image call inside a Durable Object
     const body=JSON.parse(opts.body);
     // Synchronous and stateless: no background, and Google stores nothing.
     assert.deepEqual(Object.keys(body).sort(),['generation_config','input','model',
-      'response_format','store','system_instruction']);
+      'response_format','store','stream','system_instruction']);
     assert.equal(body.model,'gemini-4-argon');
     assert.equal(body.store,false);
+    assert.equal(body.stream,true);
     assert.equal(body.background,undefined);
     assert.deepEqual(body.generation_config,{thinking_level:'medium',max_output_tokens:32768});
     assert.deepEqual(body.response_format.schema.required,['schemaVersion','scenes']);
@@ -730,11 +808,13 @@ test('Direct-image alarms never retry, resubmit or leak, whatever fails',async()
     await reason(()=>new Response('{"error":{"message":"PRIVATE"}}',{status:429}),'provider_rate_limited');
     await reason(()=>new Response('PRIVATE',{status:503}),'provider_capacity');
     await reason(()=>new Response('PRIVATE',{status:500}),'provider_internal');
-    await reason(()=>new Response('PRIVATE',{status:502}),'provider_unavailable');
+    const gateway=await reason(()=>new Response('PRIVATE',{status:502}),'provider_gateway');
+    assert.equal(gateway.diagnostic.http,502);
+    await reason(()=>new Response('PRIVATE',{status:501}),'provider_unavailable');
     // A server error keeps only its fixed codes and terms from the body.
     const late=await reason(()=>new Response(JSON.stringify({error:{code:504,status:'DEADLINE_EXCEEDED',
       message:'Deadline expired before operation could complete. PRIVATE'}}),{status:504}),'provider_deadline');
-    assert.deepEqual(late.diagnostic,{phase:'job',http:null,status:'failed',codes:['DEADLINE_EXCEEDED'],
+    assert.deepEqual(late.diagnostic,{phase:'job',http:504,status:'failed',codes:['DEADLINE_EXCEEDED'],
       reason:'provider_deadline',fields:[],terms:[]});
     await reason(()=>new Response('PRIVATE',{status:403}),'provider_permission');
     await reason(()=>new Response(null,{status:302,headers:{Location:'https://attacker.example/PRIVATE'}}),
@@ -1587,7 +1667,8 @@ test('Argon sorts objects into editor layers, may add lights, and direct image c
     assert.doesNotMatch(full.system_instruction,/PRIMARY SUBJECT/);
     for(const body of bodies){
       // Same single synchronous call and frames; only the scope text differs.
-      assert.equal(body.store,false);assert.equal(body.background,undefined);
+      assert.equal(body.store,false);
+    assert.equal(body.stream,true);assert.equal(body.background,undefined);
       assert.equal(body.input.length,6);
       assert.match(body.system_instruction,/layer: "structures"/);
       assert.match(body.system_instruction,/scene "lights": up to 8 lights/);

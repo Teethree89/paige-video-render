@@ -7,11 +7,24 @@ const api='./scene-proxy.php';
 const headers={'Content-Type':'application/json','X-Paige-Client':'SceneStudio'};
 
 async function request(action,data={}) {
-  const response=await fetch(api,{
-    method:'POST',credentials:'same-origin',headers,
-    body:JSON.stringify({action,...data})
-  });
-  const result=await response.json().catch(()=>({error:'The PHP endpoint returned an invalid response'}));
+  // Bound free polls, including a stalled response body. Never replay a paid
+  // start: a lost start response can still represent a submitted paid request.
+  const polling=action==='argon_status',controller=polling?new AbortController():null;
+  const timer=controller?setTimeout(()=>controller.abort(),40000):null;
+  let response,result;
+  try{
+    response=await fetch(api,{
+      method:'POST',credentials:'same-origin',headers,cache:'no-store',
+      ...(controller?{signal:controller.signal}:{}),body:JSON.stringify({action,...data})
+    });
+    result=await response.json();
+  }catch(error){
+    if(!polling)throw error;
+    throw Object.assign(Error(controller.signal.aborted?'Editor status check timed out':
+      response?'The editor server returned an unreadable status response':
+        'Connection to the editor server was interrupted'),
+      {status:response?.status,transient:!response||response.ok||response.status>=500});
+  }finally{if(timer!==null)clearTimeout(timer);}
   if(!response.ok||!result.ok){
     const error=Error(result.error||'Scene request failed');
     error.status=response.status;
@@ -21,19 +34,20 @@ async function request(action,data={}) {
   }
   return result;
 }
-// Not 5 s: checking every 5 s failed on every other check ("Load failed",
-// live 2026-10-23), most likely Safari reusing a connection just as the
-// host closed it at Apache's default 5 s keep-alive timeout.
+// Normal cadence only. Connection refusals do not establish a keep-alive cause;
+// transient polls back off separately, for network and HTTP failures alike.
 const POLL_MS=6500;
 // Waits between status checks, but returns early when a backgrounded tab is
 // shown again, so a resumed phone checks immediately.
 function pollPause(ms) {
   return new Promise(resolve=>{
     const doc=globalThis.document;
-    const done=()=>{clearTimeout(timer);doc?.removeEventListener?.('visibilitychange',wake);resolve();};
+    const done=()=>{clearTimeout(timer);doc?.removeEventListener?.('visibilitychange',wake);
+      globalThis.removeEventListener?.('online',done);resolve();};
     const wake=()=>{if(doc?.visibilityState==='visible')done();};
     const timer=setTimeout(done,ms);
     doc?.addEventListener?.('visibilitychange',wake);
+    globalThis.addEventListener?.('online',done,{once:true});
   });
 }
 // Fixed provider tokens already validated by the Worker and PHP; never prose.
@@ -63,7 +77,7 @@ export function describeUsage(label,u) {
 const ARGON_THINKING=Object.freeze(['minimal','low','medium','high']);
 const ARGON_DETAIL_LABELS=Object.freeze({standard:'Standard',high:'High',max:'Maximum'});
 // Worker reasons for an HTTP 5xx answer from Google (providerStatusReason).
-const SERVER_FAILURES=Object.freeze(['provider_internal','provider_deadline','provider_unavailable','provider_capacity']);
+const SERVER_FAILURES=Object.freeze(['provider_internal','provider_deadline','provider_gateway','provider_unavailable','provider_capacity']);
 // The Worker's fixed repair codes (ARGON_REPAIR_CODES), in plain words.
 const REPAIR_LABELS=Object.freeze({json:'unreadable JSON',
   truncated:'answer cut off at the token limit (complete objects kept)',scene:'no scene',
@@ -215,7 +229,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(!source?.diagnostic)return;
     log(describeDiagnostic(source.diagnostic));
     if(SERVER_FAILURES.includes(source.diagnostic.reason))
-      log('Google\'s server could not finish this request. Per Google\'s billing FAQ, requests that fail with a server error are not charged for tokens (they still count against quota). Nothing was retried; start again when ready.');
+      log('The provider request returned a server error. Google\'s billing FAQ says failed 400/500 requests are not charged for tokens (they still count against quota). Nothing was retried.');
+    if(['provider_stream_error','provider_stream_interrupted'].includes(source.diagnostic.reason))
+      log('The provider stream ended without a complete result. Any reported usage is shown above; billing is not confirmed by this connection error. Nothing was retried.');
   };
   const clearActivity=()=>{
     activityLines=[];
@@ -239,23 +255,25 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   }
   // Status checks are free and never resubmit a paid job, so they are safe to
   // retry. A phone that locks or backgrounds the tab makes them fail mid-wait:
-  // network errors retry until the window ends; HTTP errors stop after three
-  // in a row, because a repeated answer is real rather than transient.
+  // network, 408, 429 and 5xx failures back off within the same bounded window.
+  // Auth/input failures and terminal job failures stop immediately.
   async function pollArgon(shotId){
     log('Argon job accepted. Polling for completion (status checks are free and never resubmit)…');
     const started=Date.now();
-    let prior='',httpErrors=0,interrupted=false,counted=false;
+    let prior='',failures=0,interrupted=false,counted=false;
     // A finished job reports its usage on every check; log it once.
     const count=usage=>{if(usage&&!counted){counted=true;log(describeUsage('Argon',usage));}};
     while(true){
       let result=null;
-      try{result=await request('argon_status',{csrf});httpErrors=0;}
+      try{result=await request('argon_status',{csrf});failures=0;}
       catch(error){
         count(error.usage); // a paid result the Worker could not use
-        if([401,403,404].includes(error.status))throw error;
-        if(error.status&&++httpErrors>=3)throw error;
+        if(error.usage)throw error; // finished generation/validation failure, not a lost poll
+        if(error.status&&!error.transient&&![408,429].includes(error.status)&&error.status<500)throw error;
+        failures++;
         if(!interrupted)log('Status check interrupted ('+error.message+'). Retrying without a new paid request…');
         interrupted=true;
+        status('Connection to the editor server interrupted — reconnecting to the existing Argon job…');
       }
       if(result){
         interrupted=false;
@@ -284,7 +302,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(Date.now()-started>=16*60*1000)break;
       if(waitInfo)waitInfo.textContent='Argon processing: '+
         Math.floor((Date.now()-started)/1000)+'s elapsed';
-      await pollPause(result?POLL_MS:Math.min(30000,POLL_MS*(httpErrors+1)));
+      await pollPause(result?POLL_MS:Math.min(30000,POLL_MS*2**Math.min(failures-1,3)));
     }
     throw Error('Argon is still processing. Use Resume previous Argon job later; do not resubmit a paid request.');
   }
