@@ -768,6 +768,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       csrf=session.csrf;argonJob=session.argonJob;
       if(!argonJob||argonJob.shotId!==shot.id)throw Error('No Argon job for this chapter');
       log('Resuming existing paid Argon job without starting another request.');
+      overlay.show({totalStages:1});
       const proposal=await pollArgon(shot.id);
       argonJob={shotId:shot.id,status:'completed'};
       showProposal(proposal,shot);
@@ -775,7 +776,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       log('Argon resume: '+error.message);
       logDiagnostic(error);
       status('Argon resume: '+error.message);
-    }finally{busy=false;if(waitInfo)waitInfo.textContent='';ui();}
+    }finally{overlay.hide();busy=false;if(waitInfo)waitInfo.textContent='';ui();}
   });
   inspect.addEventListener('click',()=>{
     if(pending&&!busy&&getActiveShot()?.id===pendingShot)onInspect?.(pendingShot);
