@@ -9,7 +9,7 @@ const original=()=>{
   row.repeat={count:[5,2,1],spacing:[1,2,0]};
   row.material.emissive='#ffcc77';row.material.emissiveIntensity=1;
   const camera={position:[0,8,40],target:[0,3,0],fov:55};
-  const lights=[{type:'point',color:'#ffffff',intensity:10,position:[0,8,0]}];
+  const lights=[{type:'point',name:'point light 1',color:'#ffffff',intensity:10,position:[0,8,0],distance:0}];
   return {schemaVersion:1,scenes:[
     {shotId:'exterior',objects:[base,row],camera,lights},
     {shotId:'second',objects:[makePrimitive('cylinder','cyl')]}
