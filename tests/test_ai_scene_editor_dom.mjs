@@ -734,6 +734,16 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     assert.deepEqual(unusable.actions,['argon_start','argon_status'],'No retry of a finished paid job');
     assert.match(unusable.log,/No part of the returned scene was usable\. Rule: size out of range, repeat over its limits\./);
     assert.match(unusable.log,/reason scene_schema_mismatch · code scale, repeat/);
+    // A well-formed answer with no objects says so, instead of "no scene passed validation".
+    const empty=await run('argon_direct',payload=>new Response(JSON.stringify(
+      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
+      {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,status:'failed',
+        reason:'scene_schema_mismatch',codes:['empty'],fields:[],terms:[]},
+        usage:{input:6664,inputImage:3300,cached:0,thinking:6999,output:39,total:13702,cap:32768}}),{status:200}));
+    assert.deepEqual(empty.actions,['argon_start','argon_status'],'No retry of a finished paid job');
+    assert.match(empty.log,/Rule: no objects in the answer\./);
+    assert.match(empty.log,/Argon answered with an empty scene \(0 objects\), so there is nothing to import\. Nothing was retried\./);
+    assert.doesNotMatch(empty.log,/no scene passed validation/);
     // A job cut off by a Worker deploy is Cloudflare's stop, not a provider failure.
     const redeployed=await run('argon_direct',payload=>new Response(JSON.stringify(
       payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:

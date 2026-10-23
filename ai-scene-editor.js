@@ -88,8 +88,9 @@ const SERVER_FAILURES=Object.freeze(['provider_internal','provider_deadline','pr
 // The Worker's fixed repair codes (ARGON_REPAIR_CODES), in plain words.
 const REPAIR_LABELS=Object.freeze({json:'unreadable JSON',
   truncated:'answer cut off at the token limit (complete objects kept)',scene:'no scene',
+  empty:'no objects in the answer',
   shot_id:'wrong shot ID (fixed)',scenes_merged:'several scenes (merged)',
-  object_cap:'over 120 objects',object:'malformed object',id:'invalid ID',
+  object_cap:'over the object limit',object:'malformed object',id:'invalid ID',
   duplicate_id:'duplicate ID (renamed)',primitive:'unknown shape',
   transform:'position or rotation out of range',scale:'size out of range',
   material:'material converted or defaulted',repeat:'repeat over its limits',footprint:'invalid footprint',
@@ -306,7 +307,11 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         }
         const stop=result.status==='failed'&&Object.hasOwn(JOB_STOPS,result.diagnostic?.reason)
           ?JOB_STOPS[result.diagnostic.reason]:null;
-        if(result.status==='failed')throw Object.assign(Error(result.diagnostic?.reason==='scene_schema_mismatch'
+        const empty=result.diagnostic?.reason==='scene_schema_mismatch'&&
+          Array.isArray(result.diagnostic.codes)&&result.diagnostic.codes.includes('empty');
+        if(result.status==='failed')throw Object.assign(Error(empty
+          ?'Argon answered with an empty scene (0 objects), so there is nothing to import. Nothing was retried.'
+          :result.diagnostic?.reason==='scene_schema_mismatch'
           ?'Argon returned output, but no scene passed validation. Use Download original Argon output to inspect it.'
           :stop?'Argon job stopped on Cloudflare, not at Google. '+stop+' No geometry was returned.'
           :'Argon job failed on the provider. No geometry was returned.'),{diagnostic:result.diagnostic});

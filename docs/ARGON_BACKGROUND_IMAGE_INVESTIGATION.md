@@ -582,11 +582,11 @@ and an earlier high/Maximum run (10:08) completed after 164 seconds.
 
 PR #86 merged at 11:19:34, and a merge to `main` deploys the Worker. A
 deploy resets Durable Objects ("Durable Object reset because its code was
-updated"). This is the likeliest cause, but it is not confirmed: preview
-builds of #85 and #86 finished 41 and 80 seconds after their pushes. A
-production build that fast would have deployed before the run started.
-Cloudflare's Deployments page and the alarm's invocation log hold the
-answer.
+updated"). But the merge of #87 was live on `/health` 40 seconds after it
+merged, so #86 was most likely live about 90 seconds before this run
+started. The cause is unknown. A dashboard change (settings or secrets
+make a new version) or a Cloudflare-side restart remain possible; the
+alarm's invocation log in Cloudflare holds the answer.
 
 Reproduced in workerd: restarting Miniflare with new options during a
 mocked call yields exactly `job_interrupted` on the previous Worker, with
@@ -594,6 +594,26 @@ one Google call. The job now stores the `CF_VERSION_METADATA` version with
 its `submitted` marker. The re-run alarm reports `job_interrupted_deploy`
 when the version changed, so the next occurrence names its cause. The
 editor no longer calls either reason a provider failure.
+
+### Empty scenes at high thinking and Maximum detail (`argon-empty-scene-v1`)
+
+At 11:43 EDT the same full-scene, high-thinking, Maximum-detail run on the
+`exterior` chapter completed in about 2:20. Google reported 6,664 input
+tokens (3,300 image), 6,999 thinking and **39 output** (21% of the budget).
+The saved original output was a well-formed scene with no objects:
+`{"schemaVersion":1,"scenes":[{"shotId":"exterior","objects":[]}]}`. Frames
+from across the chapter (0, 0.95, 2.15 and 3.35 s of the reference video)
+all clearly show the lit campus building, so the input was not empty.
+
+The 10:08 run at the same settings returned 147 output tokens after 13,915
+thinking, about one object. The medium-thinking runs on the earlier,
+non-streaming Worker returned 54 objects (subject) and 69 objects (full
+scene). Thinking, detail and streaming all changed between them, so which
+one causes the near-empty answers is not yet known. The cleanest next
+test is one paid run at Medium thinking and Standard detail on the current
+Worker. The validator now reports such an answer with code `empty` ("no
+objects in the answer") instead of `scene`, and the editor says Argon
+answered with an empty scene.
 
 ### Status wall-time observation
 

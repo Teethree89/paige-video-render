@@ -295,7 +295,7 @@ function argonSettings(payload){
 // shared rules: repair supported material fields, then drop any still-invalid
 // object, light or camera. What was repaired is counted under fixed codes,
 // named after our own rules, never model text.
-export const ARGON_REPAIR_CODES=Object.freeze(['json','truncated','scene','shot_id','scenes_merged',
+export const ARGON_REPAIR_CODES=Object.freeze(['json','truncated','scene','empty','shot_id','scenes_merged',
   'object_cap','object','id','duplicate_id','primitive','transform','scale','material',
   'repeat','footprint','name','scene_copies','light','light_cap','camera','other']);
 class ArgonSceneError extends Error{
@@ -360,6 +360,9 @@ function validateArgonOutput(value,shotId,{truncated=false}={}) {
   const scenes=(Array.isArray(value?.scenes)?value.scenes:[])
     .filter(scene=>scene&&typeof scene==='object'&&!Array.isArray(scene));
   if(!scenes.length)throw new ArgonSceneError(['scene']);
+  // A well-formed scene with no objects at all: Argon chose to return nothing.
+  if(!scenes.some(scene=>Array.isArray(scene.objects)&&scene.objects.length))
+    throw new ArgonSceneError(['empty']);
   // The job is bound to its shot: geometry is always filed under it.
   if(scenes.length>1)note('scenes_merged');
   if(scenes.some(scene=>scene.shotId!==shotId))note('shot_id');
@@ -1528,7 +1531,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-deploy-interrupt-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-empty-scene-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
