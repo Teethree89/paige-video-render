@@ -901,7 +901,8 @@ DETAIL: MAXIMUM. Model every element the frames resolve, at the finest scale
 you can place reliably. At this level use names of 1 to 3 words and numbers
 with at most 2 decimals instead, so the answer fits; finish every object you
 start.`});
-// Standard keeps the exact prompt of the live 69- and 71-object scenes. At
+// Standard keeps the exact prompt of the live 69-, 71- and 85-object scenes
+// (the last at High thinking, so thinking is not the problem). At
 // High and Maximum, Argon answered three times with an empty or nearly empty
 // scene (2026-10-23). Those levels therefore start from the Standard scene in
 // the same answer, state that a cut-off answer keeps its finished objects

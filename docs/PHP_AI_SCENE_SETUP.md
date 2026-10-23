@@ -475,8 +475,9 @@ With an Argon model selected, the editor shows two selectors:
   shares the same 32,768-token output budget.
 
 Standard detail is the tested setting: 54 and 69 objects on the earlier
-Worker, and 71 objects (450 parts, 8 lights) on the streaming Worker at
-Medium thinking (2026-10-23). Every completed live run at High or Maximum detail came
+Worker, then 71 objects (450 parts, 8 lights) at Medium thinking and 85
+objects (534 parts, 8 lights) at High thinking on the streaming Worker
+(2026-10-23). Every completed live run at High or Maximum detail came
 back empty or nearly empty, at High thinking (147 output tokens, then 0
 objects) and at Medium thinking (High detail: 0 objects in 14 seconds), so
 the detail prompt, not the thinking level, was the cause. Such an answer

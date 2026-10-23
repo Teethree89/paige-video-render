@@ -1921,7 +1921,7 @@ test('Argon thinking and detail settings reach Google, change the prompt and are
     assert.match(body.system_instruction,/at most 120 objects, 8 lights/);
     assert.match(body.system_instruction,/Target 80 to 120 objects/);
     assert.doesNotMatch(body.system_instruction,/DETAIL:/);
-    // Standard is the prompt of the live 69- and 71-object scenes, unchanged.
+    // Standard is the prompt of the live 69-, 71- and 85-object scenes, unchanged.
     assert.match(body.system_instruction,/and complete: an unfinished answer is discarded\./);
     assert.doesNotMatch(body.system_instruction,/BUDGET_END|two stages|Never return an empty/);
     // Chosen settings: stored with the job and sent to Google.

@@ -633,17 +633,17 @@ says how the connection failed.
 
 ### Standard works; High and Maximum detail come back empty (`argon-detail-stages-v1`)
 
-Two runs on the streaming Worker, full scene on `exterior`, Medium
-thinking:
+Three runs on the streaming Worker, full scene on `exterior`:
 
-| Detail | Time | Thinking | Output | Result |
+| Thinking, detail | Time | Thinking | Output | Result |
 |---|---|---|---|---|
-| Standard (12:30) | 1:28 | 0 | 7,551 | 71 objects, 450 parts, 8 lights |
-| High (12:34) | 0:14 | 0 | 38 | `{"objects":[]}` |
+| Medium, Standard (12:30) | 1:28 | 0 | 7,551 | 71 objects, 450 parts, 8 lights |
+| Medium, High (12:34) | 0:14 | 0 | 38 | `{"objects":[]}` |
+| High, Standard (12:36) | 1:55 | 1,654 | 8,762 | 85 objects, 534 parts, 8 lights (32% of budget) |
 
 So streaming and the pipeline work, and the thinking level was not the
-cause: with the same Medium thinking, the High detail prompt alone gave an
-empty scene. The schema and generation settings are identical for every
+cause: High thinking with Standard detail gave the largest scene so far,
+while Medium thinking with the High detail prompt gave an empty one. The schema and generation settings are identical for every
 level. Only the prompt differs: a higher cap and target and one DETAIL
 paragraph. Even Standard stopped short of its target (71 of 80–120). The
 likeliest reading is that a larger target, together with the old "an
