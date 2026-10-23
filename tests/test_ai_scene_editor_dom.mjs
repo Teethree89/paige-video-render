@@ -1166,23 +1166,37 @@ test('paid retry requires terminal validation failure and complete usage below 1
   assert.equal(argonRetryReason({argonTerminal:true,diagnostic:{reason:'start_not_received'}}),'start');
 });
 
-test('authorized cheap retry sends the identical request once, never loops or imports a failed scene',async()=>{
-  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
+test('three automatic paid retries wait 15 seconds and stop after four attempts or first success',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch;
+  const oldConfirm=globalThis.confirm,oldSetTimeout=globalThis.setTimeout;
   const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
-  const run=async({enabled=true,confirm=true,success=false,reason='scene_schema_mismatch',usage={thinking:0,output:39}}={})=>{
-    const ids=new Map(),payloads=[];let previews=0,message='';
+  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
+    id:'building',name:'Building',primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[2,2,2],
+    material:{color:'#334455',metalness:0,roughness:.6}}]}]};
+  const run=async({enabled=true,confirm=true,successOn=0,reason='scene_schema_mismatch',
+    usage={thinking:0,output:39},failures=[]}={})=>{
+    const ids=new Map(),payloads=[],waits=[];let previews=0,message='';
     globalThis.document=argonDomHarness(ids,jpeg);
     globalThis.confirm=text=>{message=text;return confirm;};
+    // Do not spend 45 seconds waiting in the test; record and complete only
+    // the paid-retry delay, leaving normal request/video timers unchanged.
+    globalThis.setTimeout=(callback,delay,...args)=>{
+      if(delay===15000){waits.push(delay);queueMicrotask(callback);return 0;}
+      return oldSetTimeout(callback,delay,...args);
+    };
     globalThis.fetch=async(url,options={})=>{
       if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',argonJob:null}));
       const payload=JSON.parse(options.body);payloads.push(payload);
       const starts=payloads.filter(p=>p.action==='argon_start').length;
-      return new Response(JSON.stringify(payload.action==='argon_start'
-        ?{ok:true,status:'in_progress',shotId:'shot_a'}
-        :success&&starts===2?{ok:true,status:'completed',shotId:'shot_a',proposal:{schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
-          id:'building',name:'Building',primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[2,2,2],
-          material:{color:'#334455',metalness:0,roughness:.6}}]}]}}
-        :{ok:true,status:'failed',shotId:'shot_a',diagnostic:{reason,codes:['empty']},usage}));
+      if(payload.action==='argon_start'){
+        assert.equal(waits.length,starts-1,'retry '+starts+' must follow a completed 15-second pause');
+        return new Response(JSON.stringify({ok:true,status:'in_progress',shotId:'shot_a'}));
+      }
+      const failed=failures[starts-1]??{reason,usage};
+      return new Response(JSON.stringify(starts===successOn
+        ?{ok:true,status:'completed',shotId:'shot_a',proposal:scene}
+        :{ok:true,status:'failed',shotId:'shot_a',diagnostic:{reason:failed.reason,codes:['empty']},
+          usage:failed.usage}));
     };
     const shot={id:'shot_a',start:0,end:6};
     setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
@@ -1192,18 +1206,55 @@ test('authorized cheap retry sends the identical request once, never loops or im
     ids.get('aiSceneScope').value='environment';ids.get('aiSceneModel').value='argon_direct';
     ids.get('aiArgonRetry').checked=enabled;
     await ids.get('aiSceneGenerate').fire('click');
-    return {starts:payloads.filter(p=>p.action==='argon_start'),previews,message};
+    return {starts:payloads.filter(p=>p.action==='argon_start'),previews,message,waits,
+      log:ids.get('aiSceneLog').textContent};
   };
   try{
-    const ok=await run({success:true});assert.equal(ok.starts.length,2);assert.equal(ok.previews,1);
-    assert.deepEqual(ok.starts[0],ok.starts[1]);assert.equal(ok.starts[0].frames.length,3);
-    assert.match(ok.message,/authorize ONE automatic paid retry/);
-    const failed=await run();assert.equal(failed.starts.length,2);assert.equal(failed.previews,0);
+    const recovered=await run({successOn:4});
+    assert.equal(recovered.starts.length,4);assert.equal(recovered.previews,1);
+    assert.deepEqual(recovered.waits,[15000,15000,15000]);
+    for(const start of recovered.starts.slice(1))assert.deepEqual(start,recovered.starts[0]);
+    assert.equal(recovered.starts[0].frames.length,3);
+    assert.match(recovered.message,/up to THREE automatic paid retries/);
+    assert.match(recovered.message,/15-second pause before each retry/);
+    assert.match(recovered.message,/At most FOUR total attempts/);
+    assert.match(recovered.message,/under 10,000 tokens/);
+    assert.match(recovered.log,/Starting automatic paid Argon retry 3\/3/);
+    const early=await run({successOn:2});
+    assert.equal(early.starts.length,2);assert.deepEqual(early.waits,[15000]);
+    assert.equal(early.previews,1);
+    const first=await run({successOn:1});
+    assert.equal(first.starts.length,1);assert.deepEqual(first.waits,[]);
+    const exhausted=await run();
+    assert.equal(exhausted.starts.length,4,'never a fifth paid job');
+    assert.deepEqual(exhausted.waits,[15000,15000,15000]);
+    assert.equal(exhausted.previews,0,'never import failed geometry');
     assert.equal((await run({enabled:false})).starts.length,1);
     assert.equal((await run({confirm:false})).starts.length,0);
-    assert.equal((await run({usage:{thinking:1,output:9999}})).starts.length,1);
-    assert.equal((await run({usage:{output:39}})).starts.length,1);
+    assert.equal((await run({usage:{thinking:1,output:9999}})).starts.length,1,
+      '10,000 is not below the strict threshold');
+    const justBelow=await run({usage:{thinking:1,output:9998}});
+    assert.equal(justBelow.starts.length,4,'9,999 is eligible on each failure');
+    assert.equal((await run({usage:{output:39}})).starts.length,1,'missing thinking blocks retry');
     assert.equal((await run({reason:'provider_stream_interrupted'})).starts.length,1);
-    assert.equal((await run({reason:'start_not_received',usage:null})).starts.length,2);
-  }finally{globalThis.document=oldDocument;globalThis.fetch=oldFetch;globalThis.confirm=oldConfirm;}
+    assert.equal((await run({reason:'provider_deadline'})).starts.length,1);
+    assert.equal((await run({reason:'job_interrupted_deploy'})).starts.length,1);
+    const sealed=await run({reason:'start_not_received',usage:null});
+    assert.equal(sealed.starts.length,4,'only conclusively missing starts permit a retry without usage');
+    assert.deepEqual(sealed.waits,[15000,15000,15000]);
+    const mixed=await run({failures:[
+      {reason:'scene_schema_mismatch',usage:{thinking:0,output:20}},
+      {reason:'scene_schema_mismatch',usage:{thinking:30,output:40}},
+      {reason:'scene_schema_mismatch',usage:{thinking:1,output:9999}}]});
+    assert.equal(mixed.starts.length,3,'recheck eligibility independently after every attempt');
+    assert.deepEqual(mixed.waits,[15000,15000]);
+    const providerOnSecond=await run({failures:[
+      {reason:'scene_schema_mismatch',usage:{thinking:0,output:20}},
+      {reason:'provider_stream_interrupted',usage:{thinking:0,output:30}}]});
+    assert.equal(providerOnSecond.starts.length,2);
+    assert.deepEqual(providerOnSecond.waits,[15000]);
+  }finally{
+    globalThis.document=oldDocument;globalThis.fetch=oldFetch;globalThis.confirm=oldConfirm;
+    globalThis.setTimeout=oldSetTimeout;
+  }
 });
