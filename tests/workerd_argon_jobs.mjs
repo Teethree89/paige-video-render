@@ -45,7 +45,7 @@ const mf=new Miniflare({
 const post=(path,body)=>mf.dispatchFetch('https://worker.test'+path,{method:'POST',
   headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
 // Full scene: the same single synchronous call, with the full-scene scope.
-const job={shotId:'shot_a',profile:'argon_direct',mode:'full_scene',
+const job={shotId:'shot_a',profile:'argon_direct',mode:'full_scene',thinking:'high',detail:'max',
   frames:[{at:2,imageDataUrl:jpeg},{at:0.5,imageDataUrl:jpeg},{at:4,imageDataUrl:jpeg}]};
 async function runJob(){
   const t0=Date.now();
@@ -63,7 +63,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-server-deadline-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-detail-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
@@ -77,6 +77,8 @@ try{
   assert.equal(calls[0].deadline,'690');
   assert.equal(sent.store,false);assert.equal(sent.background,undefined);
   assert.match(sent.system_instruction,/SCOPE: FULL SCENE/);
+  assert.match(sent.system_instruction,/DETAIL: MAXIMUM/);
+  assert.equal(sent.generation_config.thinking_level,'high');
   assert.deepEqual(sent.input.map(x=>x.type),['text','image','text','image','text','image']);
   assert.equal(sent.input[0].text,'Reference frame at 2.000 seconds');
   assert.deepEqual(sent.input.filter(x=>x.type==='image').map(x=>x.resolution),['high','high','high']);

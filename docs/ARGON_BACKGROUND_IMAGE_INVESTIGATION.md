@@ -470,6 +470,48 @@ If calls still end near 2 minutes, the next step is a streamed call
 (`stream:true`, documented in the Interactions spec), which also keeps
 bytes flowing during long generations.
 
+### First successful full scene (2026-10-23, about 8:44 AM EDT)
+
+`argon_direct`, full scene, on `argon-server-deadline-v1`, shot 01 "Night
+campus exterior":
+
+- **Result:** 69 editable objects, 354 rendered parts, no repairs needed.
+  Layers: 37 buildings and structures, 14 roads and terrain, 6 trees and
+  landscaping, 12 objects and infrastructure.
+- **Lighting:** 8 scene lights (1 directional, 7 point). Cleanup adjusted 12
+  overlapping surfaces.
+- **Tokens:** 6,606 input (3,300 image, 4,552 cached by Google's implicit
+  cache), 0 thinking reported, 11,244 output, 34% of the cap.
+- **Duration:** 1:36. That is under 2 minutes, so this run does not test the
+  deadline fix.
+
+### Thinking and detail settings (`argon-detail-v1`)
+
+Both Argon profiles now take two editor settings, allowlisted in PHP and the
+Worker. Missing values mean the previous defaults.
+
+- **Thinking:** Google's `ThinkingLevel` values `minimal`, `low`, `medium`
+  (default) or `high`, sent as `generation_config.thinking_level`. Every live
+  run so far reported 0 thinking tokens at `medium`; whether Argon thinks
+  more at `high` is unverified.
+- **Detail:** object targets and caps inside the fixed 32,768-token budget,
+  at about 160 output tokens per object.
+
+  | Detail | Primary subject | Full scene | Cap |
+  | --- | --- | --- | --- |
+  | Standard (default) | 48–96 | 80–120 | 120 |
+  | High | 80–130 | 110–150 | 150 |
+  | Maximum | 110–160 | 140–180 | 180 |
+
+  High and Maximum add subdivision guidance; Maximum also asks for short
+  names and 2 decimals. The validator's hard limit is the format's 200.
+- **Cut-off answers are kept.** An answer that hits the token limit (status
+  `incomplete`) is closed after its last complete array element and
+  validated as usual, so every finished object survives and the repair line
+  reports "answer cut off at the token limit". Only an answer with no
+  complete object still fails as `incomplete_output`. All generated tokens
+  are billed either way.
+
 ### Remaining blockers
 
 These need the live steps above or action from Google:

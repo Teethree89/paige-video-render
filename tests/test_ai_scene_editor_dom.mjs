@@ -601,8 +601,15 @@ test('Argon Direct image rebuilds a full scene in ONE call, with layers and ligh
       onPreview:entry=>{preview=entry;},onDiscard:()=>{},onAccept:()=>{}});
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='environment';
-    ids.get('aiSceneModel').value='argon_direct';
+    // The thinking and detail selectors appear only for Argon models.
+    assert.equal(ids.get('aiArgonSettings').hidden,true);
+    ids.get('aiSceneModel').value='argon_direct';await ids.get('aiSceneModel').fire('change');
+    assert.equal(ids.get('aiArgonSettings').hidden,false);
+    ids.get('aiArgonThinking').value='high';ids.get('aiArgonDetail').value='max';
     await ids.get('aiSceneGenerate').fire('click');
+    assert.equal(payloads[0].thinking,'high');assert.equal(payloads[0].detail,'max');
+    assert.match(confirmed,/^Settings: high thinking, Maximum detail\. These use more of the same 32,768-token output budget/);
+    assert.match(ids.get('aiSceneLog').textContent,/Argon settings: high thinking, Maximum detail\./);
     // One paid start, never the four Flash passes.
     assert.deepEqual(payloads.map(p=>p.action),['argon_start','argon_status']);
     assert.equal(payloads[0].mode,'full_scene');assert.equal(payloads[0].layer,undefined);
