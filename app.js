@@ -274,7 +274,7 @@ async function boot(){
   referenceBuilder?.loadFromSequence(null);
   timelineHistory?.reset(sequence);
  }});
- referenceBuilder=setupReferenceBuilder({onApply:({timeline})=>{
+ referenceBuilder=setupReferenceBuilder({getSequence:()=>sequence,onApply:({timeline})=>{
    if(!validSequence(timeline))throw Error('Reference Builder created an invalid timeline');
    if(aiSceneEditor?.hasPending?.())throw Error('Accept or discard the current AI proposal first');
    endGeometryReview();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;
