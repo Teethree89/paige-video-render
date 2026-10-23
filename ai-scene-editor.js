@@ -59,6 +59,8 @@ export function describeUsage(label,u) {
       ' ('+Math.round(used/u.cap*100)+'%).';
   return line;
 }
+// Worker reasons for an HTTP 5xx answer from Google (providerStatusReason).
+const SERVER_FAILURES=Object.freeze(['provider_internal','provider_deadline','provider_unavailable','provider_capacity']);
 // The Worker's fixed repair codes (ARGON_REPAIR_CODES), in plain words.
 const REPAIR_LABELS=Object.freeze({json:'unreadable JSON',scene:'no scene',
   shot_id:'wrong shot ID (fixed)',scenes_merged:'several scenes (merged)',
@@ -178,7 +180,12 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     activityLines=activityLines.slice(-50);
     if(activity)activity.textContent=activityLines.join('\n');
   };
-  const logDiagnostic=source=>{if(source?.diagnostic)log(describeDiagnostic(source.diagnostic));};
+  const logDiagnostic=source=>{
+    if(!source?.diagnostic)return;
+    log(describeDiagnostic(source.diagnostic));
+    if(SERVER_FAILURES.includes(source.diagnostic.reason))
+      log('Google\'s server could not finish this request. Per Google\'s billing FAQ, requests that fail with a server error are not charged for tokens (they still count against quota). Nothing was retried; start again when ready.');
+  };
   const clearActivity=()=>{
     activityLines=[];
     if(activity)activity.textContent='';

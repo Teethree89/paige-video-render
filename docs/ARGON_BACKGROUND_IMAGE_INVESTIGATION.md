@@ -443,6 +443,33 @@ The fix (`argon-salvage-v1`) keeps paid work:
   scene).
 - The prompt lists every hard limit, with units for angles and field of view.
 
+### Second full-scene run: Google server error (2026-10-23, about 8:31 AM EDT)
+
+On `argon-salvage-v1`, the same full-scene job failed with
+`reason provider_unavailable`: Google answered HTTP 5xx (the exact status
+was not yet recorded) between about 2:00 and 2:06 after the start, with no
+usage. Every success so far had finished sooner (1:32 primary subject, 1:53
+for the first full scene), which points to a default server deadline of
+about 2 minutes on calls that do not request one. The earlier "about 10
+minutes" figure for non-streaming calls had no source.
+
+Google's official SDK sends `X-Server-Timeout` (whole seconds, from the
+client timeout) on every request
+([`populate_server_timeout_header` in python-genai](https://github.com/googleapis/python-genai/blob/main/google/genai/_api_client.py)),
+and Google's troubleshooting guide answers 504 `DEADLINE_EXCEEDED` with a
+longer client timeout. The direct call now sends `X-Server-Timeout: 690`,
+just under the Worker's 12-minute abort (`argon-server-deadline-v1`). It also
+names the status (`provider_internal`, `provider_deadline`,
+`provider_unavailable`), keeps the error body's fixed codes such as
+`DEADLINE_EXCEEDED`, and logs each call's status and duration as
+`argon-direct-call`. Google's billing FAQ says failed 400/500 requests are
+not charged for tokens.
+
+Unverified until the next full-scene run: that the deadline was the cause.
+If calls still end near 2 minutes, the next step is a streamed call
+(`stream:true`, documented in the Interactions spec), which also keeps
+bytes flowing during long generations.
+
 ### Remaining blockers
 
 These need the live steps above or action from Google:

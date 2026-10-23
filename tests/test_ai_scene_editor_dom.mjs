@@ -666,6 +666,15 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     // Token counts are logged for both paid stages, including a job cut off at its cap.
     assert.match(failed.log,/Flash-Lite analysis tokens: 5,210 input \(4,644 image\) · 0 thinking · 812 output · 6,022 total\. Thinking \+ output used 812 of 4,096 \(20%\)\./);
     assert.match(failed.log,/Argon tokens: 1,800 input · 20,000 thinking · 8,672 output · 30,472 total\. Thinking \+ output used 28,672 of 28,672 \(100%\)\./);
+    // A Google server error says so, notes billing, and is never retried.
+    const deadline=await run('argon_direct',payload=>new Response(JSON.stringify(
+      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
+      {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,status:'failed',
+        reason:'provider_deadline',codes:['DEADLINE_EXCEEDED'],fields:[],terms:[]}}),{status:200}));
+    assert.deepEqual(deadline.actions,['argon_start','argon_status']);
+    assert.match(deadline.log,/reason provider_deadline · code DEADLINE_EXCEEDED/);
+    assert.match(deadline.log,/Google's server could not finish this request\. Per Google's billing FAQ/);
+    assert.doesNotMatch(failed.log,/billing FAQ/,'not for other failures');
     // A finished scene with no usable part names the rule that rejected it.
     const unusable=await run('argon_direct',payload=>new Response(JSON.stringify(
       payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
