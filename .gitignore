@@ -1,6 +1,8 @@
 # Local builds and temporary content
 dist/
 node_modules/
+# Local Workers runtime state (Miniflare / wrangler dev)
+.wrangler/
 __pycache__/
 .pytest_cache/
 .DS_Store
