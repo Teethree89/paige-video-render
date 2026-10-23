@@ -342,7 +342,7 @@ function applyHistory(doc){
  refreshAll();seek(Math.min(playhead,sequence.duration));saveLocal(false);
 }
 function saveLocal(record=true){
- if(record)timelineHistory?.record(sequence);
+ if(record){try{timelineHistory?.record(sequence);}catch(error){console.warn('Timeline history skipped invalid intermediate edit:',error.message);}}
  try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));}catch(e){}
  el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();
 }
