@@ -66,6 +66,8 @@ export function setupReferenceBuilder({onApply}){
     video.pause();
     image.hidden=true;video.hidden=true;
     const item=current(),asset=assetFor(item);
+    const placeholder=modal.querySelector('.rb-empty-preview');
+    if(placeholder)placeholder.hidden=!!asset;
     if(!item||!asset){say(item?'Missing source: add the original media using Relink files.':
       'Add videos or still images to compose your reference.');return;}
     if(item.kind==='image'){image.src=asset.url;image.style.objectFit=item.fit;image.hidden=false;}
@@ -114,6 +116,7 @@ export function setupReferenceBuilder({onApply}){
     if(item){
       el('rbName').value=item.name;
       el('rbDuration').value=item.duration;
+      el('rbDuration').disabled=item.kind==='video';
       el('rbVideoFields').hidden=item.kind!=='video';
       el('rbSourceIn').value=item.sourceIn;
       el('rbSourceOut').value=item.sourceOut;
@@ -174,6 +177,7 @@ export function setupReferenceBuilder({onApply}){
   el('rbClose').addEventListener('click',()=>{modal.hidden=true;video.pause();});
   modal.addEventListener('click',event=>{if(event.target===modal){modal.hidden=true;video.pause();}});
   el('rbName').addEventListener('input',event=>{const item=current();if(!item)return;item.name=event.target.value.slice(0,100);const row=list.querySelector('.rb-scene.active strong');if(row)row.textContent=item.name;});
+  el('rbName').addEventListener('change',render);
   el('rbFit').addEventListener('change',event=>{const item=current();if(item){item.fit=event.target.value;render();}});
   const onTimingChange=()=>{
     const item=current();if(!item)return;
