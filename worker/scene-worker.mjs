@@ -1071,8 +1071,12 @@ Use uncertainties to omit unsupported detail. Return only the scene JSON.`,
 // Durable Object therefore holds ONE synchronous call open, in an alarm, while
 // PHP polls. Same inline ImageContent as passing diagnostic stage 3.
 const ARGON_DO_JOB=/^do_[0-9a-f]{64}$/;
-// Google closes non-streaming calls after ~10 minutes; alarms stop at 15.
+// Without a requested deadline, Google ended a call that ran past about
+// 2 minutes with HTTP 5xx (live full scene, 2026-10-23); every success had
+// finished sooner. Like Google's official SDK (X-Server-Timeout, in whole
+// seconds), ask for a deadline just under our own abort; alarms stop at 15.
 const ARGON_DIRECT_TIMEOUT_MS=12*60*1000;
+const ARGON_SERVER_TIMEOUT_S=Math.floor(ARGON_DIRECT_TIMEOUT_MS/1000)-30;
 const ARGON_DIRECT_STUCK_MS=16*60*1000;
 const ARGON_DIRECT_RETENTION_MS=24*60*60*1000; // matches PHP's job window
 function directFailure(reason){
@@ -1085,16 +1089,18 @@ function providerStatusReason(status){
   if(status===401||status===403)return 'provider_permission';
   if(status===404)return 'model_unavailable';
   if(status===503)return 'provider_capacity';
+  if(status===500)return 'provider_internal';
+  if(status===504)return 'provider_deadline';
   return status>=500?'provider_unavailable':'provider_refused';
 }
 // Never throws; every outcome is a stored state with fixed-vocabulary reasons.
 async function runDirectArgon(env,{shotId,content,mode}){
-  let response;
+  let response;const started=Date.now();
   try{
     response=await fetch(ARGON_API,{method:'POST',redirect:'manual',
       signal:AbortSignal.timeout(ARGON_DIRECT_TIMEOUT_MS),
       headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY,
-        'Api-Revision':ARGON_REVISION},
+        'Api-Revision':ARGON_REVISION,'X-Server-Timeout':String(ARGON_SERVER_TIMEOUT_S)},
       // store:false: the interaction is not stored for later retrieval.
       body:JSON.stringify({model:ARGON_MODEL,store:false,
         generation_config:{thinking_level:'medium',max_output_tokens:ARGON_MAX_OUTPUT_TOKENS},
@@ -1121,6 +1127,8 @@ Return only the scene JSON.`,
     console.warn('argon-provider-fetch','direct-image',category);
     return directFailure(category==='timeout-or-abort'?'provider_timeout':'provider_network');
   }
+  // How long Google took and what it answered: numbers only, for deadlines.
+  console.log('argon-direct-call',JSON.stringify({http:response.status,seconds:Math.round((Date.now()-started)/1000)}));
   if(response.status>=300&&response.status<400)return directFailure('provider_redirect_blocked');
   if(response.status===400||response.status===422){
     let diagnostic=argonProviderDiagnostic(null,'create',response.status);
@@ -1128,7 +1136,18 @@ Return only the scene JSON.`,
     console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
     return {state:'failed',diagnostic};
   }
-  if(!response.ok)return directFailure(providerStatusReason(response.status));
+  if(!response.ok){
+    // The reason names the HTTP status; the error body adds only its
+    // fixed-vocabulary codes and terms (e.g. DEADLINE_EXCEEDED), never prose.
+    const diagnostic={phase:'job',http:null,status:'failed',codes:[],
+      reason:providerStatusReason(response.status),fields:[],terms:[]};
+    try{
+      const parsed=argonProviderDiagnostic((await response.json())?.error,'job');
+      diagnostic.codes=parsed.codes;diagnostic.terms=parsed.terms;
+    }catch{}
+    console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
+    return {state:'failed',diagnostic};
+  }
   let interaction;
   try{interaction=await response.json();}catch{return directFailure('invalid_provider_response');}
   // Logged once: the alarm reaches this point at most once per job.
@@ -1252,7 +1271,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-salvage-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-server-deadline-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');

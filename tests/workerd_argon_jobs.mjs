@@ -31,7 +31,8 @@ const mf=new Miniflare({
   durableObjects:{ARGON_JOBS:{className:'ArgonJob',useSQLite:true}},
   async outboundService(request){
     calls.push({url:request.url,method:request.method,body:await request.text(),
-      key:request.headers.get('x-goog-api-key'),revision:request.headers.get('Api-Revision')});
+      key:request.headers.get('x-goog-api-key'),revision:request.headers.get('Api-Revision'),
+      deadline:request.headers.get('X-Server-Timeout')});
     await new Promise(r=>setTimeout(r,1500)); // a slow model: longer than the start request
     if(mode==='reject')return new Response(JSON.stringify({error:{code:'invalid_request',
       message:'The agent does not support image input modality. PRIVATE_DETAIL'}}),{status:400});
@@ -62,7 +63,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-salvage-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-server-deadline-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
@@ -73,6 +74,7 @@ try{
   const sent=JSON.parse(calls[0].body);
   assert.equal(calls[0].url,'https://generativelanguage.googleapis.com/v1beta/interactions');
   assert.equal(calls[0].key,'do-not-print-secret');assert.equal(calls[0].revision,'2026-05-20');
+  assert.equal(calls[0].deadline,'690');
   assert.equal(sent.store,false);assert.equal(sent.background,undefined);
   assert.match(sent.system_instruction,/SCOPE: FULL SCENE/);
   assert.deepEqual(sent.input.map(x=>x.type),['text','image','text','image','text','image']);

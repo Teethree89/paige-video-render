@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-salvage-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-server-deadline-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-salvage-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-server-deadline-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -616,6 +616,8 @@ test('Direct-image Argon runs ONE synchronous image call inside a Durable Object
     assert.equal(opts.redirect,'manual');
     assert.equal(opts.headers['x-goog-api-key'],env.GEMINI_API_KEY);
     assert.equal(opts.headers['Api-Revision'],'2026-05-20');
+    // Ask Google for a deadline just under our own 12-minute abort (as the official SDK does).
+    assert.equal(opts.headers['X-Server-Timeout'],'690');
     const body=JSON.parse(opts.body);
     // Synchronous and stateless: no background, and Google stores nothing.
     assert.deepEqual(Object.keys(body).sort(),['generation_config','input','model',
@@ -727,7 +729,13 @@ test('Direct-image alarms never retry, resubmit or leak, whatever fails',async()
       reason:'unrecognized_message',fields:['input'],terms:['image','modality','not','agent']});
     await reason(()=>new Response('{"error":{"message":"PRIVATE"}}',{status:429}),'provider_rate_limited');
     await reason(()=>new Response('PRIVATE',{status:503}),'provider_capacity');
-    await reason(()=>new Response('PRIVATE',{status:500}),'provider_unavailable');
+    await reason(()=>new Response('PRIVATE',{status:500}),'provider_internal');
+    await reason(()=>new Response('PRIVATE',{status:502}),'provider_unavailable');
+    // A server error keeps only its fixed codes and terms from the body.
+    const late=await reason(()=>new Response(JSON.stringify({error:{code:504,status:'DEADLINE_EXCEEDED',
+      message:'Deadline expired before operation could complete. PRIVATE'}}),{status:504}),'provider_deadline');
+    assert.deepEqual(late.diagnostic,{phase:'job',http:null,status:'failed',codes:['DEADLINE_EXCEEDED'],
+      reason:'provider_deadline',fields:[],terms:[]});
     await reason(()=>new Response('PRIVATE',{status:403}),'provider_permission');
     await reason(()=>new Response(null,{status:302,headers:{Location:'https://attacker.example/PRIVATE'}}),
       'provider_redirect_blocked');
