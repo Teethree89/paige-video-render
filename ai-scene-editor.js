@@ -59,6 +59,21 @@ export function describeUsage(label,u) {
       ' ('+Math.round(used/u.cap*100)+'%).';
   return line;
 }
+// The Worker's fixed repair codes (ARGON_REPAIR_CODES), in plain words.
+const REPAIR_LABELS=Object.freeze({json:'unreadable JSON',scene:'no scene',
+  shot_id:'wrong shot ID (fixed)',scenes_merged:'several scenes (merged)',
+  object_cap:'over 120 objects',object:'malformed object',id:'invalid ID',
+  duplicate_id:'duplicate ID (renamed)',primitive:'unknown shape',
+  transform:'position or rotation out of range',scale:'size out of range',
+  material:'invalid material',repeat:'repeat over its limits',footprint:'invalid footprint',
+  name:'name too long',scene_copies:'over 2,000 rendered copies',light:'invalid light',
+  light_cap:'over 8 lights',camera:'invalid camera estimate',other:'other rule'});
+const repairLabel=code=>REPAIR_LABELS[code]||'other rule';
+export function describeRepairs(repairs) {
+  const parts=Object.entries(repairs||{}).filter(([,n])=>Number.isInteger(n)&&n>0)
+    .map(([code,n])=>repairLabel(code)+' '+n);
+  return parts.length?'Worker validation kept the scene and repaired or dropped: '+parts.join(' · ')+'.':'';
+}
 async function readServerSession() {
   const response=await fetch(api,{credentials:'same-origin',cache:'no-store'});
   const session=await response.json().catch(()=>null);
@@ -212,8 +227,13 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           log('Argon job status: '+result.status+'.');
         }
         count(result.usage);
+        if(result.status==='failed'&&result.diagnostic?.reason==='scene_schema_mismatch'&&
+           Array.isArray(result.diagnostic.codes))
+          log('No part of the returned scene was usable. Rule: '+result.diagnostic.codes.map(repairLabel).join(', ')+'.');
         if(result.status==='completed'){
           if(!result.proposal)throw Error('Argon completed without valid geometry');
+          const repaired=describeRepairs(result.repairs);
+          if(repaired)log(repaired);
           log('Argon model output received and validated by the Worker.');
           return result.proposal;
         }

@@ -2,8 +2,8 @@
 // This test does not contact 50webs, Cloudflare or the model provider.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {setupAiSceneEditor} from '../ai-scene-editor.js';
-import sceneWorker from '../worker/scene-worker.mjs';
+import {setupAiSceneEditor,describeRepairs} from '../ai-scene-editor.js';
+import sceneWorker,{ARGON_REPAIR_CODES} from '../worker/scene-worker.mjs';
 import {validatePrimitiveDocument} from '../primitive-schema.js';
 
 class Element {
@@ -591,7 +591,8 @@ test('Argon Direct image rebuilds a full scene in ONE call, with layers and ligh
       argonJob:null}),{status:200});
     const payload=JSON.parse(options.body);payloads.push(payload);
     if(payload.action==='argon_start')return new Response(JSON.stringify({ok:true,status:'in_progress',shotId:'shot_a'}),{status:200});
-    return new Response(JSON.stringify({ok:true,status:'completed',shotId:'shot_a',proposal:scene}),{status:200});
+    return new Response(JSON.stringify({ok:true,status:'completed',shotId:'shot_a',proposal:scene,
+      repairs:{scale:1,duplicate_id:2}}),{status:200});
   };
   try{
     const shot={id:'shot_a',start:0,end:6};
@@ -611,6 +612,7 @@ test('Argon Direct image rebuilds a full scene in ONE call, with layers and ligh
     const log=ids.get('aiSceneLog').textContent;
     assert.match(log,/directly to Gemini 4 Argon for the full scene through a Cloudflare job/);
     assert.match(log,/Preview ready: 3 editable objects \(10 rendered parts\)/);
+    assert.match(log,/Worker validation kept the scene and repaired or dropped: size out of range 1 · duplicate ID \(renamed\) 2\./);
     assert.match(log,/Scene lights: 1 \(point\), shown only during this chapter/);
     assert.match(log,/Layers: Buildings and structures: 1 · Roads and terrain: 1 · Trees and landscaping: 1 · Objects and infrastructure: 0/);
     assert.deepEqual(preview.objects.map(o=>o.layer),['structures','ground','vegetation']);
@@ -664,6 +666,14 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     // Token counts are logged for both paid stages, including a job cut off at its cap.
     assert.match(failed.log,/Flash-Lite analysis tokens: 5,210 input \(4,644 image\) · 0 thinking · 812 output · 6,022 total\. Thinking \+ output used 812 of 4,096 \(20%\)\./);
     assert.match(failed.log,/Argon tokens: 1,800 input · 20,000 thinking · 8,672 output · 30,472 total\. Thinking \+ output used 28,672 of 28,672 \(100%\)\./);
+    // A finished scene with no usable part names the rule that rejected it.
+    const unusable=await run('argon_direct',payload=>new Response(JSON.stringify(
+      payload.action==='argon_start'?{ok:true,status:'in_progress',shotId:'shot_a'}:
+      {ok:true,status:'failed',shotId:'shot_a',diagnostic:{phase:'job',http:null,status:'failed',
+        reason:'scene_schema_mismatch',codes:['scale','repeat'],fields:[],terms:[]}}),{status:200}));
+    assert.deepEqual(unusable.actions,['argon_start','argon_status'],'No retry of a finished paid job');
+    assert.match(unusable.log,/No part of the returned scene was usable\. Rule: size out of range, repeat over its limits\./);
+    assert.match(unusable.log,/reason scene_schema_mismatch · code scale, repeat/);
     // Argon rejecting the job after the analysis still shows the billed analysis.
     const analysisBilled=await run('argon_previs',()=>new Response(JSON.stringify({ok:false,
       error:'Google rejected the Argon request (HTTP 400).',
@@ -910,4 +920,14 @@ test('Failed Argon stage 3 retries directly with explicit paid confirmation, pre
     if(beforeFetch===undefined)delete globalThis.fetch;else globalThis.fetch=beforeFetch;
     if(beforeConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=beforeConfirm;
   }
+});
+
+test('every Worker repair code has a plain-words label in the activity log',()=>{
+  for(const code of ARGON_REPAIR_CODES){
+    const line=describeRepairs({[code]:1});
+    assert.match(line,/^Worker validation kept the scene and repaired or dropped: .+ 1\.$/);
+    if(code!=='other')assert.doesNotMatch(line,/other rule/,code+' needs a label');
+  }
+  assert.equal(describeRepairs(null),'');
+  assert.equal(describeRepairs({scale:0,repeat:'2'}),'');
 });

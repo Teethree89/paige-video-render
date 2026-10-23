@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-full-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-salvage-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-full-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-salvage-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -971,47 +971,85 @@ test('Argon polling does not leak provider thoughts or malformed output',async()
       method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
       body:JSON.stringify({jobId:id,shotId:'draft_001'})
     }),env);
-    assert.equal(result.status,502);
+    // A finished job is final: unreadable output is a failed job, not a retryable error.
+    assert.equal(result.status,200);
     const raw=await result.text();
     assert.ok(!raw.includes('SENSITIVE_PRIVATE_THOUGHT'));
-    assert.deepEqual(JSON.parse(raw),{ok:false,error:'Provider scene did not match the editor schema'});
+    assert.deepEqual(JSON.parse(raw),{ok:true,status:'failed',diagnostic:{phase:'job',http:null,
+      status:'failed',codes:['json'],reason:'scene_schema_mismatch',fields:[],terms:[]}});
   }finally{globalThis.fetch=prior;}
 });
 
-test('Argon background results still enforce the editable primitive contract and shot binding',async()=>{
+test('Argon results keep every valid part, report what was repaired, and fail only when nothing is usable',async()=>{
   const prior=globalThis.fetch;const id='v1_validation_12345';
   const object=scene.scenes[0].objects[0];
-  const rejected=[
-    {schemaVersion:1,scenes:[{shotId:'wrong_shot',objects:[object]}]},
-    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,primitive:'javascript'}]}]},
-    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,scale:[-1,2,3]}]}]},
-    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:Array.from({length:121},
-      (_,i)=>({...object,id:'part_'+i}))}]},
-    // Rich fields are validated, not just passed through.
-    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,primitive:'extrude'}]}]},
-    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,repeat:{count:[50,50,1],spacing:[1,1,0]}}]}]},
-    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:Array.from({length:6},
-      (_,i)=>({...object,id:'grid_'+i,repeat:{count:[20,20,1],spacing:[1,1,0]}}))}]},
-    {schemaVersion:1,scenes:[{shotId:sample.shotId,camera:{position:[0,1,0],target:[0,1,0],fov:40},objects:[object]}]},
-    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,material:{...object.material,emissive:'red'}}]}]},
-    {schemaVersion:2,scenes:[{shotId:sample.shotId,objects:[object]}]}
-  ];
+  let proposal;
+  globalThis.fetch=async(url,opts)=>{
+    assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions/'+id);
+    assert.equal(opts.body,undefined,'Polling must not submit paid generation');
+    return new Response(JSON.stringify({id,status:'completed',steps:[
+      {type:'model_output',content:[{type:'text',text:JSON.stringify(proposal)}]}]}));
+  };
+  const poll=async value=>{
+    proposal=value;
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/status',{
+      method:'POST',headers:{Authorization:'Bearer '+token},body:JSON.stringify({jobId:id,shotId:sample.shotId})}),env);
+    assert.equal(response.status,200);
+    return response.json();
+  };
+  const only=objects=>({schemaVersion:1,scenes:[{shotId:sample.shotId,objects}]});
   try{
-    for(const proposal of rejected){
-      globalThis.fetch=async(url,opts)=>{
-        assert.equal(url,'https://generativelanguage.googleapis.com/v1beta/interactions/'+id);
-        assert.equal(opts.body,undefined,'Polling must not submit paid generation');
-        return new Response(JSON.stringify({id,status:'completed',steps:[
-          {type:'model_output',content:[{type:'text',text:JSON.stringify(proposal)}]}
-        ]}));
-      };
-      const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/status',{
-        method:'POST',headers:{Authorization:'Bearer '+token},
-        body:JSON.stringify({jobId:id,shotId:sample.shotId})
-      }),env);
-      assert.equal(response.status,502);
-      assert.deepEqual(await response.json(),{ok:false,error:'Provider scene did not match the editor schema'});
+    // Nothing usable: a failed job whose codes name the rule, never model text.
+    for(const [value,codes] of [
+      [only([{...object,primitive:'javascript'}]),['primitive']],
+      [only([{...object,scale:[-1,2,3]}]),['scale']],
+      [only([{...object,primitive:'extrude'}]),['footprint']],
+      [only([{...object,repeat:{count:[50,50,1],spacing:[1,1,0]}}]),['repeat']],
+      [only([{...object,material:{...object.material,emissive:'red'}}]),['material']],
+      [only(['PRIVATE text',[1,2]]),['object']],
+      [only([]),['scene']],
+      [{schemaVersion:1,scenes:[]},['scene']],
+      [{schemaVersion:1},['scene']]
+    ]){
+      const result=await poll(value);
+      assert.equal(result.status,'failed');
+      assert.deepEqual(result.diagnostic,{phase:'job',http:null,status:'failed',codes,
+        reason:'scene_schema_mismatch',fields:[],terms:[]});
+      assert.ok(!JSON.stringify(result).includes('PRIVATE'));
     }
+    // Bad parts are dropped, the rest kept, and each repair is counted.
+    const parts=await poll({schemaVersion:2,scenes:[{shotId:'wrong_shot',objects:[
+      object,{...object},{...object,id:'js',primitive:'javascript'},{...object,id:'neg',scale:[-1,2,3]},
+      {...object,id:'ext',primitive:'extrude'},{...object,id:'grid',repeat:{count:[50,50,1],spacing:[1,1,0]}},
+      {...object,id:'red',material:{...object.material,emissive:'red'}},'PRIVATE text',
+      {...object,id:'bad id!'},{...object,id:'long',name:'x'.repeat(101)},{...object,id:'far',position:[0,null,0]},
+      // An id that reads like a rule never picks the code.
+      {...object,id:'repeat',material:{...object.material,color:'blue'}}]}]});
+    assert.equal(parts.status,'completed');
+    assert.deepEqual(parts.proposal.scenes[0].objects.map(item=>item.id),['box_1','box_1_2']);
+    assert.equal(parts.proposal.scenes[0].shotId,sample.shotId,'filed under the job\'s shot');
+    assert.deepEqual(parts.repairs,{shot_id:1,duplicate_id:1,primitive:1,scale:1,footprint:1,repeat:1,
+      material:2,object:1,id:1,name:1,transform:1});
+    // Merged scenes, the 120-object cap, then the 2000-copy budget (largest arrays first).
+    const grid=i=>({...object,id:'grid_'+i,repeat:{count:[20,20,1],spacing:[1,1,0]}});
+    const part=i=>({...object,id:'part_'+i});
+    const capped=await poll({schemaVersion:1,scenes:[
+      {shotId:sample.shotId,objects:[...Array.from({length:6},(_,i)=>grid(i)),...Array.from({length:50},(_,i)=>part(i))]},
+      {shotId:sample.shotId,objects:Array.from({length:70},(_,i)=>part(50+i))}]});
+    assert.equal(capped.proposal.scenes[0].objects.length,118);
+    assert.equal(capped.proposal.scenes[0].objects.filter(item=>item.repeat).length,4);
+    assert.deepEqual(capped.repairs,{scenes_merged:1,object_cap:6,scene_copies:2});
+    // Lights and camera: invalid ones dropped, at most 8 kept, names keep their place.
+    const point=(extra={})=>({type:'point',color:'#ffcc88',intensity:20,position:[0,4,0],...extra});
+    const lit=await poll({schemaVersion:1,scenes:[{shotId:sample.shotId,
+      camera:{position:[0,1,0],target:[0,1,0],fov:40},objects:[object],
+      lights:[point(),point({type:'ambient'}),point(),...Array.from({length:7},(_,i)=>point({name:'Lamp '+i}))]}]});
+    assert.deepEqual(lit.proposal.scenes[0].lights.map(light=>light.name),
+      ['point light 1','point light 2','Lamp 0','Lamp 1','Lamp 2','Lamp 3','Lamp 4','Lamp 5']);
+    assert.equal(lit.proposal.scenes[0].camera,undefined);
+    assert.deepEqual(lit.repairs,{light:1,light_cap:1,camera:1});
+    // A clean scene reports no repairs at all.
+    assert.equal((await poll(only([object]))).repairs,undefined);
     globalThis.fetch=async()=>new Response(JSON.stringify({id,status:'completed',steps:{private:'SECRET'}}));
     const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/status',{
       method:'POST',headers:{Authorization:'Bearer '+token},
@@ -1466,9 +1504,9 @@ test('Argon Previs reports Flash-Lite and Argon token counts, never other usage 
     assert.equal(failed.status,'failed');assert.equal(failed.diagnostic.reason,'incomplete_output');
     assert.deepEqual(failed.usage,geometry);
     interaction={...interaction,status:'completed',steps:[{type:'model_output',content:[{type:'text',text:'{"schemaVersion":1}'}]}]};
-    const unusable=await poll();
-    assert.equal(unusable.status,502);
-    assert.deepEqual(await unusable.json(),{ok:false,error:'Provider scene did not match the editor schema',usage:geometry});
+    const unusable=await (await poll()).json();
+    assert.equal(unusable.status,'failed');assert.deepEqual(unusable.diagnostic.codes,['scene']);
+    assert.deepEqual(unusable.usage,geometry);
     // No usage object: no usage field, exactly as before.
     interaction={id,status:'in_progress',usage:interactionUsage};
     assert.deepEqual(await (await poll()).json(),{ok:true,status:'in_progress'});
@@ -1572,4 +1610,32 @@ test('Argon sorts objects into editor layers, may add lights, and direct image c
     await job.ctx.storage.put('request',stored);await job.alarm();
     assert.match(bodies[2].system_instruction,/SCOPE: PRIMARY SUBJECT/);
   }finally{globalThis.fetch=prior;}
+});
+
+test('Direct-image jobs keep a salvaged scene with its repairs, and report an unusable one with codes',async()=>{
+  const prior=globalThis.fetch,priorWarn=console.warn,warnings=[];
+  console.warn=(...args)=>warnings.push(args.join(' '));
+  const object=scene.scenes[0].objects[0];
+  const run=async proposal=>{
+    globalThis.fetch=async()=>new Response(JSON.stringify({id:'v1_sync',status:'completed',
+      steps:[{type:'model_output',content:[{type:'text',text:JSON.stringify(proposal)}]}]}));
+    const {objects,namespace}=fakeArgonJobs(env);
+    const jobsEnv={...env,ARGON_JOBS:namespace};
+    const started=await (await argonPost(jobsEnv,'/api/scene/argon/direct-start',{...directJob,mode:'full_scene'})).json();
+    await objects.get(started.jobId.slice(3)).alarm();
+    return (await argonPost(jobsEnv,'/api/scene/argon/status',{jobId:started.jobId,shotId:'draft_001'})).json();
+  };
+  try{
+    const kept=await run({schemaVersion:1,scenes:[{shotId:'draft_001',objects:[object,
+      {...object,id:'huge',scale:[3000,1,3000]},{...object,id:'row',repeat:{count:[120,1,1],spacing:[1,0,0]}}]}]});
+    assert.equal(kept.status,'completed');
+    assert.deepEqual(kept.proposal.scenes[0].objects.map(item=>item.id),['box_1']);
+    assert.deepEqual(kept.repairs,{scale:1,repeat:1});
+    const lost=await run({schemaVersion:1,scenes:[{shotId:'draft_001',objects:[{...object,scale:[3000,1,3000]}]}]});
+    assert.equal(lost.status,'failed');
+    assert.deepEqual(lost.diagnostic.codes,['scale']);assert.equal(lost.diagnostic.reason,'scene_schema_mismatch');
+    assert.equal(lost.repairs,undefined);
+    // Cloudflare logs carry only the codes.
+    assert.ok(warnings.some(line=>line==='argon-output-repairs {"profile":"argon_direct","scale":1,"repeat":1}'));
+  }finally{globalThis.fetch=prior;console.warn=priorWarn;}
 });

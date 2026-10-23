@@ -407,7 +407,8 @@ echo json_encode(array_map(static function ($value) {
         helpers = php[php.index("function safe_worker_diagnostic("):
                       php.index("/** Fixed-target Argon background job transport")]
         keys = lambda pattern, text: re.findall(r"'([A-Za-z]+)'", re.search(pattern, text, re.S).group(1))
-        self.assertEqual(keys(r"foreach \(\[(.*?)\] as \$key\)", helpers),
+        usage_list = helpers[helpers.index("function safe_worker_usage("):]
+        self.assertEqual(keys(r"foreach \(\[(.*?)\] as \$key\)", usage_list),
                          keys(r"const USAGE_KEYS=Object\.freeze\(\[(.*?)\]\);", worker))
         # Start, status and Worker rejections all pass usage through the allowlist.
         start = php[php.index("if ($action === 'argon_start')"):]
@@ -441,6 +442,42 @@ echo json_encode(array_map(static function ($value) {
         self.assertEqual(output[1], {"ok": True, "usage": counts}, "extra keys dropped")
         for rejected in output[2:]:
             self.assertEqual(rejected, {"ok": True})
+        self.assertNotIn("PRIVATE", result.stdout)
+
+    @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
+    def test_php_forwards_only_counted_argon_repairs(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        php = (root / "scene-proxy.php").read_text()
+        worker = (root / "worker" / "scene-worker.mjs").read_text()
+        helpers = php[php.index("function safe_worker_diagnostic("):
+                      php.index("/** Fixed-target Argon background job transport")]
+        codes = lambda pattern, text: re.findall(r"'([a-z_]+)'", re.search(pattern, text, re.S).group(1))
+        repairs_list = helpers[helpers.index("function safe_worker_repairs("):]
+        self.assertEqual(codes(r"foreach \(\[(.*?)\] as \$code\)", repairs_list),
+                         codes(r"export const ARGON_REPAIR_CODES=Object\.freeze\(\[(.*?)\]\);", worker))
+        harness = "<?php\n" + helpers + '''
+$cases = json_decode(stream_get_contents(STDIN), true);
+echo json_encode(array_map(static function ($value) {
+    return with_diagnostic(['ok' => true], $value);
+}, $cases));
+'''
+        counted = {"scale": 2, "repeat": 1, "duplicate_id": 1}
+        cases = [
+            {"repairs": counted},
+            {"repairs": {**counted, "PRIVATE_code": 3, "other": "1", "light": 0, "camera": -1, "json": 1.5}},
+            {"repairs": "PRIVATE"},
+            {"repairs": {}},
+        ]
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            script = pathlib.Path(folder) / "repairs.php"
+            script.write_text(harness)
+            result = subprocess.run(["php", str(script)], input=json.dumps(cases),
+                                    text=True, capture_output=True, check=True)
+        output = json.loads(result.stdout)
+        self.assertEqual(output[0], {"ok": True, "repairs": counted})
+        self.assertEqual(output[1], {"ok": True, "repairs": counted}, "unknown or non-count values dropped")
+        self.assertEqual(output[2:], [{"ok": True}, {"ok": True}])
         self.assertNotIn("PRIVATE", result.stdout)
 
     def test_php_and_worker_diagnostic_vocabularies_match(self):

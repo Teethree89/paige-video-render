@@ -420,6 +420,29 @@ Previs has not been run on the rich format yet.
   Unverified until a live full-scene run: whether Argon fills the larger
   target, and how its lights look against the base lighting.
 
+### First full-scene run failed validation (2026-10-23, about 8:14 AM EDT)
+
+`argon_direct`, full scene, on `argon-full-scene-v1`: Google completed the
+call in under two minutes (6,372 input tokens, 3,300 of them image; 9,931
+output; 30% of the cap, so not cut off). The Worker then rejected the whole
+scene as `scene_schema_mismatch`, because one invalid field failed every
+object. The cause is unknown and unrecoverable: the Worker never logs model
+output, and `store:false` means Google kept nothing. Limits a full scene can
+hit and a primary subject rarely does: a ground plane over 500 m, a row of
+more than 50 repeats, over 2,000 rendered copies, over 120 objects, or a
+spot angle in degrees.
+
+The fix (`argon-salvage-v1`) keeps paid work:
+
+- Argon scenes are validated part by part; only invalid parts are dropped,
+  each counted under a fixed repair code shown in the activity log (see
+  *Argon output repairs* in [PHP_AI_SCENE_SETUP.md](PHP_AI_SCENE_SETUP.md)).
+  A scene fails only when no object survives, and then names the rules.
+- Two limits rise where nothing depends on them: scale to 2,000 per axis and
+  repeat counts to 100 per axis (still 400 copies per object, 2,000 per
+  scene).
+- The prompt lists every hard limit, with units for angles and field of view.
+
 ### Remaining blockers
 
 These need the live steps above or action from Google:
