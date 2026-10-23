@@ -505,7 +505,11 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
 
 function argonDomHarness(ids,jpeg){
   return {
-    getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
+    getElementById(id){if(!ids.has(id)){
+      const element=new Element();
+      if(id==='aiArgonAddDetail')element.checked=false; // legacy tests opt out explicitly
+      ids.set(id,element);
+    }return ids.get(id);},
     createElement(tag){
       if(tag==='video')return new FakeVideo();
       if(tag==='canvas')return {width:0,height:0,getContext:()=>({drawImage:()=>{}}),
