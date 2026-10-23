@@ -22,7 +22,7 @@
     <div class="top-title"><strong>Sequence Studio</strong><span class="top-divider"></span><span>THREE.JS · CINEMATIC FLYTHROUGH</span></div>
     <div class="header-actions"><span id="saveStatus" class="autosave">● READY</span><button id="videoImportOpenBtn" class="ghost" type="button" title="Import a reference video and generate draft scenes and camera keys">Video → timeline</button><button id="renderVideoBtn" class="ghost" type="button" title="Export the 3D flythrough as a video">Render video ↗</button><button id="loadBtn" disabled class="ghost">Import JSON</button><div class="timeline-export-picker"><button id="exportBtn" disabled class="primary" type="button" aria-haspopup="true" aria-controls="exportChoices" aria-expanded="false">Export timeline <span>▾</span></button><div id="exportChoices" class="timeline-export-menu" hidden><button id="exportJSONBtn" class="ghost" type="button">Timeline JSON <small>.json · camera, text, primitives</small></button><button id="exportAEBtn" class="ghost" type="button">After Effects package <small>.zip · JSON, JSX, current GLBs</small></button><p id="exportMessage" role="status" aria-live="polite">Select an export format.</p></div></div><input id="loadFile" type="file" accept=".json,application/json" hidden></div>
   </header>
-  <div class="workbench">
+  <div class="workbench" id="studioWorkbench">
     <main class="main-col">
       <section class="viewport" id="viewport">
         <canvas id="scene"></canvas>
@@ -48,20 +48,29 @@
         <div class="transport-left"><button id="backBtn" disabled class="icon-button" title="Previous shot">⏮</button><button id="playBtn" disabled class="play-button" title="Play / Pause (Space)">▶</button><button id="nextBtn" disabled class="icon-button" title="Next shot">⏭</button><span id="clock" class="timecode">00:00.00 <span>/</span> 00:56.47</span></div>
         <div class="transport-right"><button id="addCameraBtn" disabled title="Create camera keyframe at playhead">+ Camera key</button><button id="addTextBtn" disabled title="Create text overlay at playhead">+ Text</button><label for="speed">SPEED</label><select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><button id="inspectBtn" disabled class="toggle-button" title="Enable orbit camera while paused">Orbit inspect</button><div class="scene-mode-switch" role="group" aria-label="Viewport mode"><button id="sceneModeView" type="button" class="active" aria-pressed="true" disabled>View</button><button id="sceneModeEdit" type="button" aria-pressed="false" disabled>Edit</button></div></div>
       </section>
-      <section class="timeline-section">
-        <div class="timeline-header"><div><span class="tiny-eyebrow">SEQUENCE TIMELINE</span><span class="timeline-subhead">Drag the playhead · select camera keys or captions to edit</span></div><div id="timelineDuration">56.47 SEC</div></div>
+      <div id="timelineResizeHandle" class="timeline-resizer" role="separator" aria-label="Resize timeline vertically" aria-orientation="horizontal" tabindex="0" title="Drag to resize timeline · double-click to reset"></div>
+      <section class="timeline-section" id="studioTimeline">
+        <div class="timeline-header"><div><span class="tiny-eyebrow">SEQUENCE TIMELINE</span><span class="timeline-subhead">Drag the playhead · select camera keys or captions to edit</span></div><div class="timeline-toolset" role="group" aria-label="Timeline view controls">
+          <button id="timelineZoomOut" type="button" title="Zoom out timeline" aria-label="Zoom out timeline">−</button>
+          <output id="timelineZoomText" aria-live="off">100%</output>
+          <button id="timelineZoomIn" type="button" title="Zoom in timeline" aria-label="Zoom in timeline">+</button>
+          <button id="timelineFit" type="button" title="Fit entire timeline">Fit</button>
+          <button id="timelineExpand" type="button" aria-pressed="false" title="Expand timeline height">Expand</button>
+          <span id="timelineDuration">56.47 SEC</span>
+        </div></div>
         <div class="timeline-layout"><div class="track-labels"><div class="ruler-label"></div><div class="track-label">SCENES</div><div class="track-label">CAMERA <small>◆</small></div><div class="track-label">TEXT <small>▮</small></div></div>
-          <div class="tracks" id="tracks"><div id="ruler" class="ruler"></div><div class="track shot-track" id="shotTrack"></div><div class="track camera-track" id="cameraTrack"></div><div class="track text-track" id="textTrack"></div><div class="playhead" id="playhead"><span class="head-knob"></span></div></div>
+          <div id="timelineScroll" class="timeline-scroll" aria-label="Scrollable timeline"><div class="tracks" id="tracks"><div id="ruler" class="ruler"></div><div class="track shot-track" id="shotTrack"></div><div class="track camera-track" id="cameraTrack"></div><div class="track text-track" id="textTrack"></div><div class="playhead" id="playhead"><span class="head-knob"></span></div></div></div>
         </div>
         <div class="timeline-bottom"><span><i class="legend teal"></i> Power systems</span><span><i class="legend orange"></i> Materials</span><span><i class="legend purple"></i> Optical chain</span><span class="shortcut">SPACE: Play/Pause &nbsp; · &nbsp; ← →: Frame step &nbsp; · &nbsp; EDIT: W Move · E Rotate · Delete</span></div>
       </section>
     </main>
+    <div class="inspector-resizer" id="inspectorResizeHandle" role="separator" aria-label="Resize inspector width" aria-orientation="vertical" tabindex="0" title="Drag to resize inspector"></div>
     <aside class="inspector">
-      <div class="inspect-head"><div class="tiny-eyebrow">INSPECTOR</div><h2 id="inspectorHeading">Project settings</h2><p id="inspectorHint">Select a timeline item to adjust its animation.</p></div>
+      <div class="inspect-head"><div class="tiny-eyebrow">INSPECTOR</div><div class="inspector-jump"><button type="button" id="inspectorObjectsButton">Objects</button><button type="button" id="inspectorGenerationButton">AI generation</button></div><h2 id="inspectorHeading">Project settings</h2><p id="inspectorHint">Select a timeline item to adjust its animation.</p></div>
       <div id="projectPanel" class="panel-block">
         <div class="section-label">SEQUENCE</div><div class="stat-row"><span>Project</span><b>Advanced Materials</b></div><div class="stat-row"><span>Runtime</span><b>56.47 s</b></div><div class="stat-row"><span>Camera keys</span><b id="keyCount">—</b></div><div class="stat-row"><span>Text overlays</span><b id="textCount">—</b></div>
         <button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><div class="divider"></div>
-        <details id="primitiveEditor" class="primitive-inspector" open>
+        <details id="primitiveEditor" class="primitive-inspector">
           <summary>3D PRIMITIVE SCENE EDITOR</summary>
           <p class="field-help">Build and edit chapter geometry. Switch to <strong>Edit</strong> below the viewport to click, highlight, move, rotate or delete an accepted object. Repeated copies move as one object. Generated proposals must be accepted first.</p>
           <div id="primitiveShotLabel" class="model-status">Choose a shot to edit</div>
@@ -324,6 +333,7 @@
     </div>
   </section>
   <button id="argonParticleReopen" class="argon-particle-reopen" type="button" hidden>Generation running · Show overlay</button>
+  <script type="module" src="workspace-controls.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
