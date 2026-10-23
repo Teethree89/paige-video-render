@@ -63,22 +63,25 @@ async function runJob(){
   const start=await (await post('/api/scene/argon/direct-start',job)).json();
   const startMs=Date.now()-t0;
   assert.equal(start.ok,true);assert.match(start.jobId,/^do_[0-9a-f]{64}$/);assert.equal(start.status,'queued');
-  const seen=[];let result;
+  const seen=[],statusMs=[];let result;
   for(let i=0;i<40;i++){
+    const polledAt=Date.now();
     result=await (await post('/api/scene/argon/status',{jobId:start.jobId,shotId:'shot_a'})).json();
+    statusMs.push(Date.now()-polledAt);
     if(seen.at(-1)!==result.status)seen.push(result.status);
     if(['completed','failed'].includes(result.status))break;
     await new Promise(r=>setTimeout(r,250));
   }
-  return {start,startMs,seen,result};
+  return {start,startMs,seen,result,statusMs};
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-stream-recovery-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-output-material-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
   assert.ok(ok.startMs<1500,'start must not wait for Google');
+  assert.ok(ok.statusMs.every(ms=>ms<1500),'free status responses must not wait for the slow model');
   assert.deepEqual(ok.result,{ok:true,status:'completed',proposal:scene,
     usage:{input:1800,inputImage:1200,thinking:9120,output:11204,total:22124,cap:32768}});
   assert.equal(calls.length,1,'exactly one provider call');
@@ -97,6 +100,10 @@ try{
   // Re-polling a finished job never calls Google again.
   const again=await (await post('/api/scene/argon/status',{jobId:ok.start.jobId,shotId:'shot_a'})).json();
   assert.equal(again.status,'completed');assert.equal(calls.length,1);
+  const raw=await (await post('/api/scene/argon/output',{jobId:ok.start.jobId,shotId:'shot_a'})).json();
+  assert.deepEqual(JSON.parse(raw.output),scene);assert.equal(raw.partial,false);
+  assert.ok(!JSON.stringify(raw).includes('PRIVATE'));
+  assert.equal(calls.length,1,'original download is a private storage read, not generation');
   // Wrong chapter for the job is refused.
   assert.equal((await post('/api/scene/argon/status',{jobId:ok.start.jobId,shotId:'other'})).status,400);
   // 2) Provider rejection is reported with the sanitized diagnostic, once.

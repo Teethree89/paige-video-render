@@ -292,8 +292,8 @@ function argonSettings(payload){
 }
 // One out-of-range field used to discard a whole paid scene (live full-scene
 // run 2026-10-23). Argon output is now validated part by part with the same
-// shared rules: an invalid object, light or camera is dropped, and the scene
-// keeps everything else. What was repaired is counted under fixed codes,
+// shared rules: repair supported material fields, then drop any still-invalid
+// object, light or camera. What was repaired is counted under fixed codes,
 // named after our own rules, never model text.
 export const ARGON_REPAIR_CODES=Object.freeze(['json','truncated','scene','shot_id','scenes_merged',
   'object_cap','object','id','duplicate_id','primitive','transform','scale','material',
@@ -314,6 +314,22 @@ function argonFaultCode(message,id){
   return rules.find(([,pattern])=>pattern.test(text))?.[0]??'other';
 }
 const argonCopies=item=>item.repeat?item.repeat.count[0]*item.repeat.count[1]*item.repeat.count[2]:1;
+// Only the Argon adapter repairs appearance. The shared scene validator stays
+// strict, and unsupported material names/shaders never become executable code.
+function repairArgonMaterial(raw){
+  const m=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw:{};
+  const color=value=>typeof value==='string'&&/^#[0-9a-f]{6}$/i.test(value)?value:
+    typeof value==='string'&&/^#[0-9a-f]{3}$/i.test(value)
+      ?'#'+[...value.slice(1)].map(c=>c+c).join(''):null;
+  const number=(value,fallback,min,max)=>typeof value==='number'&&Number.isFinite(value)
+    ?Math.max(min,Math.min(max,value)):fallback;
+  const result={color:color(m.color)||'#8899aa',
+    metalness:number(m.metalness,.1,0,1),roughness:number(m.roughness,.7,0,1)};
+  const emissive=color(m.emissive);
+  if(emissive){result.emissive=emissive;result.emissiveIntensity=number(m.emissiveIntensity,1,0,10);}
+  if(m.opacity!=null)result.opacity=number(m.opacity,1,.05,1);
+  return result;
+}
 // An answer cut off at the token limit is a JSON prefix. Close it after the
 // last array element that finished (an object or an [x,z] point), trying the
 // latest cut points first; validation then drops any half-written object.
@@ -361,7 +377,14 @@ function validateArgonOutput(value,shotId,{truncated=false}={}) {
       candidate.id=base+'_'+n;note('duplicate_id');
     }
     try{objects.push(one([candidate]).objects[0]);ids.add(candidate.id);}
-    catch(error){note(argonFaultCode(error?.message,candidate.id));}
+    catch(error){
+      const code=argonFaultCode(error?.message,candidate.id);
+      if(code!=='material'){note(code);continue;}
+      candidate.material=repairArgonMaterial(candidate.material);
+      note('material');
+      try{objects.push(one([candidate]).objects[0]);ids.add(candidate.id);}
+      catch(next){note(argonFaultCode(next?.message,candidate.id));}
+    }
   }
   if(objects.length>MAX_ARGON_OBJECTS){note('object_cap',objects.length-MAX_ARGON_OBJECTS);objects.length=MAX_ARGON_OBJECTS;}
   // Over the scene's copy budget: drop the largest arrays until it fits.
@@ -372,7 +395,7 @@ function validateArgonOutput(value,shotId,{truncated=false}={}) {
   }
   if(!objects.length){
     const codes=Object.entries(repairs).sort((a,b)=>b[1]-a[1]).map(([code])=>code)
-      .filter(code=>!['shot_id','scenes_merged','duplicate_id','truncated'].includes(code)).slice(0,4);
+      .filter(code=>!['shot_id','scenes_merged','duplicate_id','truncated','material'].includes(code)).slice(0,4);
     throw new ArgonSceneError(codes.length?codes:['scene']);
   }
   const lights=[];
@@ -1081,13 +1104,14 @@ Use uncertainties to omit unsupported detail. Return only the scene JSON.`,
     // The analysis is billed even when Argon then rejects the job.
     return reply(withUsage(await started.json(),analysisUsage),started.status);
   }
-  if(path==='/api/scene/argon/status'){
+  if(path==='/api/scene/argon/status'||path==='/api/scene/argon/output'){
+    const download=path.endsWith('/output');
     const id=payload?.jobId,shotId=payload?.shotId;
     if(typeof id!=='string'||!ARGON_JOB_ID.test(id)||
        typeof shotId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(shotId)||
        Object.keys(payload).some(k=>!['jobId','shotId'].includes(k)))
       return fail(400,'Invalid Argon job request');
-    if(ARGON_DO_JOB.test(id))return directArgonStatus(env,id,shotId);
+    if(ARGON_DO_JOB.test(id))return directArgonStatus(env,id,shotId,download);
     let response;
     try{
       response=await fetch(ARGON_API+'/'+encodeURIComponent(id),{
@@ -1099,6 +1123,11 @@ Use uncertainties to omit unsupported detail. Return only the scene JSON.`,
     let interaction;
     try{interaction=await response.json();}catch{return fail(502,'Invalid provider response');}
     if(interaction?.id!==id)return fail(502,'Invalid provider response');
+    if(download){
+      const output=argonOutputText(interaction);
+      if(!output||output.length>ARGON_MAX_OUTPUT_CHARS)return fail(404,'No saved Argon output');
+      return reply({ok:true,output,partial:interaction.status!=='completed'});
+    }
     const status=argonSafeStatus(interaction.status);
     if(!status)return fail(502,'Invalid provider response');
     if(status!=='completed'&&status!=='failed')return reply({ok:true,status});
@@ -1148,6 +1177,21 @@ function directFailure(reason){
   console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
   return {state:'failed',diagnostic};
 }
+// Kept only in private job storage, never in logs or routine status replies.
+function withRawOutput(outcome,output,partial=false){
+  return typeof output==='string'&&output.length>0&&output.length<=ARGON_MAX_OUTPUT_CHARS
+    ?{...outcome,rawOutput:output,outputPartial:partial}:outcome;
+}
+async function retainArgonOutput(outcome,output,partial,save){
+  const retained=withRawOutput(outcome,output,partial);
+  if(retained.rawOutput&&save){
+    try{
+      await save({text:retained.rawOutput,partial});
+      delete retained.rawOutput;delete retained.outputPartial;
+    }catch{} // finish() gets one more chance to persist it; never replay Google
+  }
+  return retained;
+}
 // Interactions SSE contract: step.start identifies model_output, step.delta
 // carries its text, and interaction.completed may contain only status/usage.
 // Never collect thoughts, input echoes, event IDs, or continuation tokens.
@@ -1159,6 +1203,8 @@ async function readArgonStream(response){
   if(!reader)throw new ArgonStreamError('invalid_provider_response');
   const decoder=new TextDecoder('utf-8',{fatal:true}),steps=new Map();
   let buffer='',bytes=0,chars=0,usage=null,finished=null;
+  const streamText=()=>[...steps].sort(([a],[b])=>a-b)
+    .filter(([,s])=>s.type==='model_output').map(([,s])=>s.text).join('');
   const fail=reason=>{throw new ArgonStreamError(reason,usage);};
   const count=value=>{const next=argonUsage(value,ARGON_MAX_OUTPUT_TOKENS);
     if(next)usage={...usage,...next};};
@@ -1194,8 +1240,7 @@ async function readArgonStream(response){
       count(end.usage);
       // A final snapshot replaces deltas, rather than duplicating the answer.
       const snapshot=argonOutputText(end);
-      const output=snapshot||[...steps].sort(([a],[b])=>a-b)
-        .filter(([,s])=>s.type==='model_output').map(([,s])=>s.text).join('');
+      const output=snapshot||streamText();
       if(output.length>ARGON_MAX_OUTPUT_CHARS)fail('no_usable_scene');
       finished={status:end.status,steps:[{type:'model_output',content:[{type:'text',text:output}]}]};
     }
@@ -1225,8 +1270,9 @@ async function readArgonStream(response){
     if(!finished)fail('provider_stream_interrupted');
     return {interaction:finished,usage};
   }catch(error){
-    if(error instanceof ArgonStreamError)throw error;
-    throw new ArgonStreamError('provider_stream_interrupted',usage);
+    if(error instanceof ArgonStreamError){error.output=streamText();throw error;}
+    const interrupted=new ArgonStreamError('provider_stream_interrupted',usage);
+    interrupted.output=streamText();throw interrupted;
   }finally{
     try{await reader.cancel();}catch{}
     reader.releaseLock();
@@ -1243,7 +1289,7 @@ function providerStatusReason(status){
   return status>=500?'provider_unavailable':'provider_refused';
 }
 // Never throws; every outcome is a stored state with fixed-vocabulary reasons.
-async function runDirectArgon(env,{shotId,content,mode,thinking='medium',detail='standard'}){
+async function runDirectArgon(env,{shotId,content,mode,thinking='medium',detail='standard'},saveOutput){
   let response;const started=Date.now();
   try{
     response=await fetch(ARGON_API,{method:'POST',redirect:'manual',
@@ -1308,8 +1354,9 @@ Return only the scene JSON.`,
     const outcome=diagnostic?{state:'failed',diagnostic}:
       directFailure(error instanceof ArgonStreamError?error.message:'invalid_provider_response');
     if(diagnostic)console.warn('argon-provider-diagnostic',JSON.stringify(diagnostic));
-    return withUsage(outcome,logUsage(ARGON_DIRECT_PROFILE,'geometry',
-      error instanceof ArgonStreamError?error.usage:null));
+    return retainArgonOutput(withUsage(outcome,logUsage(ARGON_DIRECT_PROFILE,'geometry',
+      error instanceof ArgonStreamError?error.usage:null)),
+      error instanceof ArgonStreamError?error.output:null,true,saveOutput);
   }finally{
     console.log('argon-direct-response',JSON.stringify({http:response.status,
       seconds:Math.round((Date.now()-started)/1000)}));
@@ -1317,17 +1364,20 @@ Return only the scene JSON.`,
   // Logged once: the alarm reaches this point at most once per job.
   const usage=logUsage(ARGON_DIRECT_PROFILE,'geometry',streamUsage||argonUsage(interaction?.usage,ARGON_MAX_OUTPUT_TOKENS));
   const output=argonOutputText(interaction);
+  // The original is durable before any geometry/material validation runs.
+  const original=await retainArgonOutput({},output,interaction?.status!=='completed',saveOutput);
+  const keep=outcome=>({...withUsage(outcome,usage),...original});
   // Cut off at the token limit: keep what finished, if anything did.
   const incomplete=interaction?.status==='incomplete'&&!!output;
   if(interaction?.status!=='completed'&&!incomplete)
-    return withUsage({state:'failed',diagnostic:argonJobDiagnostic(interaction)},usage);
-  if(!output||output.length>ARGON_MAX_OUTPUT_CHARS)return withUsage(directFailure('no_usable_scene'),usage);
+    return keep({state:'failed',diagnostic:argonJobDiagnostic(interaction)});
+  if(!output||output.length>ARGON_MAX_OUTPUT_CHARS)return keep(directFailure('no_usable_scene'));
   try{
     const {document,repairs}=parseArgonScene(output,shotId,incomplete);
     logRepairs(ARGON_DIRECT_PROFILE,repairs);
-    return withUsage({state:'completed',proposal:document,...(repairs?{repairs}:{})},usage);
+    return keep({state:'completed',proposal:document,...(repairs?{repairs}:{})});
   }catch(error){
-    return withUsage({state:'failed',diagnostic:incomplete?argonJobDiagnostic(interaction):argonSceneFailure(error)},usage);
+    return keep({state:'failed',diagnostic:incomplete?argonJobDiagnostic(interaction):argonSceneFailure(error)});
   }
 }
 async function startDirectArgonJob(request,env){
@@ -1345,12 +1395,12 @@ async function startDirectArgonJob(request,env){
   if(!response.ok)return response; // the object's own fixed-vocabulary error
   return reply({ok:true,jobId:'do_'+id.toString(),status:'queued'});
 }
-async function directArgonStatus(env,id,shotId){
+async function directArgonStatus(env,id,shotId,download=false){
   if(!env.ARGON_JOBS)return fail(503,'Argon direct job storage is not configured');
   let stub;
   try{stub=env.ARGON_JOBS.get(env.ARGON_JOBS.idFromString(id.slice(3)));}
   catch{return fail(400,'Invalid Argon job request');}
-  try{return await stub.fetch('https://argon-job/status?shot='+encodeURIComponent(shotId));}
+  try{return await stub.fetch('https://argon-job/'+(download?'output':'status')+'?shot='+encodeURIComponent(shotId));}
   catch{return fail(502,'Argon direct job status unavailable');}
 }
 export class ArgonJob {
@@ -1359,6 +1409,7 @@ export class ArgonJob {
     const url=new URL(request.url);
     if(url.pathname==='/start'&&request.method==='POST')return this.start(request);
     if(url.pathname==='/status'&&request.method==='GET')return this.status(url.searchParams.get('shot'));
+    if(url.pathname==='/output'&&request.method==='GET')return this.output(url.searchParams.get('shot'));
     return fail(404,'Not found');
   }
   async start(request){
@@ -1381,21 +1432,31 @@ export class ArgonJob {
     return reply({ok:true,status:'queued'});
   }
   async status(shotId){
-    let job=await this.ctx.storage.get('job');
-    if(!job)return fail(404,'No resumable Argon job');
-    if(job.shotId!==shotId)return fail(400,'Invalid Argon job request');
-    // No alarm outlives its 15-minute wall limit: a job still open past that
-    // was interrupted (e.g. by a deploy). It is reported, never resubmitted.
-    if((job.state==='queued'||job.state==='submitted')&&
-       Date.now()-(job.submitted||job.created)>ARGON_DIRECT_STUCK_MS)
-      job=await this.finish(job,directFailure(job.state==='queued'?'job_not_started':'job_interrupted'));
-    if(job.state==='queued')return reply({ok:true,status:'queued'});
-    if(job.state==='submitted')return reply({ok:true,status:'in_progress'});
-    if(job.state==='completed')return reply(withUsage({ok:true,status:'completed',proposal:job.proposal,
-      ...(job.repairs?{repairs:job.repairs}:{})},job.usage));
-    return reply(withUsage({ok:true,status:'failed',diagnostic:job.diagnostic},job.usage));
+    const started=Date.now();
+    try{
+      let job=await this.ctx.storage.get('job');
+      if(!job)return fail(404,'No resumable Argon job');
+      if(job.shotId!==shotId)return fail(400,'Invalid Argon job request');
+      // No alarm outlives its 15-minute wall limit: a job still open past that
+      // was interrupted (e.g. by a deploy). It is reported, never resubmitted.
+      if((job.state==='queued'||job.state==='submitted')&&
+         Date.now()-(job.submitted||job.created)>ARGON_DIRECT_STUCK_MS)
+        job=await this.finish(job,directFailure(job.state==='queued'?'job_not_started':'job_interrupted'));
+      if(job.state==='queued')return reply({ok:true,status:'queued'});
+      if(job.state==='submitted')return reply({ok:true,status:'in_progress'});
+      if(job.state==='completed')return reply(withUsage({ok:true,status:'completed',proposal:job.proposal,
+        ...(job.repairs?{repairs:job.repairs}:{})},job.usage));
+      return reply(withUsage({ok:true,status:'failed',diagnostic:job.diagnostic},job.usage));
+    }finally{
+      // Handler time, not the platform's longer context/lifecycle wall time.
+      console.log('argon-status-read',JSON.stringify({handlerMilliseconds:Date.now()-started}));
+    }
   }
   async finish(job,outcome){
+    // Preserve paid model text BEFORE scene/job persistence can fail. The job
+    // itself stays small for frequent polls; its existing 24h cleanup deletes both.
+    if(typeof outcome.rawOutput==='string')await this.ctx.storage.put('output',{
+      text:outcome.rawOutput,partial:outcome.outputPartial===true});
     const done={state:outcome.state,shotId:job.shotId,created:job.created,finished:Date.now(),
       ...(outcome.proposal?{proposal:outcome.proposal}:{}),
       ...(outcome.diagnostic?{diagnostic:outcome.diagnostic}:{}),
@@ -1405,6 +1466,15 @@ export class ArgonJob {
     await this.ctx.storage.delete('request');
     await this.ctx.storage.setAlarm(done.finished+ARGON_DIRECT_RETENTION_MS);
     return done;
+  }
+  async output(shotId){
+    const job=await this.ctx.storage.get('job');
+    if(!job||Date.now()-(job.finished||job.created)>ARGON_DIRECT_RETENTION_MS)
+      return fail(404,'No saved Argon output');
+    if(job.shotId!==shotId)return fail(400,'Invalid Argon job request');
+    const saved=await this.ctx.storage.get('output');
+    if(!saved||typeof saved.text!=='string')return fail(404,'No saved Argon output');
+    return reply({ok:true,output:saved.text,partial:saved.partial===true});
   }
   // Alarms run at least once and are retried after an uncaught exception. So
   // this never throws, and "submitted" is stored BEFORE the billable call: a
@@ -1424,7 +1494,8 @@ export class ArgonJob {
       }
       const request=await this.ctx.storage.get('request');
       await this.ctx.storage.put('job',{...job,state:'submitted',submitted:Date.now()});
-      await this.finish(job,request?await runDirectArgon(this.env,request):
+      await this.finish(job,request?await runDirectArgon(this.env,request,
+        output=>this.ctx.storage.put('output',output)):
         directFailure('job_input_missing'));
     }catch{
       try{await this.ctx.storage.delete('request');}catch{}
@@ -1441,9 +1512,9 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-stream-recovery-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-output-material-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
-    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
+    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
     if(!env.GEMINI_API_KEY || !env.SCENE_ACCESS_TOKEN)
       return fail(503,'AI backend is not configured');
