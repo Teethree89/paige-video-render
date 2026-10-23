@@ -6,7 +6,7 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onSelect,onStatus
+  onEnter,onExit,onTransform,onDelete,onSelect,onStatus,getInitialObjectId
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -77,7 +77,7 @@ export function setupSceneObjectEditing({
       orbitControls.enabled=true;
       selectedShot=currentShot();
       setMode('translate');
-      select(null,false);
+      if(!select(getInitialObjectId?.()||null,false))select(null,false);
     }else{
       active=false;selectedId=null;selectedShot=null;frameStart=null;
       transform.detach();transform.enabled=false;clearHighlight();
