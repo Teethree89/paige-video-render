@@ -219,3 +219,69 @@ test('pinned Three.js TransformControls attach to saved primitives and toggle or
     editor.dispose();
   }finally{globalThis.document=oldDocument;world.dispose();}
 });
+
+test('oriented selection wireframe follows a moved/rotated mesh rather than dropping below it',async()=>{
+  const {createSelectionOutline}=await import('../scene-object-edit.js');
+  const {world,root}=build();
+  const object=world.getObjectNode('s1','box');
+  object.position.set(17,4,-9);
+  object.rotation.set(0,Math.PI/3,.1);
+  const outline=createSelectionOutline(object);
+  assert.ok(outline,'selected box has a local outline');
+  assert.equal(outline.line.isLineSegments,true);
+  // Every wireframe vertex matches one real vertex after the complete
+  // parent shot anchor + object translation + Euler rotation are applied.
+  const verticesOf=(geometry,matrix)=>{
+    const a=geometry.getAttribute('position'),keys=new Set();
+    for(let i=0;i<a.count;i++){
+      const p=new THREE.Vector3().fromBufferAttribute(a,i).applyMatrix4(matrix);
+      keys.add(p.toArray().map(round).join(','));
+    }
+    return keys;
+  };
+  const expect=verticesOf(object.geometry,object.matrixWorld);
+  assert.deepEqual(verticesOf(outline.line.geometry,outline.line.matrixWorld),expect);
+  const before=outline.line.matrixWorld.clone();
+  object.position.y+=6;
+  object.rotation.z=.45;
+  outline.update();
+  assert.ok(!outline.line.matrixWorld.equals(before),'wireframe follows post-drag transforms');
+  assert.deepEqual(verticesOf(outline.line.geometry,outline.line.matrixWorld),
+    verticesOf(object.geometry,object.matrixWorld));
+  // The selection outline is an editor-only scene item, not a child of the
+  // primitive, and must never be exported.
+  root.parent.add(outline.line);
+  assert.equal(world.getSceneForExport('s1').getObjectByName(outline.line.name),undefined);
+  outline.dispose();
+  assert.equal(outline.line.parent,null);
+  world.dispose();
+});
+
+test('rotated repeated groups stay enclosed by their object-local outline after translating',async()=>{
+  const {createSelectionOutline}=await import('../scene-object-edit.js');
+  const {world,root}=build();
+  const holder=world.getObjectNode('s1','windows');
+  holder.rotation.y=Math.PI/3;
+  holder.position.set(30,12,-6);
+  const outline=createSelectionOutline(holder);
+  assert.ok(outline);
+  const inverse=outline.line.matrixWorld.clone().invert();
+  holder.traverse(node=>{
+    if(!node.isMesh)return;
+    const a=node.geometry.getAttribute('position');
+    for(let i=0;i<a.count;i++){
+      const point=new THREE.Vector3().fromBufferAttribute(a,i)
+        .applyMatrix4(node.matrixWorld).applyMatrix4(inverse);
+      for(const axis of ['x','y','z'])assert.ok(Math.abs(point[axis])<.501,
+        'repeated mesh vertex must stay in its oriented outline');
+    }
+  });
+  const initial=outline.line.matrixWorld.clone();
+  holder.position.y-=9;
+  holder.rotation.y+=.25;
+  outline.update();
+  assert.ok(!outline.line.matrixWorld.equals(initial));
+  assert.equal(holder.parent.parent,root);
+  outline.dispose();
+  world.dispose();
+});
