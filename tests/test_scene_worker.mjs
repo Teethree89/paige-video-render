@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import worker,{validateInput,validateOutput,secretMatches,argonProviderDiagnostic,ArgonJob} from '../worker/scene-worker.mjs';
+import worker,{validateInput,validateOutput,secretMatches,argonProviderDiagnostic,ArgonJob,closeTruncatedJson} from '../worker/scene-worker.mjs';
 
 const token='test-token-should-be-at-least-thirty-two-chars-private';
 const image='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-server-deadline-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-detail-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-server-deadline-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-detail-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -1042,9 +1042,9 @@ test('Argon results keep every valid part, report what was repaired, and fail on
     const grid=i=>({...object,id:'grid_'+i,repeat:{count:[20,20,1],spacing:[1,1,0]}});
     const part=i=>({...object,id:'part_'+i});
     const capped=await poll({schemaVersion:1,scenes:[
-      {shotId:sample.shotId,objects:[...Array.from({length:6},(_,i)=>grid(i)),...Array.from({length:50},(_,i)=>part(i))]},
-      {shotId:sample.shotId,objects:Array.from({length:70},(_,i)=>part(50+i))}]});
-    assert.equal(capped.proposal.scenes[0].objects.length,118);
+      {shotId:sample.shotId,objects:[...Array.from({length:6},(_,i)=>grid(i)),...Array.from({length:100},(_,i)=>part(i))]},
+      {shotId:sample.shotId,objects:Array.from({length:100},(_,i)=>part(100+i))}]});
+    assert.equal(capped.proposal.scenes[0].objects.length,198);
     assert.equal(capped.proposal.scenes[0].objects.filter(item=>item.repeat).length,4);
     assert.deepEqual(capped.repairs,{scenes_merged:1,object_cap:6,scene_copies:2});
     // Lights and camera: invalid ones dropped, at most 8 kept, names keep their place.
@@ -1507,7 +1507,8 @@ test('Argon Previs reports Flash-Lite and Argon token counts, never other usage 
     assert.deepEqual(rejection.usage,analysis);assert.equal(rejection.diagnostic.reason,'output_schema');
     const geometry={...geometryCounts,cap:28672};
     assert.deepEqual(await (await poll()).json(),{ok:true,status:'completed',proposal:scene,usage:geometry});
-    interaction={...interaction,status:'incomplete'};
+    // Cut off with nothing complete to keep: still a failed job.
+    interaction={...interaction,status:'incomplete',steps:[{type:'model_output',content:[{type:'text',text:'{"schemaVersion":1,"sce'}]}]};
     const failed=await (await poll()).json();
     assert.equal(failed.status,'failed');assert.equal(failed.diagnostic.reason,'incomplete_output');
     assert.deepEqual(failed.usage,geometry);
@@ -1526,7 +1527,8 @@ test('Argon Previs reports Flash-Lite and Argon token counts, never other usage 
 });
 test('Direct-image Argon stores its token counts once and returns them with the result',async()=>{
   const prior=globalThis.fetch,logs=captureUsageLogs();
-  for(const [outcome,status] of [['completed','completed'],['incomplete','failed'],['no_usage','completed']]){
+  // A cut-off answer that still holds complete objects is kept (see the truncation test).
+  for(const [outcome,status] of [['completed','completed'],['incomplete','completed'],['no_usage','completed']]){
     const {objects,namespace}=fakeArgonJobs(env);
     const jobsEnv={...env,ARGON_JOBS:namespace};
     globalThis.fetch=async()=>new Response(JSON.stringify({id:'v1_sync',
@@ -1646,4 +1648,109 @@ test('Direct-image jobs keep a salvaged scene with its repairs, and report an un
     // Cloudflare logs carry only the codes.
     assert.ok(warnings.some(line=>line==='argon-output-repairs {"profile":"argon_direct","scale":1,"repeat":1}'));
   }finally{globalThis.fetch=prior;console.warn=priorWarn;}
+});
+
+test('a cut-off answer closes after its last complete element, never inside a string',()=>{
+  const full=JSON.stringify({schemaVersion:1,scenes:[{shotId:'draft_001',objects:[
+    {id:'a',name:'Say "hi" [x]',points:[[0,0],[1,0],[0,1]]},{id:'b',name:'Brace } in text'},{id:'c',name:'cut'}]}]});
+  const cutAt=marker=>full.slice(0,full.indexOf(marker));
+  // Mid third object: the first two are kept whole, the partial one never.
+  assert.deepEqual(closeTruncatedJson(cutAt('"cut"')).scenes[0].objects.map(o=>o.id),['a','b']);
+  assert.deepEqual(closeTruncatedJson(cutAt('{"id":"c"')).scenes[0].objects.map(o=>o.id),['a','b']);
+  // Brackets and escaped quotes inside strings never count as structure.
+  assert.deepEqual(closeTruncatedJson(cutAt('in text')).scenes[0].objects.map(o=>o.id),['a']);
+  // Inside a footprint: points that finished are kept.
+  assert.deepEqual(closeTruncatedJson(cutAt('[0,1]')).scenes[0].objects[0].points,[[0,0],[1,0]]);
+  for(const prefix of ['','{"schemaVersion":1,"sce','{"schemaVersion":1,"scenes":[{"shotId":"x","objects":[{"id":"a"'])
+    assert.throws(()=>closeTruncatedJson(prefix),SyntaxError);
+});
+
+test('Argon thinking and detail settings reach Google, change the prompt and are strictly allowlisted',async()=>{
+  const prior=globalThis.fetch,bodies=[];
+  globalThis.fetch=async(url,opts)=>{
+    if(url.endsWith(':generateContent'))return new Response(JSON.stringify(analysisResult()));
+    bodies.push(JSON.parse(opts.body));
+    return url.endsWith('/interactions')&&!JSON.parse(opts.body).background?completedScene()
+      :new Response(JSON.stringify({id:'v1_settings_1',status:'queued'}));
+  };
+  const direct=async extra=>{
+    const {objects,namespace}=fakeArgonJobs(env);
+    const response=await argonPost({...env,ARGON_JOBS:namespace},'/api/scene/argon/direct-start',{...directJob,...extra});
+    if(response.status!==200)return response.status;
+    const started=await response.json();
+    const job=objects.get(started.jobId.slice(3));
+    await job.alarm();
+    return job;
+  };
+  try{
+    // Defaults: medium thinking, standard detail (older editors send neither).
+    await direct({mode:'full_scene'});
+    let body=bodies.at(-1);
+    assert.equal(body.generation_config.thinking_level,'medium');
+    assert.match(body.system_instruction,/at most 120 objects, 8 lights/);
+    assert.match(body.system_instruction,/Target 80 to 120 objects/);
+    assert.doesNotMatch(body.system_instruction,/DETAIL:/);
+    // Chosen settings: stored with the job and sent to Google.
+    const job=await direct({mode:'full_scene',thinking:'high',detail:'max'});
+    body=bodies.at(-1);
+    assert.equal(body.generation_config.thinking_level,'high');
+    assert.equal(body.generation_config.max_output_tokens,32768,'the token budget never changes');
+    assert.match(body.system_instruction,/at most 180 objects, 8 lights/);
+    assert.match(body.system_instruction,/DETAIL: MAXIMUM/);
+    assert.match(body.system_instruction,/Target 140 to 180 objects/);
+    assert.equal(job.ctx.storage.data.get('request'),undefined,'frames removed after the call');
+    await direct({mode:'primary_subject',thinking:'minimal',detail:'high'});
+    body=bodies.at(-1);
+    assert.equal(body.generation_config.thinking_level,'minimal');
+    assert.match(body.system_instruction,/DETAIL: HIGH/);
+    assert.match(body.system_instruction,/Target 80 to 130 objects/);
+    // Previs uses the same settings for its background geometry call.
+    const previs=await argonPost(env,'/api/scene/argon/start',{...sample,profile:'argon_previs',
+      mode:'primary_subject',thinking:'low',detail:'high'});
+    assert.equal(previs.status,200);
+    body=bodies.at(-1);
+    assert.equal(body.background,true);assert.equal(body.generation_config.thinking_level,'low');
+    assert.match(body.system_instruction,/at most 150 objects/);
+    const sent=bodies.length;
+    for(const extra of [{thinking:'ultra'},{thinking:'HIGH'},{detail:'extreme'},{detail:'__proto__'},
+      {detail:'constructor'},{thinking:7},{detail:null}]){
+      assert.equal(await direct({mode:'full_scene',...extra}),400,JSON.stringify(extra));
+      assert.equal((await argonPost(env,'/api/scene/argon/start',{...sample,profile:'argon_previs',
+        mode:'primary_subject',...extra})).status,400);
+    }
+    assert.equal(bodies.length,sent,'an invalid setting never reaches Google');
+  }finally{globalThis.fetch=prior;}
+});
+
+test('an answer cut off at the token limit keeps its complete objects, on both profiles',async()=>{
+  const prior=globalThis.fetch;
+  const object=scene.scenes[0].objects[0];
+  const text=JSON.stringify({schemaVersion:1,scenes:[{shotId:'draft_001',objects:[
+    object,{...object,id:'second'},{...object,id:'third'}]}]});
+  const cut=text.slice(0,text.indexOf('"third"')+12);
+  const answer=(id,status,output)=>new Response(JSON.stringify({id,status,usage:interactionUsage,
+    steps:[{type:'model_output',content:[{type:'text',text:output}]}]}));
+  try{
+    // Direct image.
+    globalThis.fetch=async()=>answer('v1_sync','incomplete',cut);
+    const {objects,namespace}=fakeArgonJobs(env);
+    const jobsEnv={...env,ARGON_JOBS:namespace};
+    const started=await (await argonPost(jobsEnv,'/api/scene/argon/direct-start',{...directJob,mode:'full_scene',detail:'max'})).json();
+    await objects.get(started.jobId.slice(3)).alarm();
+    const kept=await (await argonPost(jobsEnv,'/api/scene/argon/status',{jobId:started.jobId,shotId:'draft_001'})).json();
+    assert.equal(kept.status,'completed');
+    assert.deepEqual(kept.proposal.scenes[0].objects.map(o=>o.id),['box_1','second']);
+    // The half-written third object is never parsed; the cut itself is reported.
+    assert.deepEqual(kept.repairs,{truncated:1});
+    // Previs.
+    const id='v1_truncated_1';
+    globalThis.fetch=async()=>answer(id,'incomplete',cut);
+    const previs=await (await argonPost(env,'/api/scene/argon/status',{jobId:id,shotId:'draft_001'})).json();
+    assert.equal(previs.status,'completed');assert.equal(previs.repairs.truncated,1);
+    assert.equal(previs.proposal.scenes[0].objects.length,2);
+    // Nothing complete to keep: the usual incomplete_output failure.
+    globalThis.fetch=async()=>answer(id,'incomplete','{"schemaVersion":1,"scenes":[{"shotId":"draft_001","objects":[{"id"');
+    const lost=await (await argonPost(env,'/api/scene/argon/status',{jobId:id,shotId:'draft_001'})).json();
+    assert.equal(lost.status,'failed');assert.equal(lost.diagnostic.reason,'incomplete_output');
+  }finally{globalThis.fetch=prior;}
 });

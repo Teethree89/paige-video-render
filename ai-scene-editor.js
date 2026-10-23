@@ -59,10 +59,14 @@ export function describeUsage(label,u) {
       ' ('+Math.round(used/u.cap*100)+'%).';
   return line;
 }
+// Argon settings the Worker and PHP accept (ARGON_THINKING, ARGON_DETAIL).
+const ARGON_THINKING=Object.freeze(['minimal','low','medium','high']);
+const ARGON_DETAIL_LABELS=Object.freeze({standard:'Standard',high:'High',max:'Maximum'});
 // Worker reasons for an HTTP 5xx answer from Google (providerStatusReason).
 const SERVER_FAILURES=Object.freeze(['provider_internal','provider_deadline','provider_unavailable','provider_capacity']);
 // The Worker's fixed repair codes (ARGON_REPAIR_CODES), in plain words.
-const REPAIR_LABELS=Object.freeze({json:'unreadable JSON',scene:'no scene',
+const REPAIR_LABELS=Object.freeze({json:'unreadable JSON',
+  truncated:'answer cut off at the token limit (complete objects kept)',scene:'no scene',
   shot_id:'wrong shot ID (fixed)',scenes_merged:'several scenes (merged)',
   object_cap:'over 120 objects',object:'malformed object',id:'invalid ID',
   duplicate_id:'duplicate ID (renamed)',primitive:'unknown shape',
@@ -146,6 +150,13 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
+  const argonSettings=el('aiArgonSettings'),thinkingSelect=el('aiArgonThinking'),detailSelect=el('aiArgonDetail');
+  // The thinking and detail selectors apply to Argon only.
+  const showArgonSettings=()=>{
+    if(argonSettings)argonSettings.hidden=!['argon_previs','argon_direct'].includes(modelSelect?.value);
+  };
+  modelSelect?.addEventListener?.('change',showArgonSettings);
+  showArgonSettings();
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
   const resumeArgon=el('aiSceneResumeArgon');
   const checkArgon=el('aiSceneCheckArgon');
@@ -290,6 +301,8 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     create.disabled=busy||!authenticated;
     scope.disabled=busy;
     if(modelSelect)modelSelect.disabled=busy;
+    if(thinkingSelect)thinkingSelect.disabled=busy;
+    if(detailSelect)detailSelect.disabled=busy;
     if(checkArgon)checkArgon.disabled=busy||!authenticated;
     if(smokeButton)smokeButton.disabled=busy||!authenticated;
     if(smokeReset)smokeReset.disabled=busy||!authenticated;
@@ -371,12 +384,16 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         throw Error('Argon Previs requires Primary subject only. Use Argon Direct image for a full scene.');
       // Argon Direct image rebuilds a full scene in its ONE call, not four passes.
       const argonFull=fullEnvironment&&profile==='argon_direct';
+      const thinking=ARGON_THINKING.includes(thinkingSelect?.value)?thinkingSelect.value:'medium';
+      const detail=Object.hasOwn(ARGON_DETAIL_LABELS,detailSelect?.value||'')?detailSelect.value:'standard';
+      const settings='Settings: '+thinking+' thinking, '+ARGON_DETAIL_LABELS[detail]+' detail.'+
+        (thinking==='high'||detail==='max'?' These use more of the same 32,768-token output budget; an answer cut off at it keeps only the objects it finished, and every generated token is billed.':'');
       if(argon){
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
-        if(typeof confirm==='function'&&!confirm(profile==='argon_direct'
+        if(typeof confirm==='function'&&!confirm(settings+' '+(profile==='argon_direct'
           ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'
-          :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'))
+          :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.')))
           return;
       }
       log('Preparing reference frames from the selected chapter…');
@@ -413,8 +430,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
               ' through a Cloudflare job (one potentially billable call)…'
             :'Analyzing 3 reference frames with Gemini 3.5 Flash-Lite, then starting text-only Argon background geometry (up to two potentially billable calls)…');
           let start;
+          log('Argon '+settings.charAt(0).toLowerCase()+settings.slice(1));
           try{start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,
-            mode:argonFull?'full_scene':'primary_subject'});}
+            mode:argonFull?'full_scene':'primary_subject',thinking,detail});}
           catch(error){ // the analysis is billed even when Argon then rejects the job
             if(error.usage)log(describeUsage('Flash-Lite analysis',error.usage));
             throw error;

@@ -11,6 +11,9 @@ import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {shotAnchorMap,fitDistance} from './primitive-preview.js';
+import {foldHelpText} from './help-toggles.js';
+
+foldHelpText();
 
 const el=id=>document.getElementById(id);
 const canvas=el('scene'),viewport=el('viewport');
@@ -23,7 +26,16 @@ renderer.toneMappingExposure=1.35;
 renderer.shadowMap.enabled=false;
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(50,16/9,.35,500);
 const controls=new OrbitControls(camera,renderer.domElement);
-controls.enabled=false;controls.enableDamping=true;controls.dampingFactor=.08;controls.maxDistance=140;
+controls.enabled=false;controls.enableDamping=true;controls.dampingFactor=.08;controls.maxDistance=Infinity;
+// Orbiting zooms out without limit: the clip planes follow the orbit
+// distance, so a far view is never cut off and close-ups keep precision.
+// The cinematic camera keeps its fixed planes (applyCamera).
+let orbitFar=500;
+controls.addEventListener('change',()=>{
+  const distance=camera.position.distanceTo(controls.target);
+  const near=Math.max(.01,distance*.01),far=Math.max(orbitFar,distance*10);
+  if(near!==camera.near||far!==camera.far){camera.near=near;camera.far=far;camera.updateProjectionMatrix();}
+});
 const world=buildWorld(scene);
 // Temporary studio lighting is ON only when examining a generated proposal.
 // It is never serialized, exported or applied to the authored timeline.
@@ -65,7 +77,7 @@ function endGeometryReview(){
   orbitMode=false;controls.enabled=false;
   el('inspectBtn').classList.remove('active');
   el('returnTimelineCameraBtn').hidden=true;
-  camera.near=.35;camera.far=500;
+  camera.near=.35;camera.far=500;orbitFar=500;
   reviewLights.visible=false;reviewStage.visible=false;renderer.toneMappingExposure=1.35;
   applyCamera();renderWorld();
 }
@@ -104,7 +116,7 @@ function showGeneratedGeometry(shotId,scroll=false){
   }
   const distance=camera.position.distanceTo(target);
   camera.near=Math.max(.01,Math.min(.35,distance*.01));
-  camera.far=Math.max(500,distance+bounds.radius*5);
+  camera.far=orbitFar=Math.max(500,distance+bounds.radius*5);
   camera.lookAt(target);camera.updateProjectionMatrix();
   controls.target.copy(target);controls.update();
   if(scroll)viewport.scrollIntoView?.({behavior:'smooth',block:'start'});
@@ -204,7 +216,7 @@ function validSequence(s){return !!(s&&Number.isFinite(s.duration)&&s.duration>0
 function saveLocal(){try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));}catch(e){}el('saveStatus').textContent='● SAVED LOCALLY';}
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
 function cameraAt(t){let keys=sequence.camera.slice().sort((a,b)=>a.at-b.at);let first=keys[0];if(t<=first.at)return first;for(let i=0;i<keys.length-1;i++){let a=keys[i],b=keys[i+1];if(t>=a.at&&t<b.at){if(b.cut)return a;let u=ease(clamp((t-a.at)/(b.at-a.at),0,1));return{p:a.p.map((v,j)=>lerp(v,b.p[j],u)),t:a.t.map((v,j)=>lerp(v,b.t[j],u)),fov:lerp(a.fov,b.fov,u)};}}return keys[keys.length-1];}
-function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.updateProjectionMatrix();controls.target.set(...c.t);}
+function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.near=.35;camera.far=500;camera.updateProjectionMatrix();controls.target.set(...c.t);}
 function seek(t,opts={}){if(reviewShotId&&shotAt(t)?.id!==reviewShotId)endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
 function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
  world.update(playhead,shot.id,custom);if(reviewShotId&&scene.fog)scene.fog.density=0;

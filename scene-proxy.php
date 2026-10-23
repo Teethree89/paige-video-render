@@ -149,7 +149,7 @@ function with_diagnostic(array $payload, $workerValue): array {
 function safe_worker_repairs($value) {
     if (!is_array($value)) return null;
     $repairs = [];
-    foreach (['json', 'scene', 'shot_id', 'scenes_merged', 'object_cap', 'object', 'id',
+    foreach (['json', 'truncated', 'scene', 'shot_id', 'scenes_merged', 'object_cap', 'object', 'id',
         'duplicate_id', 'primitive', 'transform', 'scale', 'material', 'repeat', 'footprint',
         'name', 'scene_copies', 'light', 'light_cap', 'camera', 'other'] as $code) {
         if (isset($value[$code]) && is_int($value[$code]) && $value[$code] > 0 && $value[$code] <= 100000)
@@ -556,6 +556,14 @@ if (array_key_exists('mode', $input)) {
         reject(400, 'Invalid generation mode');
     }
     $workerInput['mode'] = $mode;
+}
+// Argon thinking level and detail: fixed allowlists, on Argon starts only.
+foreach (['thinking' => ['minimal', 'low', 'medium', 'high'],
+          'detail' => ['standard', 'high', 'max']] as $setting => $allowed) {
+    if (!array_key_exists($setting, $input)) continue;
+    if ($action !== 'argon_start' || !in_array($input[$setting], $allowed, true))
+        reject(400, 'Invalid Argon setting');
+    $workerInput[$setting] = $input[$setting];
 }
 // Authenticated four-pass environment generation. Validate pass name and count
 // before forwarding. The Worker validates every previous object's geometry;
