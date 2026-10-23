@@ -824,34 +824,40 @@ php -r '$c=require ".private/paiver.php"; foreach (["scene_access_token"=>32,"ed
 This prints only whether the secret token and passphrase are present with acceptable lengths. Do **not** use `cat` or post screenshots of your configuration; keep all secret values off the command line. Because the Worker URL is no longer read from the private file, a mistyped `worker_endpoint` entry cannot break PHP startup.
 
 
-## Larger Maximum scenes and one consented retry (2026-10-23)
+## Larger Maximum scenes and three guarded automatic retries (2026-10-23)
 
-The user requested a larger Maximum full-scene target and an automatic retry
-for failures below 10,000 generated tokens. Maximum now targets 180–230 objects
-with a prompt cap of 240. The shared validator permits 240 objects per scene;
-2,000 total objects and 2,000 rendered copies per scene remain enforced. High
-and Standard targets are unchanged, and both Standard prompts remain byte-identical.
-The raw model-output guard is 280,000 characters; PHP's UTF-8 download guard is
-1,120,000 bytes. No bounds were added to the provider response schema.
+Maximum full scenes target 180–230 objects (prompt cap 240). The shared
+validator permits 240 objects per scene; 2,000 total objects and 2,000 rendered
+copies per scene remain enforced. High and Standard prompts/targets, including
+both byte-pinned Standard prompts, are unchanged. Raw model output is limited
+to 280,000 characters; PHP original-output downloads to 1,120,000 UTF-8
+bytes. Provider response schema has no new bounds.
 
-Direct image exposes a checked retry option, disclosed in the paid confirmation.
-That confirmation authorizes at most two attempts. The browser may start ONE new
-identical job after a terminal `scene_schema_mismatch` failure only when both
-thinking and output usage are nonnegative integers whose sum is strictly below
-10,000. Input tokens are excluded from that threshold but billed on each attempt.
-A sealed `start_not_received` also permits one new job. Unknown or partial usage,
-provider errors, stream interruptions and deploy interruptions never trigger a
-paid retry. Each Durable Object still submits at most once; no alarm, poll or
-resume action retries generation. Unchecking the option preserves one attempt.
-The latest-job download will refer to the second attempt after a retry.
+Direct image has a checked-on-by-default automatic retry option, explicitly
+disclosed in the paid confirmation. A single confirmation authorizes at most
+**three retries after the initial request (four potentially billable attempts)**
+with **15 seconds between eligible attempts**. Each new attempt sends the
+identical payload but creates a separately named paid job. After EACH attempt,
+the browser may retry only following terminal `scene_schema_mismatch` when
+both thinking and output are known nonnegative integers whose sum is
+**strictly below 10,000**; or following a sealed `start_not_received` job
+that conclusively never reached Google. Every retry requires its own preceding
+eligible failure. Input tokens are excluded from the 10k threshold but are
+billed again on every submitted attempt; each also consumes a request slot.
+At exactly 10,000 or with incomplete/unknown usage, stop. Provider errors,
+partial streams, uncertain starts, network failures and deploy interruptions
+never trigger a paid retry, regardless of tokens observed.
 
-The synchronous budgets remain 32,768/65,536, with `stream:true,store:false` and
-no background image path. High/Maximum select 65,536; Standard selects 32,768.
-The observed 153-object result used the earlier Maximum prompt: the larger
-180–230 target and retry recovery remain unverified live. They cannot guarantee
-that every visible feature will be reconstructed. After review and deployment,
-start one Maximum full-scene run in the editor with retry OFF to isolate the new
-target. It costs roughly 6.7k input tokens plus actual thinking/output (ceiling
-65,536 generated tokens). If retry is enabled for a later run, its confirmation
-allows a second attempt at that same per-attempt cost; there is no third attempt.
-Do not merge/deploy during a paid run. No paid test is part of offline validation.
+The browser controls the retry chain while its generation view stays active;
+closing or refreshing the editor does not schedule further paid retries.
+Existing started jobs may still be resumed/polled for free. Each Durable
+Object alarm must continue to submit **at most once**; alarm replay, status
+polls and resume never create another paid job. The latest-job original-output
+download points to the latest attempt. Turning off retries means one attempt.
+
+Synchronous budgets remain 32,768/65,536 with `stream:true`, `store:false`
+and no background-image mode. High/Maximum select 65,536 by default, Standard
+32,768; manual selection remains available. The 180–230-object target and
+multi-retry recovery have not been verified live. No provider calls or
+production deployment are part of offline validation; merging can interrupt
+an active paid job.
