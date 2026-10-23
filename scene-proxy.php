@@ -501,10 +501,10 @@ if ($action === 'argon_output') {
         reject(400, 'Invalid Argon job');
     $value = argon_worker_call($workerEndpoint, $secret, 'output',
         ['jobId' => $job['id'], 'shotId' => $job['shotId']]);
-    // 160k JS characters can occupy up to 640k UTF-8 bytes. Nothing else from
+    // 280k JS characters can occupy up to 1120k UTF-8 bytes. Nothing else from
     // the provider is forwarded: only model_output text, never steps or inputs.
     if (!is_string($value['output'] ?? null) || strlen($value['output']) === 0 ||
-        strlen($value['output']) > 640000 || !is_bool($value['partial'] ?? null))
+        strlen($value['output']) > 1120000 || !is_bool($value['partial'] ?? null))
         reject(502, 'Invalid Argon output response');
     answer(200, ['ok' => true, 'shotId' => $job['shotId'],
         'output' => $value['output'], 'partial' => $value['partial']]);

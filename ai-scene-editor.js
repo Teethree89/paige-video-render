@@ -77,6 +77,23 @@ export function describeUsage(label,u) {
 // Argon settings the Worker and PHP accept (ARGON_THINKING, ARGON_DETAIL).
 const ARGON_THINKING=Object.freeze(['minimal','low','medium','high']);
 const ARGON_DETAIL_LABELS=Object.freeze({standard:'Standard',high:'High',max:'Maximum'});
+const ARGON_RETRY_TOKENS=10000;
+// Three additional paid jobs at most; each retry is only eligible after an
+// independently confirmed cheap terminal failure of its preceding attempt.
+const ARGON_RETRY_MAX=3;
+const ARGON_RETRY_DELAY_MS=15000;
+// Only a terminal scene-validation failure has complete generated-token usage.
+// Transport failures (even with partial counts) never authorize another bill.
+export function argonRetryReason(error){
+  if(error?.argonTerminal!==true)return null;
+  const reason=error.diagnostic?.reason;
+  if(reason==='start_not_received')return 'start';
+  if(reason!=='scene_schema_mismatch')return null;
+  const {thinking,output}=error.usage||{};
+  return Number.isSafeInteger(thinking)&&thinking>=0&&Number.isSafeInteger(output)&&output>=0&&
+    thinking+output<ARGON_RETRY_TOKENS?'scene':null;
+}
+
 // Direct-image jobs that stopped on Cloudflare's side, not Google's.
 const JOB_STOPS=Object.freeze({
   job_interrupted_deploy:'The Worker was redeployed during the paid call; a deploy restarts running jobs, which cut the call off. Wait until a deploy has finished before starting a paid run.',
@@ -183,6 +200,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
   const argonSettings=el('aiArgonSettings'),thinkingSelect=el('aiArgonThinking'),detailSelect=el('aiArgonDetail');
   const budgetField=el('aiArgonBudgetField'),budgetSelect=el('aiArgonBudget');
+  const retryField=el('aiArgonRetryField'),retrySelect=el('aiArgonRetry');
   // Chrome silently dismisses window.confirm() when the tab is not in front
   // (live 2026-10-23), which reads as Cancel. Paid requests ask in the page
   // instead, in a dialog that waits for an answer; confirm() is the fallback.
@@ -207,9 +225,20 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const showArgonSettings=()=>{
     if(argonSettings)argonSettings.hidden=!['argon_previs','argon_direct'].includes(modelSelect?.value);
     if(budgetField)budgetField.hidden=modelSelect?.value!=='argon_direct';
+    if(retryField)retryField.hidden=modelSelect?.value!=='argon_direct';
   };
   modelSelect?.addEventListener?.('change',showArgonSettings);
   showArgonSettings();
+  // Each detail level selects the budget it worked with live (2026-10-23):
+  // High and Maximum came back empty at 32,768 and returned 106 to 153
+  // objects at 65,536; Standard keeps 32,768. The budget is a ceiling (only
+  // generated tokens are billed) and can still be changed afterwards.
+  const recommendBudget=()=>{
+    if(budgetSelect&&detailSelect)
+      budgetSelect.value=['high','max'].includes(detailSelect.value)?'65536':'32768';
+  };
+  detailSelect?.addEventListener?.('change',recommendBudget);
+  recommendBudget();
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
   const resumeArgon=el('aiSceneResumeArgon');
   const downloadArgon=el('aiSceneDownloadArgon');
@@ -321,11 +350,11 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         const empty=result.diagnostic?.reason==='scene_schema_mismatch'&&
           Array.isArray(result.diagnostic.codes)&&result.diagnostic.codes.includes('empty');
         if(result.status==='failed')throw Object.assign(Error(empty
-          ?'Argon answered with an empty scene (0 objects), so there is nothing to import. Nothing was retried.'
+          ?'Argon answered with an empty scene (0 objects), so there is nothing to import.'
           :result.diagnostic?.reason==='scene_schema_mismatch'
           ?'Argon returned output, but no scene passed validation. Use Download original Argon output to inspect it.'
           :stop?'Argon job stopped on Cloudflare, not at Google. '+stop+' No geometry was returned.'
-          :'Argon job failed on the provider. No geometry was returned.'),{diagnostic:result.diagnostic});
+          :'Argon job failed on the provider. No geometry was returned.'),{diagnostic:result.diagnostic,usage:result.usage,argonTerminal:true});
         if(!['queued','in_progress'].includes(result.status))throw Error('Unrecognized Argon status');
         status('Argon '+result.status.replace('_',' ')+' — waiting for editable geometry…');
       }
@@ -373,6 +402,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(thinkingSelect)thinkingSelect.disabled=busy;
     if(detailSelect)detailSelect.disabled=busy;
     if(budgetSelect)budgetSelect.disabled=busy;
+    if(retrySelect)retrySelect.disabled=busy;
     if(checkArgon)checkArgon.disabled=busy||!authenticated;
     if(smokeButton)smokeButton.disabled=busy||!authenticated;
     if(smokeReset)smokeReset.disabled=busy||!authenticated;
@@ -462,16 +492,17 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const detail=Object.hasOwn(ARGON_DETAIL_LABELS,detailSelect?.value||'')?detailSelect.value:'standard';
       const largeBudget=profile==='argon_direct'&&budgetSelect?.value==='65536';
       const tokenBudget=largeBudget?65536:32768;
+      const retryEnabled=profile==='argon_direct'&&retrySelect?.checked===true;
       const settings='Settings: '+thinking+' thinking, '+ARGON_DETAIL_LABELS[detail]+' detail. '+
         tokenBudget.toLocaleString('en-US')+' tokens maximum for thinking + output.'+
         (thinking==='high'||detail==='max'?' An answer cut off at the limit keeps only the objects it finished, and every generated token is billed.':'');
       if(argon){
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
-        if(!await askPaid(settings+' '+(largeBudget
-          ?'Start ONE EXPERIMENTAL paid 65,536-token Argon direct-image run? It is the same single synchronous call as the default (reference JPEGs sent inline, Google asked not to store the request or result); only the thinking + output allowance is doubled, so up to 65,536 generated tokens can be billed. Nothing retries or falls back. The Standard prompt and scene limits are unchanged.'
-          :profile==='argon_direct'
-          ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'
+        if(!await askPaid(settings+' '+(profile==='argon_direct'
+          ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable initial call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'+
+            (retryEnabled?' You authorize up to THREE automatic paid retries as new identical jobs, with a 15-second pause before each retry. Each preceding attempt must either finish with an unusable scene AND reported thinking plus output strictly below 10,000 tokens, or have its start conclusively marked as never received by Google. At most FOUR total attempts (one initial plus three retries); each uses a separate request slot and bills its own input and generated tokens. Interrupted calls, provider errors and unknown or partial usage never trigger a retry.':'')+
+            (largeBudget?' The thinking + output ceiling is 65,536 tokens instead of 32,768, on the same call; Google bills only the tokens Argon generates, up to 65,536.':'')
           :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'),
           'Start paid Argon run')){notStarted();return;}
       }
@@ -508,24 +539,37 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
             ?'Sending '+frames.length+' reference frames directly to Gemini 4 Argon'+(argonFull?' for the full scene':'')+
               ' through a Cloudflare job (one potentially billable call)…'
             :'Analyzing 3 reference frames with Gemini 3.5 Flash-Lite, then starting text-only Argon background geometry (up to two potentially billable calls)…');
-          let start;
-          log('Argon '+settings.charAt(0).toLowerCase()+settings.slice(1));
-          try{start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,
+          const payload={csrf,shotId:shot.id,frames,profile,
             mode:argonFull?'full_scene':'primary_subject',thinking,detail,
-            ...(profile==='argon_direct'?{tokenBudget}:{})});}
-          catch(error){ // the analysis is billed even when Argon then rejects the job
-            if(error.usage)log(describeUsage('Flash-Lite analysis',error.usage));
-            throw error;
+            ...(profile==='argon_direct'?{tokenBudget}:{})};
+          log('Argon '+settings.charAt(0).toLowerCase()+settings.slice(1));
+          for(let attempt=0;attempt<=(retryEnabled?ARGON_RETRY_MAX:0);attempt++){
+            try{
+              const start=await request('argon_start',payload);
+              if(start.usage)log(describeUsage('Flash-Lite analysis',start.usage));
+              argonJob={shotId:shot.id,status:start.status};
+              if(waitInfo)waitInfo.textContent='Argon job submitted';
+              if(start.startUnconfirmed)
+                log('Cloudflare did not confirm the start ('+describeLostStart(start.startUnconfirmed)+
+                  '). Checking whether the job was created; no new paid request is sent. You may resume it after a page refresh.');
+              else log('Paid Argon job started. You may resume it after a page refresh.');
+              doc=await pollArgon(shot.id);
+              argonJob={shotId:shot.id,status:'completed'};
+              break;
+            }catch(error){
+              if(profile==='argon_previs'&&error.usage&&!error.argonTerminal)
+                log(describeUsage('Flash-Lite analysis',error.usage));
+              const reason=retryEnabled&&attempt<ARGON_RETRY_MAX?argonRetryReason(error):null;
+              if(!reason)throw error;
+              log((reason==='scene'?'The unusable scene used '+
+                (error.usage.thinking+error.usage.output).toLocaleString('en-US')+' generated tokens (under 10,000).'
+                :'The first start never reached Google.')+
+                ' Retrying in 15 seconds ('+(attempt+1)+'/'+ARGON_RETRY_MAX+' permitted retries).');
+              status('Argon failed cheaply; retry '+(attempt+1)+'/'+ARGON_RETRY_MAX+' starts in 15 seconds…');
+              await new Promise(resolve=>setTimeout(resolve,ARGON_RETRY_DELAY_MS));
+              log('Starting automatic paid Argon retry '+(attempt+1)+'/'+ARGON_RETRY_MAX+' as a new identical job…');
+            }
           }
-          if(start.usage)log(describeUsage('Flash-Lite analysis',start.usage));
-          argonJob={shotId:shot.id,status:start.status};
-          if(waitInfo)waitInfo.textContent='Argon background job submitted';
-          if(start.startUnconfirmed)
-            log('Cloudflare did not confirm the start ('+describeLostStart(start.startUnconfirmed)+
-              '). Checking whether the job was created; no new paid request is sent. You may resume it after a page refresh.');
-          else log('Paid Argon job started. You may resume it after a page refresh.');
-          doc=await pollArgon(shot.id);
-          argonJob={shotId:shot.id,status:'completed'};
         }else{
           const result=await sendGeneration({csrf,shotId:shot.id,frames,profile,mode:'primary_subject'},
             'primary subject');

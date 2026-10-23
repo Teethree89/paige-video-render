@@ -79,7 +79,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-65k-budget-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-max-scene-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));

@@ -1067,6 +1067,29 @@ Expected evidence from one run (exterior, High thinking, High detail,
   separate add-detail pass or Standard detail.
 - `incomplete` at the cap: budget pressure; the finished objects are kept.
 
+### 65,536 results: High and Maximum work (2026-10-23)
+
+| Time (EDT) | Thinking, detail | Budget | Duration | Thinking | Output | Result |
+|---|---|---|---|---|---|---|
+| 14:48 | Medium, High | 65,536 | 2:56 | 0 | 19,161 | 117 objects, 560 parts, 8 lights |
+| 14:57 | Medium, Maximum | 65,536 | 2:08 | 0 | 11,042 | 106 objects, 654 parts, 8 lights |
+| (before 15:03) | High, Maximum | 65,536 | — | — | — | failed; log not recorded |
+| 15:03 | High, Maximum | 65,536 | 5:52 | 3,292 | 24,295 | 153 objects, 737 parts, 8 lights (accepted) |
+
+Every High or Maximum run at 32,768 had come back empty or nearly empty:
+Medium/High at 12:34 and High/High at 12:57, which used the same two-stage
+prompt as these runs. So the budget, which is the only setting those runs
+share, is the evident trigger. No run changed only the budget: the 12:34 run
+used the older prompt, and the 12:57 run used High thinking. Every
+successful run used less than 32,768 tokens (at most 27,587), so Argon was
+not cut off at the smaller budget. It appears to plan against the
+`max_output_tokens` it is given and declines a High or Maximum answer that
+would not fit comfortably, which is Argon's own explanation.
+
+The editor now selects 65,536 when High or Maximum detail is chosen, and
+32,768 for Standard, whose request stays byte-identical. The 3:05 status
+check that dropped mid-run recovered without a second paid request.
+
 ## Evidence and conclusion (first pass)
 
 Baseline: `b3f687f` (`main`, PR #69). The supplied live diagnostic results are:
@@ -1228,3 +1251,42 @@ pass above recommends a single, explicitly approved re-run of stage 6 only.
 Deployment requires both the PHP/frontend and Worker changes. Check the safe
 Worker revision `argon-flash-visual-analysis-v1` (now superseded by
 `argon-direct-image-diagnostics-v1`). No deployment, key, billing, retention-setting, or private-media changes are part of this PR.
+
+
+## Larger Maximum scenes and three guarded automatic retries (2026-10-23)
+
+Maximum full scenes target 180–230 objects (prompt cap 240). The shared
+validator permits 240 objects per scene; 2,000 total objects and 2,000 rendered
+copies per scene remain enforced. High and Standard prompts/targets, including
+both byte-pinned Standard prompts, are unchanged. Raw model output is limited
+to 280,000 characters; PHP original-output downloads to 1,120,000 UTF-8
+bytes. Provider response schema has no new bounds.
+
+Direct image has a checked-on-by-default automatic retry option, explicitly
+disclosed in the paid confirmation. A single confirmation authorizes at most
+**three retries after the initial request (four potentially billable attempts)**
+with **15 seconds between eligible attempts**. Each new attempt sends the
+identical payload but creates a separately named paid job. After EACH attempt,
+the browser may retry only following terminal `scene_schema_mismatch` when
+both thinking and output are known nonnegative integers whose sum is
+**strictly below 10,000**; or following a sealed `start_not_received` job
+that conclusively never reached Google. Every retry requires its own preceding
+eligible failure. Input tokens are excluded from the 10k threshold but are
+billed again on every submitted attempt; each also consumes a request slot.
+At exactly 10,000 or with incomplete/unknown usage, stop. Provider errors,
+partial streams, uncertain starts, network failures and deploy interruptions
+never trigger a paid retry, regardless of tokens observed.
+
+The browser controls the retry chain while its generation view stays active;
+closing or refreshing the editor does not schedule further paid retries.
+Existing started jobs may still be resumed/polled for free. Each Durable
+Object alarm must continue to submit **at most once**; alarm replay, status
+polls and resume never create another paid job. The latest-job original-output
+download points to the latest attempt. Turning off retries means one attempt.
+
+Synchronous budgets remain 32,768/65,536 with `stream:true`, `store:false`
+and no background-image mode. High/Maximum select 65,536 by default, Standard
+32,768; manual selection remains available. The 180–230-object target and
+multi-retry recovery have not been verified live. No provider calls or
+production deployment are part of offline validation; merging can interrupt
+an active paid job.

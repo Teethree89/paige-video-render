@@ -25,11 +25,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-65k-budget-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-max-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-65k-budget-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-max-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -782,7 +782,9 @@ test('direct-image streaming keeps only model output, terminal status and numeri
     assert.equal(error.diagnostic.reason,'provider_stream_error');
     assert.deepEqual(error.diagnostic.codes,['deadline_exceeded']);
     assert.equal(error.usage.thinking,123);
-    const huge=await run(()=>streamed([start,delta('x'.repeat(160001)),end('completed')]));
+    const large=await run(()=>streamed([start,delta(output.padEnd(280000,' ')),end('completed')]));
+    assert.equal(large.status,'completed','valid output at the expanded bound survives');
+    const huge=await run(()=>streamed([start,delta('x'.repeat(280001)),end('completed')]));
     assert.equal(huge.diagnostic.reason,'no_usable_scene');
     assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
   }finally{globalThis.fetch=oldFetch;console.warn=oldWarn;console.log=oldLog;}
@@ -1269,15 +1271,15 @@ test('Argon results keep every valid part, report what was repaired, and fail on
     assert.equal(parts.proposal.scenes[0].shotId,sample.shotId,'filed under the job\'s shot');
     assert.deepEqual(parts.repairs,{shot_id:1,duplicate_id:1,primitive:1,scale:1,footprint:1,repeat:1,
       material:2,object:1,id:1,name:1,transform:1});
-    // Merged scenes, the 120-object cap, then the 2000-copy budget (largest arrays first).
+    // Merged scenes within the 240-object cap, then the 2000-copy budget (largest arrays first).
     const grid=i=>({...object,id:'grid_'+i,repeat:{count:[20,20,1],spacing:[1,1,0]}});
     const part=i=>({...object,id:'part_'+i});
     const capped=await poll({schemaVersion:1,scenes:[
       {shotId:sample.shotId,objects:[...Array.from({length:6},(_,i)=>grid(i)),...Array.from({length:100},(_,i)=>part(i))]},
       {shotId:sample.shotId,objects:Array.from({length:100},(_,i)=>part(100+i))}]});
-    assert.equal(capped.proposal.scenes[0].objects.length,198);
+    assert.equal(capped.proposal.scenes[0].objects.length,204);
     assert.equal(capped.proposal.scenes[0].objects.filter(item=>item.repeat).length,4);
-    assert.deepEqual(capped.repairs,{scenes_merged:1,object_cap:6,scene_copies:2});
+    assert.deepEqual(capped.repairs,{scenes_merged:1,scene_copies:2});
     // Lights and camera: invalid ones dropped, at most 8 kept, names keep their place.
     const point=(extra={})=>({type:'point',color:'#ffcc88',intensity:20,position:[0,4,0],...extra});
     const lit=await poll({schemaVersion:1,scenes:[{shotId:sample.shotId,
@@ -1930,11 +1932,11 @@ test('Argon thinking and detail settings reach Google, change the prompt and are
     body=bodies.at(-1);
     assert.equal(body.generation_config.thinking_level,'high');
     assert.equal(body.generation_config.max_output_tokens,32768,'the token budget never changes');
-    assert.match(body.system_instruction,/at most 180 objects, 8 lights/);
+    assert.match(body.system_instruction,/at most 240 objects, 8 lights/);
     assert.match(body.system_instruction,/DETAIL: MAXIMUM/);
     // Live: High and Maximum answered with empty scenes, so they build on the
     // Standard scene in the same answer and rule out an empty one.
-    assert.match(body.system_instruction,/every main mass, about 80 to 120 objects\. Then keep\s+adding finer attached parts, as DETAIL above asks, until about 140 to 180 objects\./);
+    assert.match(body.system_instruction,/every main mass, about 80 to 120 objects\. Then keep\s+adding finer attached parts, as DETAIL above asks, until about 180 to 230 objects\./);
     assert.match(body.system_instruction,/Never return an empty objects array/);
     assert.match(body.system_instruction,/cut off at the output limit keeps only the\s+objects it finished/);
     assert.doesNotMatch(body.system_instruction,/discarded|BUDGET_END/);
@@ -2004,14 +2006,14 @@ test('detail changes only the system instruction, not frames, schema, streaming 
 });
 
 test('the real Argon job accepts synthetic scenes above 90 objects at every detail level',async()=>{
-  const objects=Array.from({length:201},(_,i)=>({...scene.scenes[0].objects[0],
+  const objects=Array.from({length:241},(_,i)=>({...scene.scenes[0].objects[0],
     id:'part_'+i,layer:'structures',position:[i,1,0]}));
   for(const detail of ['standard','high','max']){
-    for(const count of [91,150,180,200,201]){
+    for(const count of [91,150,180,200,201,240,241]){
       const {result}=await captureArgonRequest({detail,objects:objects.slice(0,count)});
       assert.equal(result.state,'completed');
-      assert.equal(result.proposal.scenes[0].objects.length,Math.min(count,200));
-      assert.deepEqual(result.repairs,count===201?{object_cap:1}:undefined);
+      assert.equal(result.proposal.scenes[0].objects.length,Math.min(count,240));
+      assert.deepEqual(result.repairs,count===241?{object_cap:1}:undefined);
     }
   }
   // The separate rendered-copy limit is also enforced, not just array length.

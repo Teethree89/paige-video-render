@@ -2,7 +2,7 @@
 // This test does not contact 50webs, Cloudflare or the model provider.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {setupAiSceneEditor,describeRepairs,describeUsage} from '../ai-scene-editor.js';
+import {setupAiSceneEditor,describeRepairs,describeUsage,argonRetryReason} from '../ai-scene-editor.js';
 import sceneWorker,{ARGON_REPAIR_CODES} from '../worker/scene-worker.mjs';
 import {validatePrimitiveDocument} from '../primitive-schema.js';
 
@@ -560,7 +560,7 @@ test('Experimental direct-image Argon discloses image handling, submits once and
   let preview=null,saved=0;
   globalThis.confirm=message=>{
     assert.match(message,/EXPERIMENTAL/);
-    assert.match(message,/ONE potentially billable call/);
+    assert.match(message,/ONE potentially billable initial call/);
     assert.match(message,/Cloudflare job holds the request for up to 12 minutes/);
     assert.match(message,/THE REFERENCE IMAGES only until Argon answers/);
     assert.match(message,/Google is asked not to store/);
@@ -649,17 +649,22 @@ test('Argon Direct image rebuilds a full scene in ONE call, with layers and ligh
     assert.equal(ids.get('aiArgonSettings').hidden,true);
     ids.get('aiSceneModel').value='argon_direct';await ids.get('aiSceneModel').fire('change');
     assert.equal(ids.get('aiArgonSettings').hidden,false);
+    assert.equal(ids.get('aiArgonBudget').value,'32768','Standard keeps the default budget');
     ids.get('aiArgonThinking').value='high';ids.get('aiArgonDetail').value='max';
+    await ids.get('aiArgonDetail').fire('change');
+    // Live: High and Maximum came back empty at 32,768 and worked at 65,536.
+    assert.equal(ids.get('aiArgonBudget').value,'65536');
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(payloads[0].thinking,'high');assert.equal(payloads[0].detail,'max');
-    assert.match(confirmed,/^Settings: high thinking, Maximum detail\. 32,768 tokens maximum for thinking \+ output/);
+    assert.equal(payloads[0].tokenBudget,65536);
+    assert.match(confirmed,/^Settings: high thinking, Maximum detail\. 65,536 tokens maximum for thinking \+ output/);
     assert.match(ids.get('aiSceneLog').textContent,/Argon settings: high thinking, Maximum detail\./);
     // One paid start, never the four Flash passes.
     assert.deepEqual(payloads.map(p=>p.action),['argon_start','argon_status']);
     assert.equal(payloads[0].mode,'full_scene');assert.equal(payloads[0].layer,undefined);
     assert.equal(payloads[0].frames.length,3);
     assert.ok(canvases.length>0&&canvases.every(canvas=>canvas.width===768),'Argon gets the detailed frames');
-    assert.match(confirmed,/direct-image generation of the FULL SCENE\? This makes ONE potentially billable call/);
+    assert.match(confirmed,/direct-image generation of the FULL SCENE\? This makes ONE potentially billable initial call/);
     const log=ids.get('aiSceneLog').textContent;
     assert.match(log,/directly to Gemini 4 Argon for the full scene through a Cloudflare job/);
     assert.match(log,/Preview ready: 3 editable objects \(10 rendered parts\)/);
@@ -695,6 +700,7 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='subject';
     ids.get('aiSceneModel').value=profile;
+    ids.get('aiArgonRetry').checked=false;
     await ids.get('aiSceneGenerate').fire('click');
     return {log:ids.get('aiSceneLog').textContent,actions};
   };
@@ -742,7 +748,7 @@ test('Argon rejections and failed jobs show the sanitized provider diagnostic wi
         usage:{input:6664,inputImage:3300,cached:0,thinking:6999,output:39,total:13702,cap:32768}}),{status:200}));
     assert.deepEqual(empty.actions,['argon_start','argon_status'],'No retry of a finished paid job');
     assert.match(empty.log,/Rule: no objects in the answer\./);
-    assert.match(empty.log,/Argon answered with an empty scene \(0 objects\), so there is nothing to import\. Nothing was retried\./);
+    assert.match(empty.log,/Argon answered with an empty scene \(0 objects\), so there is nothing to import\./);
     assert.doesNotMatch(empty.log,/no scene passed validation/);
     // A job cut off by a Worker deploy is Cloudflare's stop, not a provider failure.
     const redeployed=await run('argon_direct',payload=>new Response(JSON.stringify(
@@ -1076,6 +1082,7 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='environment';ids.get('aiSceneModel').value='argon_direct';
     ids.get('aiArgonBudget').value=budget;
+    ids.get('aiArgonRetry').checked=false;
     await ids.get('aiSceneModel').fire('change');
     assert.equal(ids.get('aiArgonBudgetField').hidden,false);
     await ids.get('aiSceneGenerate').fire('click');
@@ -1097,9 +1104,9 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
     assert.deepEqual(largeCancelled.actions,[]);
     const disclosure=largeCancelled.ids.get('aiConfirmText').textContent;
     assert.match(disclosure,/65,536 tokens maximum for thinking \+ output/);
-    assert.match(disclosure,/same single synchronous call as the default/);
-    assert.match(disclosure,/Google asked not to store the request or result/);
-    assert.match(disclosure,/up to 65,536 generated tokens can be billed/);
+    assert.match(disclosure,/The thinking \+ output ceiling is 65,536 tokens instead of 32,768, on the same call/);
+    assert.match(disclosure,/Google is asked not to store the request or result/);
+    assert.match(disclosure,/Google bills only the tokens Argon generates, up to 65,536/);
     assert.doesNotMatch(disclosure,/stores THE REFERENCE IMAGES|55 days|background|replayed/);
     const longConfirmed=await run('ok','65536');
     assert.deepEqual(longConfirmed.actions,['argon_start','argon_status'],'one explicit paid start, no fallback');
@@ -1113,9 +1120,141 @@ test('paid Argon starts ask in the page, so a background tab cannot dismiss the 
   }
 });
 
+test('each detail level selects the budget it worked with, and the budget can still be changed',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch;
+  const ids=new Map();
+  globalThis.document=argonDomHarness(ids,'unused');
+  globalThis.fetch=async()=>new Response(JSON.stringify({ok:true,authenticated:true,csrf:'c',argonJob:null}));
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>null,getPlayheadTime:()=>2,onPreview:()=>{},onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    const detail=ids.get('aiArgonDetail'),budget=ids.get('aiArgonBudget');
+    assert.equal(budget.value,'32768');
+    for(const [level,expected] of [['high','65536'],['standard','32768'],['max','65536']]){
+      detail.value=level;await detail.fire('change');
+      assert.equal(budget.value,expected,level);
+    }
+    // A manual choice after the detail change is kept by other setting changes.
+    budget.value='32768';
+    ids.get('aiSceneModel').value='argon_direct';await ids.get('aiSceneModel').fire('change');
+    assert.equal(budget.value,'32768');
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+    globalThis.fetch=oldFetch;
+  }
+});
+
 test('missing thinking usage is unknown, not a zero-token budget measurement',()=>{
   assert.doesNotMatch(describeUsage('Argon',{output:38,cap:65536}),/Thinking \+ output used|0 thinking/);
   assert.match(describeUsage('Argon',{thinking:0,output:38,cap:65536}),/0 thinking/);
   assert.match(describeUsage('Argon',{thinking:40000,output:12000,cap:65536}),/52,000 of 65,536 \(79%\)/);
   assert.equal(describeUsage('Argon',undefined),'Argon tokens: not reported.');
+});
+
+test('paid retry requires terminal validation failure and complete usage below 10k',()=>{
+  const error={argonTerminal:true,diagnostic:{reason:'scene_schema_mismatch'},usage:{thinking:0,output:9999}};
+  assert.equal(argonRetryReason(error),'scene');
+  for(const usage of [{thinking:1,output:9999},{output:1},{thinking:0},null,
+    {thinking:-1,output:1},{thinking:NaN,output:1},{thinking:0,output:1.5}])
+    assert.equal(argonRetryReason({...error,usage}),null);
+  assert.equal(argonRetryReason({...error,argonTerminal:false}),null);
+  for(const reason of ['provider_stream_interrupted','provider_stream_error','provider_deadline',
+    'job_interrupted_deploy','job_interrupted','no_usable_scene'])
+    assert.equal(argonRetryReason({...error,diagnostic:{reason}}),null);
+  assert.equal(argonRetryReason({argonTerminal:true,diagnostic:{reason:'start_not_received'}}),'start');
+});
+
+test('three automatic paid retries wait 15 seconds and stop after four attempts or first success',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch;
+  const oldConfirm=globalThis.confirm,oldSetTimeout=globalThis.setTimeout;
+  const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
+    id:'building',name:'Building',primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[2,2,2],
+    material:{color:'#334455',metalness:0,roughness:.6}}]}]};
+  const run=async({enabled=true,confirm=true,successOn=0,reason='scene_schema_mismatch',
+    usage={thinking:0,output:39},failures=[]}={})=>{
+    const ids=new Map(),payloads=[],waits=[];let previews=0,message='';
+    globalThis.document=argonDomHarness(ids,jpeg);
+    globalThis.confirm=text=>{message=text;return confirm;};
+    // Do not spend 45 seconds waiting in the test; record and complete only
+    // the paid-retry delay, leaving normal request/video timers unchanged.
+    globalThis.setTimeout=(callback,delay,...args)=>{
+      if(delay===15000){waits.push(delay);queueMicrotask(callback);return 0;}
+      return oldSetTimeout(callback,delay,...args);
+    };
+    globalThis.fetch=async(url,options={})=>{
+      if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',argonJob:null}));
+      const payload=JSON.parse(options.body);payloads.push(payload);
+      const starts=payloads.filter(p=>p.action==='argon_start').length;
+      if(payload.action==='argon_start'){
+        assert.equal(waits.length,starts-1,'retry '+starts+' must follow a completed 15-second pause');
+        return new Response(JSON.stringify({ok:true,status:'in_progress',shotId:'shot_a'}));
+      }
+      const failed=failures[starts-1]??{reason,usage};
+      return new Response(JSON.stringify(starts===successOn
+        ?{ok:true,status:'completed',shotId:'shot_a',proposal:scene}
+        :{ok:true,status:'failed',shotId:'shot_a',diagnostic:{reason:failed.reason,codes:['empty']},
+          usage:failed.usage}));
+    };
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:()=>{previews++;},onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='environment';ids.get('aiSceneModel').value='argon_direct';
+    ids.get('aiArgonRetry').checked=enabled;
+    await ids.get('aiSceneGenerate').fire('click');
+    return {starts:payloads.filter(p=>p.action==='argon_start'),previews,message,waits,
+      log:ids.get('aiSceneLog').textContent};
+  };
+  try{
+    const recovered=await run({successOn:4});
+    assert.equal(recovered.starts.length,4);assert.equal(recovered.previews,1);
+    assert.deepEqual(recovered.waits,[15000,15000,15000]);
+    for(const start of recovered.starts.slice(1))assert.deepEqual(start,recovered.starts[0]);
+    assert.equal(recovered.starts[0].frames.length,3);
+    assert.match(recovered.message,/up to THREE automatic paid retries/);
+    assert.match(recovered.message,/15-second pause before each retry/);
+    assert.match(recovered.message,/At most FOUR total attempts/);
+    assert.match(recovered.message,/strictly below 10,000 tokens/);
+    assert.match(recovered.log,/Starting automatic paid Argon retry 3\/3/);
+    const early=await run({successOn:2});
+    assert.equal(early.starts.length,2);assert.deepEqual(early.waits,[15000]);
+    assert.equal(early.previews,1);
+    const first=await run({successOn:1});
+    assert.equal(first.starts.length,1);assert.deepEqual(first.waits,[]);
+    const exhausted=await run();
+    assert.equal(exhausted.starts.length,4,'never a fifth paid job');
+    assert.deepEqual(exhausted.waits,[15000,15000,15000]);
+    assert.equal(exhausted.previews,0,'never import failed geometry');
+    assert.equal((await run({enabled:false})).starts.length,1);
+    assert.equal((await run({confirm:false})).starts.length,0);
+    assert.equal((await run({usage:{thinking:1,output:9999}})).starts.length,1,
+      '10,000 is not below the strict threshold');
+    const justBelow=await run({usage:{thinking:1,output:9998}});
+    assert.equal(justBelow.starts.length,4,'9,999 is eligible on each failure');
+    assert.equal((await run({usage:{output:39}})).starts.length,1,'missing thinking blocks retry');
+    assert.equal((await run({reason:'provider_stream_interrupted'})).starts.length,1);
+    assert.equal((await run({reason:'provider_deadline'})).starts.length,1);
+    assert.equal((await run({reason:'job_interrupted_deploy'})).starts.length,1);
+    const sealed=await run({reason:'start_not_received',usage:null});
+    assert.equal(sealed.starts.length,4,'only conclusively missing starts permit a retry without usage');
+    assert.deepEqual(sealed.waits,[15000,15000,15000]);
+    const mixed=await run({failures:[
+      {reason:'scene_schema_mismatch',usage:{thinking:0,output:20}},
+      {reason:'scene_schema_mismatch',usage:{thinking:30,output:40}},
+      {reason:'scene_schema_mismatch',usage:{thinking:1,output:9999}}]});
+    assert.equal(mixed.starts.length,3,'recheck eligibility independently after every attempt');
+    assert.deepEqual(mixed.waits,[15000,15000]);
+    const providerOnSecond=await run({failures:[
+      {reason:'scene_schema_mismatch',usage:{thinking:0,output:20}},
+      {reason:'provider_stream_interrupted',usage:{thinking:0,output:30}}]});
+    assert.equal(providerOnSecond.starts.length,2);
+    assert.deepEqual(providerOnSecond.waits,[15000]);
+  }finally{
+    globalThis.document=oldDocument;globalThis.fetch=oldFetch;globalThis.confirm=oldConfirm;
+    globalThis.setTimeout=oldSetTimeout;
+  }
 });

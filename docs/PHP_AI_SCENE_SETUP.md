@@ -30,7 +30,7 @@ Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wra
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
-- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-65k-budget-v1` identifies the opt-in 65,536-token Direct image experiment (see below), alongside the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile run by the `ArgonJob` Durable Object, sanitized provider diagnostics (with `terms`) for Argon rejections, and the rich scene format for both Argon profiles: nine primitive types, `repeat` arrays, glow, opacity, editor layers, up to 8 scene lights and a camera estimate, validated by the shared `primitive-schema.js` with per-detail object caps (see [PRIMITIVE_SCENE_FORMAT.md](PRIMITIVE_SCENE_FORMAT.md)), per-job token usage (see *Argon token usage* below), the one-call `full_scene` scope for `argon_direct`, part-by-part validation of Argon scenes (see *Argon output repairs* below), the requested server deadline for direct image, and the editor's Argon thinking and detail settings (see *Argon thinking and detail* below), saved original output, and direct-image jobs that name a Worker deploy as the cause of an interruption, and the `empty` code for an answer with no objects, and direct-image starts that stay recoverable when their reply is lost (see *A lost start reply* below), and the two-stage High and Maximum detail prompts (see *Argon thinking and detail* below). `/health.argonDirectJobs` is `true` only when the deployed Worker has its `ARGON_JOBS` binding. The existing three Flash profiles, their five-primitive format and budgets, and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
+- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-max-scene-v1` identifies the opt-in 65,536-token Direct image experiment (see below), alongside the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile run by the `ArgonJob` Durable Object, sanitized provider diagnostics (with `terms`) for Argon rejections, and the rich scene format for both Argon profiles: nine primitive types, `repeat` arrays, glow, opacity, editor layers, up to 8 scene lights and a camera estimate, validated by the shared `primitive-schema.js` with per-detail object caps (see [PRIMITIVE_SCENE_FORMAT.md](PRIMITIVE_SCENE_FORMAT.md)), per-job token usage (see *Argon token usage* below), the one-call `full_scene` scope for `argon_direct`, part-by-part validation of Argon scenes (see *Argon output repairs* below), the requested server deadline for direct image, and the editor's Argon thinking and detail settings (see *Argon thinking and detail* below), saved original output, and direct-image jobs that name a Worker deploy as the cause of an interruption, and the `empty` code for an answer with no objects, and direct-image starts that stay recoverable when their reply is lost (see *A lost start reply* below), and the two-stage High and Maximum detail prompts (see *Argon thinking and detail* below). `/health.argonDirectJobs` is `true` only when the deployed Worker has its `ARGON_JOBS` binding. The existing three Flash profiles, their five-primitive format and budgets, and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
 - Lite and 3.8 Low retain at most **one additional** Gemini request on HTTP 500/502/503/504 (700ms pause, one shared 45s deadline). Medium can make **up to three total attempts**, with a roughly 1s then 2s delay and bounded jitter, **only if the second attempt also returns HTTP 503**. Other upstream 5xx stop after two attempts. Every attempt shares Medium's 70s deadline, and retries never start with less than 10s remaining. HTTP 429, permission and malformed-request failures never retry. The editor's HTTP 502 may represent PHP relaying provider 5xx; the distinct safe `Gemini is overloaded (upstream 503)` message means all permitted 503 retries were exhausted. Cloudflare's sanitized `gemini-provider-http` logs record status and attempt without raw bodies or API keys. A single PHP session-quota request can cause up to three Gemini API attempts, potentially affecting Google quota and billing.
 - HTTP **503** with `{"ok":false,"service":"paige-scene","ready":false}` means the runtime is missing one or both bindings. In Cloudflare Dashboard → Workers & Pages → `paige-video-render` → Settings → **Variables and Secrets**, confirm the two names exactly match `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN`, that their type is **Secret**, and click **Deploy** to save the production version. Never paste the values into CI logs or the public repository.
 - If the build is red, inspect the exact latest Cloudflare build log and resolve the reported issue before testing PHP.
@@ -463,14 +463,29 @@ to their cap are visible:
   (<https://ai.google.dev/gemini-api/docs/pricing>). Prices are not built
   into the code, so they cannot go stale there.
 
-### Optional 65,536-token Direct image test
+### 65,536-token budget for High and Maximum detail
 
-Direct image offers **Argon token budget → 65,536 · experimental, same
-synchronous call**. The default remains 32,768; Previs is unchanged. It tests
-whether a larger allowance lets Argon attempt High or Maximum detail instead
-of answering with an empty scene. Only `max_output_tokens` changes: the same
-streamed `store:false` request, inline high-resolution frames, prompt,
-schema and scene limits. Usage reports the 65,536 cap.
+Direct image offers **Argon token budget → 65,536 · for High and Maximum
+detail**. Choosing High or Maximum detail selects it automatically, and
+Standard selects 32,768; either can still be changed by hand. Previs has no
+budget choice. Only `max_output_tokens` changes: the same streamed
+`store:false` request, inline high-resolution frames, prompt, schema and
+scene limits. Usage reports the 65,536 cap. The budget is a ceiling; Google
+bills only the tokens Argon generates.
+
+Live results (2026-10-23, exterior, full scene):
+
+| Thinking, detail | Budget | Objects | Parts | Thinking + output |
+|---|---|---|---|---|
+| any, High or Maximum | 32,768 | 0 or about 1 (4 completed runs) | — | 0–43% |
+| Medium, High | 65,536 | 117 | 560 | 19,161 (29%) |
+| Medium, Maximum | 65,536 | 106 | 654 | 11,042 (17%) |
+| High, Maximum | 65,536 | 153 | 737 | 27,587 (42%) |
+
+One earlier High/Maximum attempt at 65,536 failed without a recorded log.
+Even the successful runs used less than 32,768 tokens, so Argon did not run
+out of room at the smaller budget: it appears to plan against the limit it is
+given and gave up on a High or Maximum answer that would not fit comfortably.
 
 65,536 is Google's largest allowance without background execution. A
 100,000-token version used `background:true,store:true` and was rejected at
@@ -482,7 +497,7 @@ failed 400 requests are not charged for tokens.
 The call keeps the 12-minute Worker deadline. At the observed speed (about 90
 tokens a second) an answer that used all 65,536 tokens could approach it; a
 call cut off there keeps its received text for download but returns no scene.
-The 160,000-character raw-output guard and the 200-object / 2,000-copy scene
+The 280,000-character raw-output guard and the 240-object / 2,000-copy scene
 limits still apply. Do not deploy during the run.
 
 Source: [Google long decode](https://ai.google.dev/gemini-api/docs/long-decode).
@@ -495,7 +510,7 @@ With an Argon model selected, the editor shows two selectors:
   the Interactions `thinking_level`. Higher can place parts more accurately
   but bills more output tokens.
 - **Argon detail:** Standard (default: 48–96 objects for a subject, 80–120
-  for a full scene, cap 120), High (cap 150) or Maximum (cap 180). Every level
+  for a full scene, cap 120), High (cap 150) or Maximum (full scene target 180–230, cap 240). Every level
   uses the default 32,768-token output budget unless the explicit Direct image
   65,536-token experiment is selected.
 
@@ -549,7 +564,7 @@ are introduced.
 The recommended longer-term path is one separately confirmed Add detail call
 that receives the validated scene and frames and returns only 24–40 proposed
 new parts. It is a design, not an implemented or live-verified feature. Preserve
-the base, deduplicate IDs and geometry, enforce combined 200-object / 2,000-copy
+the base, deduplicate IDs and geometry, enforce combined 240-object / 2,000-copy
 limits and the document-wide limit, preview and explicitly apply against the
 same base revision. The extra scene is additional paid input beyond the roughly
 6.7k frame/prompt baseline. Empty additions must leave the base unchanged; never
@@ -572,8 +587,8 @@ it part by part with the shared `primitive-schema.js` rules:
 
 - An object, light or camera estimate outside the rules is dropped, and the
   rest is kept. A duplicate object ID is renamed, a wrong shot ID or a scene
-  split in several is filed under the job's shot, more than 200 objects (the
-  format's limit) are cut to 200, and over 2,000 rendered copies drop the
+  split in several is filed under the job's shot, more than 240 objects (the
+  format's limit) are cut to 240, and over 2,000 rendered copies drop the
   largest arrays first. An answer cut off at the token limit keeps its
   complete objects (`truncated`).
 - Each repair is counted under a fixed code (`ARGON_REPAIR_CODES`: `scale`,
@@ -807,3 +822,42 @@ php -r '$c=require ".private/paiver.php"; foreach (["scene_access_token"=>32,"ed
 ```
 
 This prints only whether the secret token and passphrase are present with acceptable lengths. Do **not** use `cat` or post screenshots of your configuration; keep all secret values off the command line. Because the Worker URL is no longer read from the private file, a mistyped `worker_endpoint` entry cannot break PHP startup.
+
+
+## Larger Maximum scenes and three guarded automatic retries (2026-10-23)
+
+Maximum full scenes target 180–230 objects (prompt cap 240). The shared
+validator permits 240 objects per scene; 2,000 total objects and 2,000 rendered
+copies per scene remain enforced. High and Standard prompts/targets, including
+both byte-pinned Standard prompts, are unchanged. Raw model output is limited
+to 280,000 characters; PHP original-output downloads to 1,120,000 UTF-8
+bytes. Provider response schema has no new bounds.
+
+Direct image has a checked-on-by-default automatic retry option, explicitly
+disclosed in the paid confirmation. A single confirmation authorizes at most
+**three retries after the initial request (four potentially billable attempts)**
+with **15 seconds between eligible attempts**. Each new attempt sends the
+identical payload but creates a separately named paid job. After EACH attempt,
+the browser may retry only following terminal `scene_schema_mismatch` when
+both thinking and output are known nonnegative integers whose sum is
+**strictly below 10,000**; or following a sealed `start_not_received` job
+that conclusively never reached Google. Every retry requires its own preceding
+eligible failure. Input tokens are excluded from the 10k threshold but are
+billed again on every submitted attempt; each also consumes a request slot.
+At exactly 10,000 or with incomplete/unknown usage, stop. Provider errors,
+partial streams, uncertain starts, network failures and deploy interruptions
+never trigger a paid retry, regardless of tokens observed.
+
+The browser controls the retry chain while its generation view stays active;
+closing or refreshing the editor does not schedule further paid retries.
+Existing started jobs may still be resumed/polled for free. Each Durable
+Object alarm must continue to submit **at most once**; alarm replay, status
+polls and resume never create another paid job. The latest-job original-output
+download points to the latest attempt. Turning off retries means one attempt.
+
+Synchronous budgets remain 32,768/65,536 with `stream:true`, `store:false`
+and no background-image mode. High/Maximum select 65,536 by default, Standard
+32,768; manual selection remains available. The 180–230-object target and
+multi-retry recovery have not been verified live. No provider calls or
+production deployment are part of offline validation; merging can interrupt
+an active paid job.
