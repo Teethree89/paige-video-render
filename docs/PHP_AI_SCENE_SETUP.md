@@ -480,15 +480,55 @@ objects (534 parts, 8 lights) at High thinking on the streaming Worker
 (2026-10-23). Every completed live run at High or Maximum detail came
 back empty or nearly empty, at High thinking (147 output tokens, then 0
 objects) and at Medium thinking (High detail: 0 objects in 14 seconds), so
-the detail prompt, not the thinking level, was the cause. Such an answer
-fails with repair code `empty`.
+the detail prompt is the differentiating input; its exact failing feature has
+not been isolated. A well-formed scene with no objects fails with code `empty`.
 
 Since `argon-detail-stages-v1`, Standard sends exactly the prompt of those
 successful runs. High and Maximum ask for the Standard scene first, then
 finer parts up to their targets in the same answer. They state that a
 cut-off answer keeps its finished objects (the old "an unfinished answer is
 discarded" was false once truncated answers were salvaged) and rule out an
-empty objects array. This is unverified until a live run.
+empty objects array. **The 12:57 EDT High-thinking / High-detail run still
+returned zero objects: 4,766 thinking tokens and 36 output tokens.** This
+rewrite did not fix the tested case. Standard already contains parent-surface
+instructions, so an unsupported parent field is not an established explanation.
+
+Use Standard for ordinary generation while High and Maximum remain unverified.
+The recommended interim UI change is to hide/disable those choices outside
+explicit experiments; this investigation does not change the existing selector.
+Do not call a prompt rewrite a fix before a live run demonstrates it.
+
+See [the post-#90 investigation](ARGON_BACKGROUND_IMAGE_INVESTIGATION.md#post-90-detail-collapse-investigation-2026-10-23-1257-edt)
+for ranked causes, current Google sources, exact isolated paid experiments and
+the proposed **Add detail** contract. The first experiment is Standard's target
+and cap plus only the HIGH paragraph; the second, separately approved after
+review, raises only the count instructions. Both keep Medium thinking, the same
+frames, response schema and 32,768-token budget. Each costs roughly 6.7k input
+tokens plus thinking and output. These variants are **not current editor
+options**; deploying one requires a separate reviewed change and checking that
+no paid job is running. Each run still needs the user's explicit in-page start.
+
+For offline inspection only:
+
+```sh
+node scripts/inspect_argon_prompts.mjs standard
+node scripts/inspect_argon_prompts.mjs words-only
+node scripts/inspect_argon_prompts.mjs counts-only
+```
+
+This uses synthetic frames and intercepts all fetches, prints prompt text, and
+cannot make a paid request. Complete Standard prompts are pinned byte for byte
+in the Worker tests. No response-schema bounds or new generation parameters
+are introduced.
+
+The recommended longer-term path is one separately confirmed Add detail call
+that receives the validated scene and frames and returns only 24–40 proposed
+new parts. It is a design, not an implemented or live-verified feature. Preserve
+the base, deduplicate IDs and geometry, enforce combined 200-object / 2,000-copy
+limits and the document-wide limit, preview and explicitly apply against the
+same base revision. The extra scene is additional paid input beyond the roughly
+6.7k frame/prompt baseline. Empty additions must leave the base unchanged; never
+automatically retry or replace it with an empty scene.
 
 The confirmation is an in-page dialog, not the browser's `confirm()`, which
 Chrome dismisses without asking when the tab is not in front (seen live
