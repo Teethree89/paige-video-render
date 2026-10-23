@@ -68,6 +68,26 @@ class WorkspaceTests(unittest.TestCase):
             self.assertIn('"'+entry+'"',publish_manifest,
                           f'{entry} must ship with the FTP/ZIP workspace')
 
+    def test_browser_module_imports_are_in_workspace_manifest(self):
+        # FTP publishes root JavaScript only from dist, and dist is populated
+        # by build_workspace.FILES. Catch new ES module imports before deploy.
+        import re
+        import runpy
+        manifest = set(runpy.run_path(str(ROOT / 'scripts/build_workspace.py'))['FILES'])
+        for required in ('argon-detail.js', 'ai-generation-overlay.js'):
+            self.assertIn(required, manifest)
+        dependency_pattern = re.compile(
+            r"""(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)['"]([.]/[^'"]+\.js)['"]"""
+        )
+        for filename in sorted(manifest):
+            if not filename.endswith('.js'):
+                continue
+            content = (ROOT / filename).read_text(encoding='utf-8')
+            for path in dependency_pattern.findall(content):
+                dependency = (Path(filename).parent / path).as_posix()
+                self.assertIn(dependency, manifest,
+                              f'{filename} imports {path} but {dependency} is absent from the FTP/ZIP workspace manifest')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
