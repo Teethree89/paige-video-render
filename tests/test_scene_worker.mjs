@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import worker,{validateInput,validateOutput,secretMatches,argonProviderDiagnostic,ArgonJob,closeTruncatedJson} from '../worker/scene-worker.mjs';
+import worker,{validateInput,validateOutput,validateArgonOutput,secretMatches,argonProviderDiagnostic,ArgonJob,closeTruncatedJson} from '../worker/scene-worker.mjs';
 
 const token='test-token-should-be-at-least-thirty-two-chars-private';
 const image='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-stream-recovery-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-output-material-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-stream-recovery-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-output-material-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -604,6 +604,57 @@ const completedScene=()=>new Response(JSON.stringify({id:'v1_sync',status:'compl
 const doPost=(jobsEnv,path,body)=>worker.fetch(new Request('https://example.workers.dev'+path,{
   method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
   body:JSON.stringify(body)}),jobsEnv);
+test('Argon repairs unsupported materials without relaxing geometry validation or mutating the original',()=>{
+  const materials=['custom shader',null,{color:'#abc',metalness:5,roughness:null,
+    emissive:'#f80',emissiveIntensity:99,opacity:-1},
+    {...scene.scenes[0].objects[0].material,emissive:'red'}];
+  const value={schemaVersion:1,scenes:[{shotId:sample.shotId,objects:materials.map((material,i)=>({
+    ...scene.scenes[0].objects[0],id:'part_'+i,material}))}]};
+  const original=structuredClone(value),result=validateArgonOutput(value,sample.shotId);
+  assert.deepEqual(value,original);
+  assert.equal(result.document.scenes[0].objects.length,4);
+  assert.deepEqual(result.repairs,{material:4});
+  assert.deepEqual(result.document.scenes[0].objects[0].material,
+    {color:'#8899aa',metalness:.1,roughness:.7});
+  assert.deepEqual(result.document.scenes[0].objects[2].material,
+    {color:'#aabbcc',metalness:1,roughness:.7,emissive:'#ff8800',emissiveIntensity:10,opacity:.05});
+  assert.deepEqual(result.document.scenes[0].objects[3].material,scene.scenes[0].objects[0].material);
+  for(const change of [{primitive:'javascript'},{scale:[-1,2,3]}])
+    assert.throws(()=>validateArgonOutput({schemaVersion:1,scenes:[{shotId:sample.shotId,
+      objects:[{...value.scenes[0].objects[0],...change}]}]},sample.shotId),/Unusable Argon scene/);
+});
+test('original output survives validation failure privately and downloads without another paid call',async()=>{
+  const oldFetch=globalThis.fetch,oldWarn=console.warn,oldLog=console.log,logs=[];
+  console.warn=console.log=(...args)=>logs.push(args);
+  const {objects,namespace}=fakeArgonJobs(env),jobsEnv={...env,ARGON_JOBS:namespace};let calls=0;
+  const raw=JSON.stringify({schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{
+    ...scene.scenes[0].objects[0],name:'PRIVATE_OUTPUT',primitive:'javascript',material:'custom shader'}]}]});
+  globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({status:'completed',steps:[
+    {type:'thought',content:[{type:'text',text:'PRIVATE_THOUGHT'}]},
+    {type:'user_input',content:[{type:'text',text:'PRIVATE_FRAME'}]},
+    {type:'model_output',content:[{type:'text',text:raw}]}]}));};
+  try{
+    const started=await (await doPost(jobsEnv,'/api/scene/argon/direct-start',directJob)).json();
+    const body={jobId:started.jobId,shotId:sample.shotId},job=objects.get(started.jobId.slice(3));
+    await job.alarm();await job.alarm();
+    const poll=await (await doPost(jobsEnv,'/api/scene/argon/status',body)).json();
+    assert.equal(poll.status,'failed');assert.equal(poll.diagnostic.reason,'scene_schema_mismatch');
+    assert.ok(!JSON.stringify(poll).includes('PRIVATE'));
+    const saved=await (await doPost(jobsEnv,'/api/scene/argon/output',body)).json();
+    assert.deepEqual(saved,{ok:true,output:raw,partial:false});
+    assert.ok(!JSON.stringify(saved).includes('PRIVATE_THOUGHT')&&!JSON.stringify(saved).includes('PRIVATE_FRAME'));
+    assert.equal(calls,1);assert.equal(await job.ctx.storage.get('request'),undefined);
+    assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
+    assert.equal((await doPost(jobsEnv,'/api/scene/argon/output',{...body,shotId:'other'})).status,400);
+    assert.equal((await doPost(jobsEnv,'/api/scene/argon/output',{...body,url:'https://evil.test'})).status,400);
+    assert.equal((await worker.fetch(new Request('https://worker.test/api/scene/argon/output',
+      {method:'POST',body:JSON.stringify(body)}),jobsEnv)).status,401);
+    const stored=await job.ctx.storage.get('job');
+    await job.ctx.storage.put('job',{...stored,finished:Date.now()-25*3600000});
+    assert.equal((await doPost(jobsEnv,'/api/scene/argon/output',body)).status,404);
+    await job.alarm();assert.equal(await job.ctx.storage.get('output'),undefined);
+  }finally{globalThis.fetch=oldFetch;console.warn=oldWarn;console.log=oldLog;}
+});
 const sse=event=>'data: '+JSON.stringify(event)+'\r\n\r\n';
 function streamed(events,{drop=false}={}){
   const bytes=new TextEncoder().encode(': keep-alive\r\n\r\n'+events.map(sse).join(''));
@@ -635,6 +686,15 @@ test('direct-image streaming keeps only model output, terminal status and numeri
       {jobId:started.jobId,shotId:'draft_001'})).json();
     assert.equal(calls,1);assert.equal(await job.ctx.storage.get('request'),undefined);
     assert.ok(!JSON.stringify(status).includes('PRIVATE'));
+    if(await job.ctx.storage.get('output')){
+      const original=await (await doPost(jobsEnv,'/api/scene/argon/output',
+        {jobId:started.jobId,shotId:'draft_001'})).json();
+      assert.equal(original.ok,true);
+      assert.equal(original.partial,status.diagnostic?.reason==='provider_stream_interrupted'||
+        status.diagnostic?.reason==='provider_stream_error'||!!status.repairs?.truncated);
+      assert.ok(!original.output.includes('PRIVATE'));
+      assert.equal(calls,1,'Downloading interrupted output never replays generation');
+    }
     return status;
   };
   const usage={total_input_tokens:1800,total_output_tokens:400,total_thought_tokens:123,
@@ -831,6 +891,8 @@ test('Direct-image alarms never retry, resubmit or leak, whatever fails',async()
       failPut:(key,value)=>key==='job'&&value.state==='completed'});
     assert.equal(broken.calls,1);
     assert.equal(broken.status.status,'in_progress');
+    const retained=await (await broken.job.fetch(new Request('https://argon-job/output?shot=draft_001'))).json();
+    assert.deepEqual(JSON.parse(retained.output),scene,'original saved before final job persistence failed');
     assert.equal(await broken.job.ctx.storage.get('request'),undefined);
     const stuck=await broken.job.ctx.storage.get('job');
     await broken.job.ctx.storage.put('job',{...stuck,submitted:Date.now()-17*60*1000});
@@ -1093,7 +1155,6 @@ test('Argon results keep every valid part, report what was repaired, and fail on
       [only([{...object,scale:[-1,2,3]}]),['scale']],
       [only([{...object,primitive:'extrude'}]),['footprint']],
       [only([{...object,repeat:{count:[50,50,1],spacing:[1,1,0]}}]),['repeat']],
-      [only([{...object,material:{...object.material,emissive:'red'}}]),['material']],
       [only(['PRIVATE text',[1,2]]),['object']],
       [only([]),['scene']],
       [{schemaVersion:1,scenes:[]},['scene']],
@@ -1114,7 +1175,7 @@ test('Argon results keep every valid part, report what was repaired, and fail on
       // An id that reads like a rule never picks the code.
       {...object,id:'repeat',material:{...object.material,color:'blue'}}]}]});
     assert.equal(parts.status,'completed');
-    assert.deepEqual(parts.proposal.scenes[0].objects.map(item=>item.id),['box_1','box_1_2']);
+    assert.deepEqual(parts.proposal.scenes[0].objects.map(item=>item.id),['box_1','box_1_2','red','repeat']);
     assert.equal(parts.proposal.scenes[0].shotId,sample.shotId,'filed under the job\'s shot');
     assert.deepEqual(parts.repairs,{shot_id:1,duplicate_id:1,primitive:1,scale:1,footprint:1,repeat:1,
       material:2,object:1,id:1,name:1,transform:1});

@@ -3,6 +3,7 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {buildWorld} from './world.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
+import {shotAnchorMap,restoreSavedPrimitiveWorld} from './primitive-preview.js';
 const $=id=>document.getElementById(id);
 const out=$('output'), ctx=out.getContext('2d',{alpha:false});
 const source=document.createElement('canvas');
@@ -30,7 +31,7 @@ function labelsAt(t){if(!$('captions').checked)return;const W=out.width,H=out.he
  ctx.restore();
  }
 }
-function render(t){if(!seq)return;const c=cameraAt(t);cam.position.set(...c.p);cam.lookAt(...c.t);cam.fov=c.fov;cam.aspect=16/9;cam.updateProjectionMatrix();const currentShot=shotAt(t);world.update(t,currentShot.id);primitiveWorld.showShot(currentShot.id);draftWorld.update(currentShot,primitiveWorld.hasObjects(currentShot.id));renderer.render(scene,cam);ctx.drawImage(source,0,0,out.width,out.height);
+function render(t){if(!seq)return;const c=cameraAt(t);cam.position.set(...c.p);cam.lookAt(...c.t);cam.fov=c.fov;cam.aspect=16/9;cam.updateProjectionMatrix();const currentShot=shotAt(t),custom=primitiveWorld.hasObjects(currentShot.id);world.update(t,currentShot.id,custom);primitiveWorld.showShot(currentShot.id);draftWorld.update(currentShot,custom);renderer.render(scene,cam);ctx.drawImage(source,0,0,out.width,out.height);
  // Approximate viewport's vignette in the output so the scene exports without editor chrome.
  const gr=ctx.createLinearGradient(0,0,0,out.height);gr.addColorStop(0,'rgba(3,8,13,.25)');gr.addColorStop(.26,'rgba(3,8,13,0)');gr.addColorStop(.75,'rgba(4,11,17,0)');gr.addColorStop(1,'rgba(4,11,17,.48)');ctx.fillStyle=gr;ctx.fillRect(0,0,out.width,out.height);
  labelsAt(t);
@@ -60,6 +61,6 @@ $('export').onclick=()=>{
  recorder.start(500);recording=true;previewStart=performance.now();$('status').textContent='Recording started…';
 };
 async function boot(){let original=await fetch('./timeline.json').then(r=>{if(!r.ok)throw Error('timeline.json missing');return r.json();});let cached=null;try{cached=JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')||'null');}catch(e){}seq=(cached&&cached.duration>0&&Array.isArray(cached.camera)&&Array.isArray(cached.text)&&Array.isArray(cached.shots))?cached:original;
- primitiveWorld.setDocument(seq.primitiveScenes,seq.shots.map(s=>s.id));
- resize();const failed=await loadModels();render(0);$('info').textContent=`Ready · ${seq.duration.toFixed(2)} seconds · ${modelCount}/7 linked GLBs${failed.length?' ('+failed.length+' procedural fallback)':''}`;$('export').disabled=false;$('preview').disabled=false;frameRequest=requestAnimationFrame(animationLoop);const codec=chosenType();$('status').textContent=codec?`Ready to record ${codec[1].toUpperCase()}. ${seq.camera.length} camera keys and ${seq.text.length} text overlays detected.`:'No MediaRecorder codec found in this browser.';}
+ const geometryError=restoreSavedPrimitiveWorld(primitiveWorld,seq,shotAnchorMap(seq,cameraAt));
+ resize();const failed=await loadModels();render(0);$('info').textContent=`Ready · ${seq.duration.toFixed(2)} seconds · ${modelCount}/7 linked GLBs${failed.length?' ('+failed.length+' procedural fallback)':''}`;$('export').disabled=!!geometryError;$('preview').disabled=false;frameRequest=requestAnimationFrame(animationLoop);const codec=chosenType();$('status').textContent=geometryError?'Saved geometry could not be loaded. Return to the editor and export Timeline JSON for repair; the saved project is retained.':codec?`Ready to record ${codec[1].toUpperCase()}. ${seq.camera.length} camera keys and ${seq.text.length} text overlays detected.`:'No MediaRecorder codec found in this browser.';}
 boot().catch(e=>{$('status').textContent='Unable to initialize: '+e.message;$('info').textContent='Check browser console and serve project with an HTTP server.';console.error(e);});

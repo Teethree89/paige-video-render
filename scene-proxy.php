@@ -172,7 +172,7 @@ function safe_worker_usage($value) {
 /** Fixed-target Argon background job transport (only after session+CSRF). */
 function argon_worker_call(string $endpoint, string $secret, string $action, array $body,
                            $onRejected = null): array {
-    if (!in_array($action, ['start', 'direct-start', 'status', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
+    if (!in_array($action, ['start', 'direct-start', 'status', 'output', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
     // The metadata-only check accepts an empty JSON OBJECT, not an array.
     // PHP json_encode([]) serializes as "[]", which the Worker correctly rejects
@@ -202,6 +202,8 @@ function argon_worker_call(string $endpoint, string $secret, string $action, arr
     $value = json_decode($response, true);
     if ($status < 200 || $status >= 300) {
         $error = is_array($value) && is_string($value['error'] ?? null) ? $value['error'] : '';
+        if ($action === 'output' && $status === 404 && $error === 'No saved Argon output')
+            reject(404, 'This job has no saved original output. Older direct-image jobs cannot be recovered.');
         if ($onRejected !== null) $onRejected($error);
         answer($status === 429 ? 429 : 502, with_diagnostic(
             ['ok' => false, 'error' => safe_worker_error($status, $response)], $value));
@@ -476,6 +478,25 @@ if ($action === 'argon_check') {
 }
 // Polling never consumes a generation quota slot. The Google job ID is
 // session-private; callers cannot supply another user's interaction ID.
+// Raw output is an explicit authenticated download, never part of normal polls.
+if ($action === 'argon_output') {
+    if (count(array_diff(array_keys($input), ['action','csrf'])) > 0)
+        reject(400, 'Invalid Argon output request');
+    $job = $_SESSION['argon_job'] ?? null;
+    if (!is_array($job) || (int) ($job['created'] ?? 0) < time() - 86400)
+        reject(404, 'No resumable Argon job in this session');
+    if (!preg_match('/^[A-Za-z0-9_-]{8,160}$/', (string) ($job['id'] ?? '')))
+        reject(400, 'Invalid Argon job');
+    $value = argon_worker_call($workerEndpoint, $secret, 'output',
+        ['jobId' => $job['id'], 'shotId' => $job['shotId']]);
+    // 160k JS characters can occupy up to 640k UTF-8 bytes. Nothing else from
+    // the provider is forwarded: only model_output text, never steps or inputs.
+    if (!is_string($value['output'] ?? null) || strlen($value['output']) === 0 ||
+        strlen($value['output']) > 640000 || !is_bool($value['partial'] ?? null))
+        reject(502, 'Invalid Argon output response');
+    answer(200, ['ok' => true, 'shotId' => $job['shotId'],
+        'output' => $value['output'], 'partial' => $value['partial']]);
+}
 if ($action === 'argon_status') {
     $job = $_SESSION['argon_job'] ?? null;
     if (!is_array($job) || (int) ($job['created'] ?? 0) < time() - 86400)

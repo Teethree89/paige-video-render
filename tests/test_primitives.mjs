@@ -67,6 +67,18 @@ test('primitive scene document can be stored alongside a timeline and exported a
   const normalized=validatePrimitiveDocument(roundTrip.primitiveScenes,roundTrip.shots.map(s=>s.id));
   assert.deepEqual(normalized,original);
 });
+test('legacy manual layer aliases keep saved objects and normalize to unlayered v1 data',()=>{
+  const original=doc();
+  for(const layer of [null,'','manual']){
+    const saved=structuredClone(original);
+    saved.scenes[0].objects[0].layer=layer;
+    assert.deepEqual(validatePrimitiveDocument(saved,['draft_001']),original);
+    assert.equal(saved.scenes[0].objects[0].layer,layer,'loading never rewrites the saved source');
+    saved.scenes[0].objects[0].position[0]=Infinity;
+    assert.throws(()=>validatePrimitiveDocument(saved,['draft_001']),/finite/,
+      'legacy metadata never bypasses geometry validation');
+  }
+});
 const richDoc=(objects,camera)=>({schemaVersion:1,scenes:[{shotId:'shot_a',objects,
   ...(camera===undefined?{}:{camera})}]});
 const base=(id,primitive,extra={})=>({id,name:id,primitive,position:[0,1,0],rotation:[0,0,0],

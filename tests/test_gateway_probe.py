@@ -574,7 +574,7 @@ function argon_worker_call($endpoint, $secret, $action, $body, $onRejected = nul
         )
         self.assertEqual(php_array.stdout, "[]")
         self.assertIn("'400:Invalid Argon check request'", php)
-        self.assertIn("['start', 'direct-start', 'status', 'check', 'diagnostic', 'diagnostic-status']", php)
+        self.assertIn("['start', 'direct-start', 'status', 'output', 'check', 'diagnostic', 'diagnostic-status']", php)
         self.assertIn("'available' => $check['available']", php)
         self.assertIn("'502:Argon model metadata check unavailable'", php)
         self.assertLess(php.index("if (empty($_SESSION['authenticated']))"),
@@ -701,6 +701,53 @@ function argon_worker_call($endpoint, $secret, $action, $body, $onRejected = nul
         self.assertIn("internal_path_disclosed=true", output.getvalue())
         self.assertIn("Secret PHP direct URL (status only): HTTP 200", output.getvalue())
         self.assertNotIn("/services/users/PRIVATEACCOUNT", output.getvalue())
+
+
+    @unittest.skipUnless(shutil.which("php"), "PHP CLI required (available in CI)")
+    def test_original_output_download_uses_only_authenticated_session_job_and_bounded_text(self):
+        root = pathlib.Path(__file__).resolve().parents[1]
+        php = (root / "scene-proxy.php").read_text()
+        marker = "if ($action === 'argon_output')"
+        self.assertLess(php.index("if (empty($_SESSION['authenticated']))"), php.index(marker))
+        self.assertLess(php.index("if (!is_string($providedCsrf)"), php.index(marker))
+        self.assertLess(php.index(marker), php.index("$_SESSION['ai_calls'] = 0"))
+        route = php[php.index(marker):php.index("if ($action === 'argon_status')")]
+        harness = '''<?php
+$case = json_decode(stream_get_contents(STDIN), true);
+$action = 'argon_output'; $input = $case['input'];
+$_SESSION = ['argon_job' => ['id' => 'do_private_job_12345678', 'shotId' => 'shot_a',
+    'created' => time() - ($case['age'] ?? 0)]];
+$workerEndpoint = 'fixed'; $secret = 'fixture'; $calls = 0;
+function answer($status, $body) { global $calls;
+    echo json_encode(['status' => $status, 'body' => $body, 'calls' => $calls]); exit; }
+function reject($status, $error) { answer($status, ['ok' => false, 'error' => $error]); }
+function argon_worker_call($endpoint, $secret, $action, $body) { global $case, $calls;
+    $calls++;
+    if ($action !== 'output' || $body !== ['jobId' => 'do_private_job_12345678', 'shotId' => 'shot_a'])
+        throw new Exception('Caller-selected job reached Worker');
+    return $case['response'];
+}
+'''
+        import tempfile
+        raw = '{"material":"custom", "note":"<script>not executed</script>"}'
+        response = {"ok": True, "output": raw, "partial": False, "privateMetadata": "DO_NOT_FORWARD"}
+        base = {"input": {"action": "argon_output", "csrf": "verified"}, "response": response}
+        cases = [(base, 200, 1),
+                 ({**base, "input": {**base["input"], "jobId": "other-user"}}, 400, 0),
+                 ({**base, "age": 86401}, 404, 0),
+                 ({**base, "response": {**response, "partial": "yes"}}, 502, 1),
+                 ({**base, "response": {**response, "output": "x" * 640001}}, 502, 1)]
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "output.php"
+            path.write_text(harness + route)
+            for case, status, calls in cases:
+                result = subprocess.run(["php", str(path)], input=json.dumps(case),
+                                        capture_output=True, text=True, check=True)
+                value = json.loads(result.stdout)
+                self.assertEqual((value["status"], value["calls"]), (status, calls))
+                self.assertNotIn("DO_NOT_FORWARD", result.stdout)
+                if status == 200:
+                    self.assertEqual(value["body"], {"ok": True, "shotId": "shot_a", "output": raw, "partial": False})
 
 
 if __name__ == "__main__":

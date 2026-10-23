@@ -540,6 +540,53 @@ polls, stalled checks and gateway recovery without a second paid call.
 A mocked streamed response also runs in workerd. A live run beyond two
 minutes remains unverified; no paid reproduction was launched for this fix.
 
+### Live streamed result and material recovery (`argon-output-material-v1`)
+
+The 10:08:43–10:11:27 AM high-thinking/Maximum-detail direct-image run
+reached a completed response after about 164 seconds, past the earlier
+two-minute boundary. Google reported 6,664 input tokens, 13,915 thinking and
+147 output (43% of the shared 32,768 budget). The Worker rejected every
+returned object under `material`. This is a local validation failure, not
+evidence of provider unavailability or an output-token cutoff. The exact
+material cannot be identified: the deployed Worker retained only usage and
+the diagnostic, and discarded the original model output.
+
+The new adapter retries only LOCAL validation after repairing unsupported
+material values. It keeps valid material fields, expands short hex colors,
+clamps numeric values and supplies a neutral material where required.
+Geometry and the shared scene validator remain strict. Repair counts disclose
+appearance changes, while the original text is preserved independently.
+
+Direct-image model-output text (up to 160k characters) is stored before
+validation in the same private job for 24 hours. Partial streams retain only
+collected model-output text, marked partial. An explicit authenticated
+download returns it without generating tokens. Normal polls and logs remain
+limited to validated scenes and sanitized metadata; thoughts and frame echoes
+are never saved. Previs output can be retrieved by a free GET of its stored
+interaction. PHP binds downloads to its own current job and CSRF session.
+
+Older failed direct-image output cannot be reconstructed by this change.
+The new behavior is verified with offline fixtures and workerd; no new paid
+provider reproduction is submitted for it.
+
+### Status wall-time observation
+
+A supplied log records a `/status` Durable Object fetch with 555,593 ms
+wall time and 0 ms recorded CPU. The accompanying screenshot shows outer
+`POST /api/scene/argon/status` events finishing in roughly 23–32 ms while
+inner Durable Object `/status` events show about 6.7 seconds, close to the
+poll interval. This points to lifecycle/response-context timing rather than
+each status response taking that long; the exact platform behavior remains
+unconfirmed. Cloudflare documents wall time as JavaScript-context lifetime,
+which need not equal client response latency.
+
+`argon-status-read` now logs numeric `handlerMilliseconds` separately from
+provider timing (`argon-direct-call`/`argon-direct-response`). The workerd
+test also asserts that status responses return before the slow mock model.
+No status handler starts or retries generation.
+
+Source: https://developers.cloudflare.com/workers/observability/metrics-and-analytics/
+
 ### Remaining blockers
 
 These need the live steps above or action from Google:

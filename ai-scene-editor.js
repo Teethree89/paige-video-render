@@ -9,7 +9,8 @@ const headers={'Content-Type':'application/json','X-Paige-Client':'SceneStudio'}
 async function request(action,data={}) {
   // Bound free polls, including a stalled response body. Never replay a paid
   // start: a lost start response can still represent a submitted paid request.
-  const polling=action==='argon_status',controller=polling?new AbortController():null;
+  const polling=action==='argon_status',readOnly=polling||action==='argon_output';
+  const controller=readOnly?new AbortController():null;
   const timer=controller?setTimeout(()=>controller.abort(),40000):null;
   let response,result;
   try{
@@ -19,8 +20,8 @@ async function request(action,data={}) {
     });
     result=await response.json();
   }catch(error){
-    if(!polling)throw error;
-    throw Object.assign(Error(controller.signal.aborted?'Editor status check timed out':
+    if(!readOnly)throw error;
+    throw Object.assign(Error(controller.signal.aborted?'Editor '+(polling?'status check':'output download')+' timed out':
       response?'The editor server returned an unreadable status response':
         'Connection to the editor server was interrupted'),
       {status:response?.status,transient:!response||response.ok||response.status>=500});
@@ -85,7 +86,7 @@ const REPAIR_LABELS=Object.freeze({json:'unreadable JSON',
   object_cap:'over 120 objects',object:'malformed object',id:'invalid ID',
   duplicate_id:'duplicate ID (renamed)',primitive:'unknown shape',
   transform:'position or rotation out of range',scale:'size out of range',
-  material:'invalid material',repeat:'repeat over its limits',footprint:'invalid footprint',
+  material:'material converted or defaulted',repeat:'repeat over its limits',footprint:'invalid footprint',
   name:'name too long',scene_copies:'over 2,000 rendered copies',light:'invalid light',
   light_cap:'over 8 lights',camera:'invalid camera estimate',other:'other rule'});
 const repairLabel=code=>REPAIR_LABELS[code]||'other rule';
@@ -193,6 +194,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   showArgonSettings();
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
   const resumeArgon=el('aiSceneResumeArgon');
+  const downloadArgon=el('aiSceneDownloadArgon');
   const checkArgon=el('aiSceneCheckArgon');
   const smokeButton=el('aiArgonSmokeRun'),smokeReset=el('aiArgonSmokeReset'),
     smokeSummary=el('aiArgonSmokeSummary');
@@ -278,6 +280,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(result){
         interrupted=false;
         if(result.shotId!==shotId)throw Error('Argon job belongs to a different chapter');
+        argonJob={shotId,status:result.status};
         if(result.status!==prior){
           prior=result.status;
           log('Argon job status: '+result.status+'.');
@@ -293,8 +296,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           log('Argon model output received and validated by the Worker.');
           return result.proposal;
         }
-        if(result.status==='failed')throw Object.assign(
-          Error('Argon job failed on the provider. No geometry was returned.'),{diagnostic:result.diagnostic});
+        if(result.status==='failed')throw Object.assign(Error(result.diagnostic?.reason==='scene_schema_mismatch'
+          ?'Argon returned output, but no scene passed validation. Use Download original Argon output to inspect it.'
+          :'Argon job failed on the provider. No geometry was returned.'),{diagnostic:result.diagnostic});
         if(!['queued','in_progress'].includes(result.status))throw Error('Unrecognized Argon status');
         status('Argon '+result.status.replace('_',' ')+' — waiting for editable geometry…');
       }
@@ -347,6 +351,10 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     updateSmoke();
     if(resumeArgon){resumeArgon.hidden=!authenticated||!argonJob||!!pending;
       resumeArgon.disabled=busy||!authenticated;}
+    if(downloadArgon){
+      downloadArgon.hidden=!authenticated||!argonJob||!['completed','failed'].includes(argonJob.status);
+      downloadArgon.disabled=busy||!authenticated;
+    }
     inspect.hidden=!pending;inspect.disabled=busy||!pending;
     accept.hidden=!pending; discard.hidden=!pending;
     if(cleanupButton){cleanupButton.hidden=!pending;cleanupButton.disabled=busy||!pending;}
@@ -603,6 +611,26 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       log('Argon model check failed: '+error.message);
       status('Argon model check failed: '+error.message+'. No paid generation was submitted.');
     }finally{busy=false;ui();}
+  });
+  downloadArgon?.addEventListener('click',async()=>{
+    if(busy||!authenticated||!argonJob)return;
+    busy=true;ui();
+    let url;
+    try{
+      const result=await request('argon_output',{csrf});
+      if(result.shotId!==argonJob.shotId||typeof result.output!=='string'||typeof result.partial!=='boolean')
+        throw Error('Invalid Argon output download');
+      url=URL.createObjectURL(new Blob([result.output],{type:'application/json;charset=utf-8'}));
+      const link=document.createElement('a');
+      link.href=url;link.download='argon-output-'+result.shotId+(result.partial?'-partial':'')+'.json';
+      link.click();
+      log('Downloaded '+(result.partial?'partial ':'')+'original Argon output. Nothing was generated or applied.');
+    }catch(error){
+      log('Argon output download: '+error.message);status('Argon output download: '+error.message);
+    }finally{
+      if(url)setTimeout(()=>URL.revokeObjectURL(url),1000);
+      busy=false;ui();
+    }
   });
   resumeArgon?.addEventListener('click',async()=>{
     if(busy||!authenticated||!argonJob)return;

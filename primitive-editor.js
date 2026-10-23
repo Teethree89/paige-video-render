@@ -51,18 +51,26 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   function refresh(){
     const shot=getActiveShot();if(!shot)return;
     if(previousShot!==shot.id){previousShot=shot.id;selectedId=null;}
-    const doc=getPrimitiveDocument(),entry=sceneFor(doc,shot.id);
+    let doc,loadError=false;
+    try{doc=getPrimitiveDocument();}
+    catch(error){
+      loadError=true;
+      status.textContent='Saved geometry could not be loaded: '+error.message+
+        '. Export Timeline JSON to keep the original project for repair.';
+      doc=blankPrimitiveDocument();
+    }
+    const entry=sceneFor(doc,shot.id);
     const objects=entry?.objects||[];
     const chosenLayer=layerFilter.value||'all';
     const filtered=objects.filter(o=>chosenLayer==='all'||
       (o.layer||'manual')===chosenLayer);
     const selected=filtered.find(o=>o.id===selectedId);
     const lights=entry?.lights?.length||0;
-    el('primitiveShotLabel').textContent=shot.name+' · '+objects.length+' object(s)'+
-      (lights?' · '+lights+' light(s)':'');
+    el('primitiveShotLabel').textContent=shot.name+(loadError?' · saved geometry unavailable':
+      ' · '+objects.length+' object(s)'+(lights?' · '+lights+' light(s)':''));
     objectSelect.replaceChildren();
     const none=document.createElement('option');
-    none.value='';none.textContent=filtered.length?'Select an object…':
+    none.value='';none.textContent=loadError?'Saved geometry could not be loaded':filtered.length?'Select an object…':
       (objects.length?'No objects in this layer':'No objects yet — add one below');
     objectSelect.append(none);
     for(const item of filtered){

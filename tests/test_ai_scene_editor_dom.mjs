@@ -509,6 +509,50 @@ function argonDomHarness(ids,jpeg){
     }
   };
 }
+test('failed Argon jobs expose a session-only original-output download without previewing or replaying',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldCreate=URL.createObjectURL,
+    oldRevoke=URL.revokeObjectURL,oldTimeout=globalThis.setTimeout;
+  const ids=new Map(),actions=[],links=[];let blob,revoked=false,missing=false;
+  const raw='{"material":"<script>PRIVATE_UNTRUSTED</script>"}';
+  const doc=argonDomHarness(ids,'unused'),create=doc.createElement;
+  doc.createElement=tag=>tag==='a'?{click(){links.push(this);}}:create(tag);
+  globalThis.document=doc;
+  globalThis.setTimeout=(fn,ms)=>ms===1000?(queueMicrotask(fn),0):oldTimeout(fn,ms);
+  URL.createObjectURL=value=>{blob=value;return 'blob:original-output';};
+  URL.revokeObjectURL=url=>{assert.equal(url,'blob:original-output');revoked=true;};
+  globalThis.fetch=async(_url,options={})=>{
+    if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'private-csrf',
+      argonJob:{shotId:'shot_a',status:'in_progress'}}));
+    const body=JSON.parse(options.body);actions.push(body.action);
+    assert.deepEqual(Object.keys(body).sort(),['action','csrf']);
+    if(body.action==='argon_status')return new Response(JSON.stringify({ok:true,shotId:'shot_a',status:'failed',
+      diagnostic:{phase:'job',http:null,status:'failed',reason:'scene_schema_mismatch',codes:['primitive'],fields:[],terms:[]}}));
+    assert.equal(body.action,'argon_output');
+    if(missing)return new Response(JSON.stringify({ok:false,error:'This job has no saved original output.'}),{status:404});
+    return new Response(JSON.stringify({ok:true,shotId:'shot_a',output:raw,partial:true}));
+  };
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>null,getPlayheadTime:()=>2,onPreview:()=>assert.fail('Raw text must not be previewed'),
+      onDiscard:()=>{},onAccept:()=>assert.fail('Raw text must not be applied')});
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(ids.get('aiSceneDownloadArgon').hidden,true);
+    await ids.get('aiSceneResumeArgon').fire('click');
+    assert.equal(ids.get('aiSceneDownloadArgon').hidden,false);
+    await ids.get('aiSceneDownloadArgon').fire('click');
+    assert.deepEqual(actions,['argon_status','argon_output']);
+    assert.equal(await blob.text(),raw);assert.equal(revoked,true);
+    assert.equal(links[0].download,'argon-output-shot_a-partial.json');
+    assert.ok(!ids.get('aiSceneLog').textContent.includes('PRIVATE_UNTRUSTED'));
+    missing=true;await ids.get('aiSceneDownloadArgon').fire('click');
+    assert.match(ids.get('aiSceneStatus').textContent,/no saved original output/);
+    assert.deepEqual(actions,['argon_status','argon_output','argon_output']);
+  }finally{
+    globalThis.document=oldDocument;globalThis.fetch=oldFetch;globalThis.setTimeout=oldTimeout;
+    URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;
+  }
+});
 test('Experimental direct-image Argon discloses image handling, submits once and previews',async()=>{
   const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
   const ids=new Map(),actions=[];
