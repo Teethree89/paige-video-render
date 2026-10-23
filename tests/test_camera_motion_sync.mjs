@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {syncChapterCameraMotion,clipPlanesForScene} from '../camera-motion-sync.js';
 import {shotAnchorMap} from '../primitive-preview.js';
+import {readFile} from 'node:fs/promises';
 import {evaluateCamera} from '../animation-curves.js';
 const round=n=>Math.round(n*1e4)/1e4;
 const project=()=>({
@@ -103,4 +104,12 @@ test('cinematic clip planes expand for gigantic regenerated geometry without reu
  assert.equal(clipPlanesForScene([0,0,10],[0,0,0],
    {center:[0,0,0],radius:3}).far,500);
  assert.deepEqual(clipPlanesForScene(null,null,null),{near:.35,far:500});
+});
+
+test('video renderer uses the same retargeted camera/easing, anchor and clipping as preview',async()=>{
+ const source=await readFile(new URL('../render.js',import.meta.url),'utf8');
+ assert.match(source,/return evaluateCamera\(seq\.camera,t\)/);
+ assert.match(source,/clipPlanesForScene\(c\.p,c\.t,renderBoundsCache\.get\(currentShot\.id\)\)/);
+ assert.match(source,/cam\.near=planes\.near;cam\.far=planes\.far/);
+ assert.match(source,/shotAnchorMap\(seq,cameraAt\)/);
 });
