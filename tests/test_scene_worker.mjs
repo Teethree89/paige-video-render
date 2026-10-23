@@ -963,7 +963,7 @@ test('An interrupted direct-image run is reported once and never resubmitted',as
     const queued=await job.ctx.storage.get('job');
     await job.ctx.storage.put('job',{...queued,state:'submitted',submitted:Date.now()});
     assert.deepEqual(await (await doPost(jobsEnv,'/api/scene/argon/status',
-      {jobId:started.jobId,shotId:'draft_001'})).json(),{ok:true,status:'in_progress'});
+      {jobId:started.jobId,shotId:'draft_001'})).json(),{ok:true,status:'in_progress',phase:'waiting',elapsedSeconds:0});
     await job.alarm();
     assert.equal(calls,0,'A submitted job is never sent to Google again');
     const result=await (await doPost(jobsEnv,'/api/scene/argon/status',
