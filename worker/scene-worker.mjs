@@ -1362,8 +1362,9 @@ You can see the frames directly, so spend the budget on what they show.
 Where visible, model individual facade bays, window grids (with repeat),
 mullions, roof edges and parapets, entrances and canopies, steps, lamp
 posts, unlabeled signs, vegetation masses, vehicles and ground markings.
-Match proportions and placement to the FIRST frame, estimate its camera,
-attach parts to their parent surfaces, and leave out anything not visible.
+Match proportions and placement to the FIRST frame; attach parts to their
+parent surfaces, and leave out anything not visible.
+${detailContext?'Preserve the existing camera and all prior geometry.':'Estimate the scene camera from the first frame.'}
 Return only the scene JSON.`,
         // "high" gives Argon more pixels per frame (documented ImageContent
         // resolution); first live run used the default and lost fine detail.
