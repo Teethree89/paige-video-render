@@ -47,7 +47,10 @@ export function mountReferenceBuilderUI(root=document){
           <video id="rbVideo" controls muted playsinline hidden aria-label="Reference video preview"></video>
           <div class="rb-empty-preview">Add a video clip or image to begin</div>
         </div>
-        <div class="rb-sequence-heading"><strong>REFERENCE SEQUENCE</strong><span>Ordered scene durations</span></div>
+        <div class="rb-sequence-heading"><strong>REFERENCE SEQUENCE</strong><div class="rb-preview-transport">
+          <span id="rbSequenceClock">0:00.00</span>
+          <button id="rbPlaySequence" type="button" aria-pressed="false">▶ Play sequence</button>
+        </div></div>
         <div id="rbSequenceStrip" class="rb-sequence-strip" aria-label="Reference scene order"></div>
         <p id="rbStatus" role="status">Add your first media file to build a reference sequence.</p>
       </main>
