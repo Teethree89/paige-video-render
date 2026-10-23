@@ -9,6 +9,7 @@ export function cubicEasing(u,handles=[.25,.1,.25,1]){
  if(!Array.isArray(handles)||handles.length!==4||handles.some(x=>!Number.isFinite(x)||x<0||x>1))
    throw Error('Animation handles must contain four values between 0 and 1');
  const target=bound(u);
+ if(target===0||target===1)return target;
  let low=0,high=1;
  for(let i=0;i<24;i++){
    const mid=(low+high)/2;
