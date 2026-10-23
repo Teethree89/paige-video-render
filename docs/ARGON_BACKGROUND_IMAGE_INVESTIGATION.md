@@ -335,7 +335,38 @@ Two follow-ups shipped in the next PR (`argon-direct-quality-v1`):
   `ImageContent` field) and guidance to spend 36–48 parts on visible detail
   matched to the first frame. The largest remaining lever is a richer
   primitive vocabulary (roof wedges, extrusions, repeated arrays). That is a
-  schema/editor/export change and has not been started.
+  schema/editor/export change; it shipped next.
+
+### Rich scene format for Argon (`argon-rich-scene-v1`)
+
+Both Argon profiles now return the full validated format described in
+[PRIMITIVE_SCENE_FORMAT.md](PRIMITIVE_SCENE_FORMAT.md): `cone`, `wedge`,
+`gable` and `extrude` (footprint outlines) besides the original five shapes;
+`repeat` grids (up to 400 copies per object and 2,000 rendered copies per
+scene); emissive glow and opacity; and an estimate of the first frame's
+camera, which only frames the preview. The cap rises from 48 to 120 editable
+objects. The Worker validates Argon output with the browser's own
+`primitive-schema.js` (Wrangler bundles the import), so both sides accept
+exactly the same data. The Flash profiles and their prompts, validator and
+24/36/48-object budgets are unchanged.
+
+This doesn't change billing: still one call (direct) or two (Previs), with the
+same 32,768-token budget. The prompt asks for compact JSON and steers regular
+rhythms (window grids, mullions, columns, rack rows) into `repeat`. One
+repeated object costs about as many tokens as one plain object, so detail
+grows without the output growing.
+
+Unverified until the first live run of each profile:
+
+- **Whether Google accepts the larger response schema.** It adds only
+  optional properties and no length or range constraints, the kind that caused
+  earlier 400s. A rejection happens at create time, is reported as
+  `reason output_schema` in the sanitized diagnostic, and never retries.
+- **Whether 120 objects fit the budget.** Output and thinking share 32,768
+  tokens. A reply cut off at the limit is discarded and reported as
+  `incomplete_output`. The prompt targets 48 to 96 objects for that reason.
+- **Whether the result is closer to the hand-built scenes.** Nothing has been
+  measured yet.
 
 ### Remaining blockers
 

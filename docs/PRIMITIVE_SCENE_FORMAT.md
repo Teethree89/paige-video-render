@@ -36,13 +36,38 @@ The standalone **Export JSON** button saves just `primitiveScenes`. Import JSON 
 
 ## Supported objects and properties
 
-Supported primitives: `box`, `sphere`, `cylinder`, `plane`, `torus`. All are editable Three.js meshes. Position and rotation are 3-element numeric arrays. Rotation uses radians. Scale determines dimensions in world units; primitive meshes use unit base geometry. `material.color` is a 6-digit hex string; metalness and roughness are values between 0 and 1.
+Every object has `id`, `primitive`, `position`, `rotation` (radians, Euler XYZ), `scale` and `material` (`color` as `#RRGGBB`, `metalness` and `roughness` from 0 to 1); `name` and `layer` are optional. Before scale, every solid primitive fills a 1×1×1 cube centered on its position (a plane is flat, and a torus ring is about 1.08 across), so `scale` is its full size in world units and a part resting on the ground has `position[1] = scale[1]/2`.
+
+| Primitive | Unit shape and orientation | Typical use |
+| --- | --- | --- |
+| `box` | cube | walls, slabs, panels, racks |
+| `sphere` | sphere | domes, tree crowns, atoms |
+| `cylinder` | axis along Y | columns, posts, tanks |
+| `plane` | 1×1 in XY facing +Z; floors use rotation `[-1.571,0,0]` | ground, screens |
+| `torus` | ring in XY facing +Z | rings, wheels |
+| `cone` | apex up (+Y) | spires, tree crowns, traffic cones |
+| `wedge` | right-triangle prism along Z, tall edge at −X sloping to +X | ramps, shed roofs, sloped canopies |
+| `gable` | triangular prism, ridge along Z at the top | pitched roofs, dormers |
+| `extrude` | `points` outline extruded along Y | L-, U-, T-shaped or angled footprints, podiums |
+
+`extrude` needs `points`: 3 to 32 `[x,z]` corners within ±1 (normally ±0.5) with non-zero area. List them in order around the outline, either direction; crossing edges are not rejected but render incorrectly. `scale[0]` and `scale[2]` size the outline; `scale[1]` is its height.
+
+### Optional rich fields
+
+The format grew additively and keeps `schemaVersion: 1`: a document written before these fields validates to exactly the same output.
+
+- **`repeat`** `{"count":[nx,ny,nz],"spacing":[dx,dy,dz]}` renders a grid of copies centered on the object's position, stepping along the object's own rotated axes (so a window grid stays on a rotated facade). Each count is an integer from 1 to 50; one object makes at most 400 copies and a scene at most 2,000 rendered copies. A count of `[1,1,1]` is dropped. Copies are ordinary meshes in one group named after the object (`Windows 1`, `Windows 2`, …), sharing one geometry and material, so the GLB and After Effects package see plain nodes, not GPU instancing.
+- **`material.emissive`** `#RRGGBB` with **`emissiveIntensity`** from 0 to 10 (default 1) for lit windows, screens and lamps. It exports to glTF as `emissiveFactor` plus `KHR_materials_emissive_strength`.
+- **`material.opacity`** from 0.05 to 1 for glass or water. Below 1 the material blends and does not write depth, and exports with `alphaMode: BLEND`.
+- **Scene `camera`** `{"position":[x,y,z],"target":[x,y,z],"fov":deg}` is a model's estimate of the reference camera, in the shot's local coordinates (vertical field of view from 10 to 120). The geometry preview starts from it when it plausibly frames the objects. It is a reviewable suggestion: it is **never** written to the timeline's `camera` keys.
+
+The editor's shape dropdown adds all nine primitives (an extrusion starts as an L footprint). Fields without their own inputs (copies, footprint, glow, opacity) are listed read-only next to the shape, stay intact through every edit and duplicate, and are changed through Export/Import JSON. Z-fighting cleanup compares every field when it removes exact duplicates and never moves a repeated object or uses one as a host.
 
 Shot-specific objects render **only during that shot**. When a draft shot has one or more primitive objects, the generic Phase 1 guide blockout hides automatically. The original hand-built models remain unchanged. Each shot can export its own binary GLB.
 
 ## Validation / safety for future AI
 
-The validator rejects unsupported geometry, duplicate IDs, unrecognized shot IDs, nonfinite numbers, invalid materials, and oversized responses. Caps: up to 120 scenes, 200 objects per scene, and 2000 total objects. Names are bounded and inserted into HTML via `textContent`. Extra fields in generated content are ignored. No arbitrary JavaScript, URLs, remote textures, custom shaders or eval.
+The validator rejects unsupported geometry, duplicate IDs, unrecognized shot IDs, nonfinite numbers, invalid materials, malformed footprints, repeats or cameras, and oversized responses. Caps: up to 120 scenes, 200 objects per scene, 2000 total objects, 400 copies per repeated object and 2000 rendered copies per scene. The Cloudflare Worker imports this same validator (`primitive-schema.js`) for Gemini 4 Argon results, with a tighter 120-object cap; the Flash profiles keep their own five-primitive validator and 24/36/48-object budgets. Names are bounded and inserted into HTML via `textContent`. Extra fields in generated content are ignored. No arbitrary JavaScript, URLs, remote textures, custom shaders or eval.
 
 A future AI model must return a data structure conforming to this contract; **never execute code written by the model**. The model should also attach confidence/explanations in a separate analysis report—not put unsupported keys in the runtime document.
 

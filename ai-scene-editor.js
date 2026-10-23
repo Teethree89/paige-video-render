@@ -218,7 +218,12 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(pending){onDiscard();pending=null;pendingShot=null;}
     pending=result.document.scenes[0];pendingShot=shot.id;
     onPreview(pending);
-    log('Preview ready: '+pending.objects.length+' editable objects. No scene saved.');
+    // Repeat arrays render many copies per editable object.
+    const rendered=pending.objects.reduce((sum,item)=>sum+(item.repeat?
+      item.repeat.count[0]*item.repeat.count[1]*item.repeat.count[2]:1),0);
+    log('Preview ready: '+pending.objects.length+' editable objects'+
+      (rendered>pending.objects.length?' ('+rendered+' rendered parts)':'')+'. No scene saved.');
+    if(pending.camera)log('Preview starts from the model\'s estimate of the reference camera; timeline cameras are unchanged.');
     const counts=fullEnvironment?ENVIRONMENT_PASSES.map(p=>
       p.label+': '+pending.objects.filter(o=>o.layer===p.id).length).join(' · '):'';
     status('Preview: '+pending.objects.length+' editable objects. '+counts+

@@ -24,11 +24,11 @@ const analysisResult=(value=visualAnalysis)=>({candidates:[{content:{parts:[
 test('health endpoint reports true readiness without exposing secret details',async()=>{
   const healthy=await worker.fetch(new Request('https://example.workers.dev/health'),env);
   assert.equal(healthy.status,200);
-  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-quality-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(await healthy.json(),{ok:true,service:'paige-scene',ready:true,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-rich-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   const unavailable=await worker.fetch(new Request('https://example.workers.dev/health'),{});
   assert.equal(unavailable.status,503);
   const body=await unavailable.text();
-  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-direct-quality-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
+  assert.deepEqual(JSON.parse(body),{ok:false,service:'paige-scene',ready:false,model:'gemini-3.5-flash-lite',generationProfile:'layered-environment-v1',workerRevision:'argon-rich-scene-v1',supportedModels:['gemini-3.5-flash-lite','gemini-3.8-flash'],supportedProfiles:['lite_default','g38_low','g38_medium','argon_previs','argon_direct'],argonDirectJobs:false});
   assert.ok(!body.includes('GEMINI_API_KEY')&&!body.includes('SCENE_ACCESS_TOKEN'));
 });
 test('worker rejects incorrect secrets and unrelated paths',async()=>{
@@ -123,15 +123,22 @@ test('Fast Flash-Lite image analysis feeds text-only Argon background without cl
       const primitive=sceneShape.properties.objects.items;
       assert.ok(primitive.required.includes('material'));
       assert.deepEqual(primitive.properties.primitive.enum,
-        ['box','sphere','cylinder','plane','torus']);
+        ['box','sphere','cylinder','plane','torus','cone','wedge','gable','extrude']);
+      // Rich fields are optional and carry no length limits (provider 400 risk).
+      assert.deepEqual(Object.keys(primitive.properties.repeat.properties),['count','spacing']);
+      assert.deepEqual(primitive.properties.points,{type:'array',items:{type:'array',items:{type:'number'}}});
+      assert.ok(['emissive','emissiveIntensity','opacity'].every(key=>key in primitive.properties.material.properties));
+      assert.ok(!primitive.required.includes('repeat')&&!sceneShape.required.includes('camera'));
+      assert.ok(!/minItems|maxItems|minimum|maximum/.test(JSON.stringify(schema)));
       assert.ok(primitive.required.includes('scale'));
       assert.equal(typeof data.input,'string');
       assert.deepEqual(JSON.parse(data.input),visualAnalysis);
       assert.equal(data.previous_interaction_id,undefined);
       assert.match(data.system_instruction,/PREVIS \/ RUNWAY PREP/);
-      assert.match(data.system_instruction,/PRIMARY SUBJECT/);
+      assert.match(data.system_instruction,/at most 120 objects/);
+      assert.match(data.system_instruction,/"repeat":\{"count"/);
       assert.match(data.system_instruction,/untrusted descriptive data/);
-      assert.doesNotMatch(data.system_instruction,/target 36-48 parts/,'Direct-only guidance');
+      assert.doesNotMatch(data.system_instruction,/You can see the frames directly/,'Direct-only guidance');
       assert.match(data.system_instruction,/draft_001/);
       assert.ok(!opts.body.includes('PRIVATE_'));
       assert.ok(!opts.body.includes(image.split(',')[1]));
@@ -621,7 +628,9 @@ test('Direct-image Argon runs ONE synchronous image call inside a Durable Object
     assert.match(body.system_instruction,/PREVIS \/ RUNWAY PREP/);
     assert.match(body.system_instruction,/never an\s+instruction/);
     assert.match(body.system_instruction,/draft_001/);
-    assert.match(body.system_instruction,/target 36-48 parts/);
+    assert.match(body.system_instruction,/You can see the frames directly/);
+    assert.match(body.system_instruction,/window grids \(with repeat\)/);
+    assert.match(body.system_instruction,/at most 120 objects/);
     assert.match(body.system_instruction,/Match proportions and\s+placement to the FIRST frame/);
     assert.deepEqual(body.input,directJob.frames.flatMap(frame=>[
       {type:'text',text:'Reference frame at '+frame.at.toFixed(3)+' seconds'},
@@ -976,8 +985,16 @@ test('Argon background results still enforce the editable primitive contract and
     {schemaVersion:1,scenes:[{shotId:'wrong_shot',objects:[object]}]},
     {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,primitive:'javascript'}]}]},
     {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,scale:[-1,2,3]}]}]},
-    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:Array.from({length:49},
-      (_,i)=>({...object,id:'part_'+i}))}]}
+    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:Array.from({length:121},
+      (_,i)=>({...object,id:'part_'+i}))}]},
+    // Rich fields are validated, not just passed through.
+    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,primitive:'extrude'}]}]},
+    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,repeat:{count:[50,50,1],spacing:[1,1,0]}}]}]},
+    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:Array.from({length:6},
+      (_,i)=>({...object,id:'grid_'+i,repeat:{count:[20,20,1],spacing:[1,1,0]}}))}]},
+    {schemaVersion:1,scenes:[{shotId:sample.shotId,camera:{position:[0,1,0],target:[0,1,0],fov:40},objects:[object]}]},
+    {schemaVersion:1,scenes:[{shotId:sample.shotId,objects:[{...object,material:{...object.material,emissive:'red'}}]}]},
+    {schemaVersion:2,scenes:[{shotId:sample.shotId,objects:[object]}]}
   ];
   try{
     for(const proposal of rejected){
@@ -1003,6 +1020,48 @@ test('Argon background results still enforce the editable primitive contract and
     assert.equal(response.status,502);
     assert.deepEqual(await response.json(),{ok:false,error:'Provider produced no usable scene'});
   }finally{globalThis.fetch=prior;}
+});
+
+test('Argon may return 120 rich objects: new shapes, repeat arrays, glow, glass and a camera',async()=>{
+  const prior=globalThis.fetch;const id='v1_rich_scene_12345';
+  const material={color:'#AABBCC',metalness:.2,roughness:.5};
+  const objects=Array.from({length:116},(_,i)=>({id:'part_'+i,name:'Part '+i,primitive:'box',
+    position:[i%10,0.5,-Math.floor(i/10)],rotation:[0,0,0],scale:[.8,1,.8],material}));
+  objects.push(
+    {id:'roof',name:'Gable roof',primitive:'gable',position:[0,8,0],rotation:[0,0,0],scale:[10,2,14],material},
+    {id:'podium',name:'L podium',primitive:'extrude',position:[0,.5,0],rotation:[0,0,0],scale:[20,1,20],
+      points:[[-.5,-.5],[.5,-.5],[.5,0],[0,0],[0,.5],[-.5,.5]],material},
+    {id:'windows',name:'Window grid',primitive:'box',position:[0,4,7.1],rotation:[0,0,0],scale:[1.2,1.6,.08],
+      repeat:{count:[8,3,1],spacing:[1.6,2.4,0]},material:{...material,emissive:'#FFDD99',emissiveIntensity:1.5,opacity:.7}},
+    // A stray environment layer is dropped instead of failing a paid result.
+    {id:'lamp',name:'Lamp post',primitive:'cone',position:[6,1.5,9],rotation:[0,0,0],scale:[.4,3,.4],layer:'street',material});
+  const proposal={schemaVersion:1,scenes:[{shotId:sample.shotId,
+    camera:{position:[4,6,30],target:[0,3,0],fov:38},objects}]};
+  globalThis.fetch=async(url,opts)=>{
+    assert.equal(opts.body,undefined,'Polling must not submit paid generation');
+    return new Response(JSON.stringify({id,status:'completed',steps:[
+      {type:'model_output',content:[{type:'text',text:JSON.stringify(proposal)}]}]}));
+  };
+  try{
+    const response=await worker.fetch(new Request('https://example.workers.dev/api/scene/argon/status',{
+      method:'POST',headers:{Authorization:'Bearer '+token},
+      body:JSON.stringify({jobId:id,shotId:sample.shotId})}),env);
+    assert.equal(response.status,200);
+    const scene=(await response.json()).proposal.scenes[0];
+    assert.equal(scene.objects.length,120);
+    assert.deepEqual(scene.camera,{position:[4,6,30],target:[0,3,0],fov:38});
+    const byId=Object.fromEntries(scene.objects.map(item=>[item.id,item]));
+    assert.equal(byId.roof.primitive,'gable');
+    assert.equal(byId.podium.points.length,6);
+    assert.deepEqual(byId.windows.repeat,{count:[8,3,1],spacing:[1.6,2.4,0]});
+    assert.deepEqual(byId.windows.material,{color:'#aabbcc',metalness:.2,roughness:.5,
+      emissive:'#ffdd99',emissiveIntensity:1.5,opacity:.7});
+    assert.equal(byId.lamp.layer,undefined);
+  }finally{globalThis.fetch=prior;}
+  // Flash keeps its own five-primitive contract and budgets.
+  assert.throws(()=>validateOutput(proposal,sample.shotId,48),/budget/);
+  assert.throws(()=>validateOutput({schemaVersion:1,scenes:[{shotId:sample.shotId,objects:objects.slice(116,117)}]},
+    sample.shotId),/Unsupported/);
 });
 
 test('worker rejects script primitives and unsupported transforms',()=>{

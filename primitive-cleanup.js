@@ -54,16 +54,21 @@ function faceOverlaps(detail,info,host,hostAxis){
   }
   return true;
 }
+// Numbers within 1e-5, everything else exact, missing keys only match missing.
+function same(a,b){
+  if(typeof a==='number'&&typeof b==='number')return near(a,b,1e-5);
+  if(Array.isArray(a)||Array.isArray(b))
+    return Array.isArray(a)&&Array.isArray(b)&&a.length===b.length&&a.every((v,i)=>same(v,b[i]));
+  if(a&&b&&typeof a==='object'&&typeof b==='object')
+    return [...new Set([...Object.keys(a),...Object.keys(b)])].every(key=>same(a[key],b[key]));
+  return a===b;
+}
 function almostDuplicate(a,b){
-  if(a.primitive!==b.primitive||a.layer!==b.layer)return false;
-  if(!near(a.material.metalness,b.material.metalness,1e-5)||
-     !near(a.material.roughness,b.material.roughness,1e-5)||
-     a.material.color!==b.material.color)return false;
-  return ['position','rotation','scale'].every(key=>
-    a[key].every((value,i)=>near(value,b[key][i],1e-5)));
+  return ['primitive','layer','material','position','rotation','scale','repeat','points']
+    .every(key=>same(a[key],b[key]));
 }
 function tryMoveOffBox(detail,info,host){
-  if(host===detail||host.primitive!=='box'||info.area<.01)return null;
+  if(host===detail||host.primitive!=='box'||host.repeat||info.area<.01)return null;
   const hostAxes=basis(host);
   const rel=subtract(detail.position,host.position);
   const hostArea=[0,1,2].map(j=>host.scale[(j+1)%3]*host.scale[(j+2)%3]);
@@ -87,7 +92,7 @@ function tryMoveOffBox(detail,info,host){
   return null;
 }
 function tryMoveOffPlane(detail,info,other){
-  if(detail===other||detail.primitive!=='plane'||other.primitive!=='plane')return null;
+  if(detail===other||detail.primitive!=='plane'||other.primitive!=='plane'||other.repeat)return null;
   const host=surface(other);
   if(!host||host.area<=info.area*1.1)return null;
   if(Math.abs(dot(info.normal,host.normal))<.9999)return null;
@@ -116,7 +121,10 @@ export function cleanupPrimitiveDocument(document,allowedShotIds=null){
     }
     // Candidate details with the smallest surface area first, so trim goes
     // outward from walls rather than moving architectural masses.
+    // A repeated object is many copies at one transform; moving it would move
+    // all of them, so arrays are neither nudged nor used as hosts.
     const candidates=objects.flatMap(item=>{
+      if(item.repeat)return [];
       if(item.primitive==='plane')return [{item,info:surface(item)}];
       if(item.primitive!=='box')return [];
       return [0,1,2].map(axis=>({item,info:surface(item,axis)}))
@@ -133,7 +141,7 @@ export function cleanupPrimitiveDocument(document,allowedShotIds=null){
       if(moved){item.position=moved;report.nudgedOverlaps++;adjusted.add(item);}
     }
     report.unchanged+=objects.length-adjusted.size;
-    return {shotId:scene.shotId,objects};
+    return {...scene,objects}; // keeps the optional scene camera
   });
   // Validation after offsets protects strict finite coordinate schema.
   return {document:validatePrimitiveDocument({schemaVersion:1,scenes},allowedShotIds),report};

@@ -40,6 +40,11 @@ jobs:
         run: |
           npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/mf" miniflare@4.20260730.0
           MINIFLARE_MODULE="$RUNNER_TEMP/mf/node_modules/miniflare/dist/src/index.js" node tests/workerd_argon_jobs.mjs
+      # Same Three.js release as the index.html import map.
+      - name: Build and export every primitive with real Three.js
+        run: |
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/three" three@0.166.1
+          THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" node --test tests/three_primitive_world.mjs
       - name: Validate timeline and model assets
         run: |
           python tests/test_workspace.py

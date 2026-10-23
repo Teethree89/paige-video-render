@@ -10,12 +10,21 @@ const {Miniflare}=await import(process.env.MINIFLARE_MODULE?
 const scriptPath=process.argv[2]||fileURLToPath(new URL('../worker/scene-worker.mjs',import.meta.url));
 const token='test-token-should-be-at-least-thirty-two-chars-private';
 const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
-const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{id:'facade',name:'Facade',
-  primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[4,2,1],
-  material:{color:'#334455',metalness:0.1,roughness:0.6}}]}]};
+// Rich fields exercise the shared validator the Worker imports from the repo root.
+const scene={schemaVersion:1,scenes:[{shotId:'shot_a',camera:{position:[0,3,15],target:[0,1,0],fov:40},objects:[
+  {id:'facade',name:'Facade',primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[4,2,1],
+    material:{color:'#334455',metalness:0.1,roughness:0.6}},
+  {id:'windows',name:'Windows',primitive:'box',position:[0,1.2,.55],rotation:[0,0,0],scale:[.5,.6,.05],
+    repeat:{count:[5,2,1],spacing:[.75,.8,0]},
+    material:{color:'#223344',metalness:0.3,roughness:0.2,emissive:'#ffcc88',emissiveIntensity:1.2,opacity:.8}},
+  {id:'roof',name:'Roof',primitive:'gable',position:[0,2.5,0],rotation:[0,0,0],scale:[4,1,1.2],
+    material:{color:'#553322',metalness:0,roughness:0.8}}]}]};
 let mode='ok';const calls=[];
 const mf=new Miniflare({
-  modules:true,scriptPath,modulesRoot:scriptPath.replace(/\/[^/]*$/,''),compatibilityDate:'2026-07-01',
+  // The repository root: the Worker imports ../primitive-schema.js, an ES
+  // module with a .js name (Wrangler's esbuild bundles it the same way).
+  modules:true,scriptPath,modulesRoot:scriptPath.replace(/\/[^/]*\/[^/]*$/,''),compatibilityDate:'2026-07-01',
+  modulesRules:[{type:'ESModule',include:['**/*.js']}],
   bindings:{GEMINI_API_KEY:'do-not-print-secret',SCENE_ACCESS_TOKEN:token},
   durableObjects:{ARGON_JOBS:{className:'ArgonJob',useSQLite:true}},
   async outboundService(request){
@@ -48,7 +57,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-direct-quality-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-rich-scene-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));

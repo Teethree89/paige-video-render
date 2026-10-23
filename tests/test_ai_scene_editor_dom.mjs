@@ -525,11 +525,13 @@ test('Experimental direct-image Argon discloses image handling, submits once and
     return true;
   };
   globalThis.document=argonDomHarness(ids,jpeg);
-  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[{
+  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',camera:{position:[0,3,18],target:[0,2,0],fov:42},objects:[{
     id:'direct_facade',name:'Facade observed directly',primitive:'box',
     position:[0,2,0],rotation:[0,0,0],scale:[8,4,1],
     material:{color:'#334455',metalness:0,roughness:.6}
-  }]}]};
+  },{id:'window_grid',name:'Window grid',primitive:'box',position:[0,2,.55],rotation:[0,0,0],
+    scale:[1,1.2,.05],repeat:{count:[6,2,1],spacing:[1.3,1.8,0]},
+    material:{color:'#112233',metalness:.4,roughness:.2,emissive:'#ffdd99',emissiveIntensity:1}}]}]};
   globalThis.fetch=async(url,options={})=>{
     if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',
       argonJob:null}),{status:200});
@@ -555,8 +557,13 @@ test('Experimental direct-image Argon discloses image handling, submits once and
     await ids.get('aiSceneGenerate').fire('click');
     assert.deepEqual(actions,['argon_start','argon_status']);
     assert.equal(preview?.objects[0]?.id,'direct_facade');
+    // The rich result survives cleanup into the preview, camera included.
+    assert.deepEqual(preview.camera,{position:[0,3,18],target:[0,2,0],fov:42});
+    assert.deepEqual(preview.objects[1].repeat,{count:[6,2,1],spacing:[1.3,1.8,0]});
     assert.equal(saved,0);
     assert.match(ids.get('aiSceneLog').textContent,/directly to Gemini 4 Argon through a Cloudflare job/);
+    assert.match(ids.get('aiSceneLog').textContent,/Preview ready: 2 editable objects \(13 rendered parts\)/);
+    assert.match(ids.get('aiSceneLog').textContent,/estimate of the reference camera; timeline cameras are unchanged/);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;

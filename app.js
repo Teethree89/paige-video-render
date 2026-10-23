@@ -89,13 +89,24 @@ function showGeneratedGeometry(shotId,scroll=false){
   reviewGrid.position.set(center.x,-.18,center.z);
   reviewGrid.scale.setScalar(stageSize/40);
   reviewStage.visible=true;
-  const distance=fitDistance(bounds.radius,52,camera.aspect);
-  const direction=new THREE.Vector3(.58,.38,1).normalize();
-  camera.fov=52;camera.position.copy(center).addScaledVector(direction,distance);
+  // Start from the model's estimate of the reference camera when it plausibly
+  // frames the geometry, so the preview lines up with the video frame. It is
+  // only a starting view: camera keys are never written from it.
+  const estimate=primitiveWorld.getCamera(shotId);
+  const target=estimate?new THREE.Vector3(...estimate.target):center.clone();
+  const usable=estimate&&target.distanceTo(center)<=bounds.radius*1.5&&
+    new THREE.Vector3(...estimate.position).distanceTo(center)<=bounds.radius*6+10;
+  if(usable){camera.fov=estimate.fov;camera.position.set(...estimate.position);}
+  else{
+    target.copy(center);camera.fov=52;
+    camera.position.copy(center).addScaledVector(new THREE.Vector3(.58,.38,1).normalize(),
+      fitDistance(bounds.radius,52,camera.aspect));
+  }
+  const distance=camera.position.distanceTo(target);
   camera.near=Math.max(.01,Math.min(.35,distance*.01));
   camera.far=Math.max(500,distance+bounds.radius*5);
-  camera.lookAt(center);camera.updateProjectionMatrix();
-  controls.target.copy(center);controls.update();
+  camera.lookAt(target);camera.updateProjectionMatrix();
+  controls.target.copy(target);controls.update();
   if(scroll)viewport.scrollIntoView?.({behavior:'smooth',block:'start'});
   return true;
 }

@@ -30,7 +30,7 @@ Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wra
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
-- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-direct-quality-v1` identifies the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile run by the `ArgonJob` Durable Object, and sanitized provider diagnostics (with `terms`) for Argon rejections. `/health.argonDirectJobs` is `true` only when the deployed Worker has its `ARGON_JOBS` binding. The existing three Flash profiles and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
+- The `workerRevision` field in `/health` is an explicit deployment indicator. `argon-rich-scene-v1` identifies the two-step Argon Previs path (synchronous visual analysis, then text-only background geometry), the opt-in experimental `argon_direct` profile run by the `ArgonJob` Durable Object, sanitized provider diagnostics (with `terms`) for Argon rejections, and the rich scene format for both Argon profiles: nine primitive types, `repeat` arrays, glow, opacity and a camera estimate, validated by the shared `primitive-schema.js` with a 120-object cap (see [PRIMITIVE_SCENE_FORMAT.md](PRIMITIVE_SCENE_FORMAT.md)). `/health.argonDirectJobs` is `true` only when the deployed Worker has its `ARGON_JOBS` binding. The existing three Flash profiles, their five-primitive format and budgets, and Medium capacity retries remain unchanged. If it is absent, GitHub's successful **FTP publisher** did not update the separate Cloudflare Worker; check **Cloudflare Workers & Pages → paige-video-render → Deployments/Builds**, production branch `main`, and the latest Wrangler build result. Do not infer Worker deployment or live inference success from PHP/FTP success.
 - Lite and 3.8 Low retain at most **one additional** Gemini request on HTTP 500/502/503/504 (700ms pause, one shared 45s deadline). Medium can make **up to three total attempts**, with a roughly 1s then 2s delay and bounded jitter, **only if the second attempt also returns HTTP 503**. Other upstream 5xx stop after two attempts. Every attempt shares Medium's 70s deadline, and retries never start with less than 10s remaining. HTTP 429, permission and malformed-request failures never retry. The editor's HTTP 502 may represent PHP relaying provider 5xx; the distinct safe `Gemini is overloaded (upstream 503)` message means all permitted 503 retries were exhausted. Cloudflare's sanitized `gemini-provider-http` logs record status and attempt without raw bodies or API keys. A single PHP session-quota request can cause up to three Gemini API attempts, potentially affecting Google quota and billing.
 - HTTP **503** with `{"ok":false,"service":"paige-scene","ready":false}` means the runtime is missing one or both bindings. In Cloudflare Dashboard → Workers & Pages → `paige-video-render` → Settings → **Variables and Secrets**, confirm the two names exactly match `GEMINI_API_KEY` and `SCENE_ACCESS_TOKEN`, that their type is **Secret**, and click **Deploy** to save the production version. Never paste the values into CI logs or the public repository.
 - If the build is red, inspect the exact latest Cloudflare build log and resolve the reported issue before testing PHP.
@@ -116,7 +116,7 @@ paid work or claim model access is confirmed.
 
 The AI panel includes **Run stage N (paid)**, **Check running Argon
 diagnostic (no new charge)** and **Restart diagnostics**. This is intentionally
-separate from the existing 48-object Argon Previs generation. Seven fixed
+separate from Argon Previs generation. Seven fixed
 single-submission stages must be manually confirmed, in order:
 
 1. Minimal **text**, no generation config — baseline model/API access.
@@ -181,7 +181,8 @@ existing encrypted `GEMINI_API_KEY`. A synchronous image-analysis call produces 
 the observed background/image rejection and the limits of the diagnosis.
 It uses a descriptive Previs/Runway Prep prompt targeting
 silhouette, hero masses, facade rhythm, clean grounded forms, and independent
-editing of the 48-shape scene. It does **not** generate textures, C4D projects,
+editing of a scene of up to 120 shapes in the rich format (wedge and gable roofs,
+extruded footprints, repeat arrays, glow, glass). It does **not** generate textures, C4D projects,
 or Runway video itself; existing AE, GLB and MP4 outputs remain unchanged.
 A C4D-native project/export pipeline is a separate planned development.
 
@@ -200,8 +201,10 @@ A C4D-native project/export pipeline is a separate planned development.
   thinking/output tokens. The combined ceiling remains **32,768**; input tokens
   for both requests are also billable. The input is a JSON **string**, with no
   media blocks, Files URIs or `previous_interaction_id` carrying image history.
-  The final scene `response_format` includes the existing compact schema; the
-  Worker still strictly validates all transforms, materials and the 48-object cap.
+  The final scene `response_format` includes the compact scene schema, whose
+  rich fields are optional and carry no length limits; the Worker strictly
+  validates all transforms, materials and rich fields with the shared
+  `primitive-schema.js`, plus the 120-object cap.
 - Both calls share a 40-second Worker deadline inside the existing 45-second PHP
   timeout; Flash-Lite analysis is additionally capped at 35 seconds. Failure in analysis
   stops before background creation. No automatic paid retry, probe or fallback
@@ -210,7 +213,7 @@ A C4D-native project/export pipeline is a separate planned development.
   `argon_status` with CSRF and receives only allowlisted job status/result.
   PHP retrieves Google status via Worker `/api/scene/argon/status` using
   its bearer token. Worker extracts only final `model_output`, then applies
-  the same strict 48-object JSON schema check. Browser's existing automatic
+  the same strict 120-object `validateArgonOutput` check. Browser's existing automatic
   cleanup and preview/Accept/Discard follow normally.
 - Browser checks status about every 5 seconds, up to 10 minutes per view.
   The **Resume previous Argon job** control is available after refresh or
@@ -233,7 +236,7 @@ A C4D-native project/export pipeline is a separate planned development.
   review usage in AI Studio before running client production sequences.
   There is no guaranteed spend cap just because a project was pre-funded.
 - Deployment requires **both** Cloudflare Worker and 50webs FTP publisher to
-  update. `/health.workerRevision=argon-direct-quality-v1` indicates the
+  update. `/health.workerRevision=argon-rich-scene-v1` indicates the
   current Worker path; if FTP deploys first, do not test Argon until Worker revision
   matches.
 
@@ -298,14 +301,14 @@ investigation), so this profile does not use background mode.
     frame first;
   - `store:false`, `thinking_level:medium`, the full 32,768 thinking/output
     allowance;
-  - the scene `response_format` schema, and the Previs prompt in
-    `system_instruction`, plus direct-only guidance to spend 36–48 parts on
-    visible detail (facade bays, windows, roof edges, entrances, site
+  - the scene `response_format` schema, and the Argon prompt in
+    `system_instruction`, plus direct-only guidance to spend the budget on
+    visible detail (facade bays, window grids, roof edges, entrances, site
     elements) matched to the first frame.
 
   The call has a 12-minute deadline: Google closes non-streaming calls at
   about 10 minutes, and alarms stop at 15. The result passes the same
-  48-object `validateOutput`. PHP reserves **one** slot.
+  120-object `validateArgonOutput` as Previs. PHP reserves **one** slot.
 - **Billing safety.** Cloudflare runs alarms at least once and retries
   uncaught exceptions. The object records `submitted` *before* calling
   Google, never calls Google for a job already submitted, and never throws.
