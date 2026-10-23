@@ -79,3 +79,10 @@
 
 .rb-split-button{display:block;width:100%;margin-bottom:12px;padding:10px 9px;border:1px solid #4f7b82;border-radius:7px;background:#21414d;color:#d7f5f2;font:600 11px Inter,system-ui,sans-serif}
 .rb-split-button:hover{background:#2c5560}
+
+/* Portable local media project import/export tools. */
+.reference-builder-footer>div{flex-wrap:wrap;justify-content:flex-end}
+.reference-builder-footer #rbBundleExport{background:#1a4c48;border-color:#43978f;color:#d5fff4}
+.reference-builder-footer #rbBundleOpen{background:#26384b;border-color:#5d7890}
+.reference-builder-footer #rbBundleExport:hover{background:#28635c}
+@media(max-width:650px){.reference-builder-footer #rbBundleExport,.reference-builder-footer #rbBundleOpen{flex:1}}
