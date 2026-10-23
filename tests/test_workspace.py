@@ -58,6 +58,13 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn('test -s ftp-public/AfterEffects/BUILD_EDITABLE_PROJECT.jsx', publish)
         self.assertIn('cmp dist/AfterEffects/BUILD_EDITABLE_PROJECT.jsx ftp-public/AfterEffects/BUILD_EDITABLE_PROJECT.jsx', publish)
 
+    def test_generation_completion_audio_assets(self):
+        # Both cues are real committed binary assets, not just references from JS.
+        for clip in ('success.mp3', 'failed.mp3'):
+            audio = ROOT / 'assets/sounds' / clip
+            self.assertTrue(audio.is_file(), f'Missing completion cue {clip}')
+            self.assertGreater(audio.stat().st_size, 1000)
+
     def test_source_files(self):
         for f in ('index.html','app.js','world.js','render.html','render.js',
                   'ae-package-export.js','ae-package-plan.js',
