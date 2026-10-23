@@ -150,3 +150,23 @@ test('GLB export keeps shared copies, glass and glow', async () => {
   assert.ok(glb.byteLength>1000);
   world.dispose();
 });
+
+test('viewport picking resolves each repeated copy to one editable holder ID',()=>{
+  const {world,root,of}=build();
+  const holder=world.getObjectNode('s1','windows');
+  assert.equal(holder,root.getObjectByName('Windows'));
+  assert.ok(holder.isGroup);
+  assert.equal(world.getObjectNode('s1','box').isMesh,true);
+  assert.equal(world.getObjectNode('s1','unknown'),null);
+  assert.equal(world.getObjectNode('other','windows'),null);
+  const pickables=world.getPickableMeshes('s1');
+  assert.equal(pickables.length,18);
+  assert.ok(pickables.every(node=>node.userData.primitiveId));
+  assert.ok(of('windows').every(node=>pickables.includes(node)));
+  assert.equal(world.getPickableMeshes('other').length,0);
+  holder.position.x+=3;
+  assert.equal(holder.position.x,13);
+  assert.equal(of('windows')[0].position.x,-3,'the repeated children do not need to be edited individually');
+  const copy=world.getSceneForExport('s1');
+  assert.ok(copy.getObjectByName('Windows'),'export continues using ordinary nodes');
+});
