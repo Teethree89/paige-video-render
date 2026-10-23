@@ -116,3 +116,22 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
 .timeline-export-menu button:hover{background:#25485b}
 .timeline-export-menu button small{font-size:10px;color:#a8cbd8;font-weight:400}
 .timeline-export-menu p{margin:3px 5px;font:11px/1.4 ui-monospace,monospace;color:#a5d9e0}
+
+/* Indeterminate Argon progress: stages are real; the moving bar is not a
+   completion percentage. The animated Paige point cloud is decorative. */
+.argon-particle-overlay[hidden],.argon-particle-reopen[hidden]{display:none!important}
+.argon-particle-overlay{position:fixed;inset:0;z-index:20000;background:#061018;color:#e6faff;overflow:hidden}
+#argonParticleCanvas{position:absolute;inset:0;display:block;touch-action:none}
+.argon-particle-top{position:absolute;z-index:2;left:clamp(18px,3vw,46px);right:clamp(18px,3vw,46px);top:clamp(18px,3vw,34px);display:flex;align-items:center;justify-content:space-between;gap:20px}
+.argon-particle-brand{font-size:11px;font-weight:800;letter-spacing:.25em;color:#a5fff1}
+.argon-particle-top button{background:#172b37dc;border:1px solid #486976;color:#c8f7f4;border-radius:6px;padding:10px 14px;cursor:pointer}
+.argon-particle-info{position:absolute;z-index:2;left:20px;right:20px;bottom:clamp(29px,8vh,90px);margin:auto;max-width:460px;text-align:center;pointer-events:none;text-shadow:0 3px 20px #02070a}
+.argon-particle-eyebrow{font:700 10px ui-monospace,monospace;letter-spacing:.23em;color:#70e2d1}
+.argon-particle-info h2{font-size:clamp(19px,2.5vw,30px);font-weight:600;margin:11px 0 7px}
+.argon-particle-info p{font:12px/1.5 ui-monospace,monospace;color:#aac9d0;margin:7px 0}
+.argon-particle-track{height:4px;margin:22px auto 11px;border-radius:4px;max-width:300px;background:#31505b;overflow:hidden;position:relative}
+.argon-particle-track>div{height:100%;width:34%;background:linear-gradient(90deg,#56a59d,#affff4);box-shadow:0 0 15px #8df9e9;animation:argon-unknown-progress 2.3s ease-in-out infinite}
+.argon-particle-info .argon-particle-tip{margin-top:20px;font:11px/1.6 system-ui,sans-serif;color:#6c909b}
+.argon-particle-reopen{position:fixed;z-index:20000;bottom:26px;left:50%;transform:translateX(-50%);padding:13px 20px;border-radius:26px;border:1px solid #5edbcc;background:#10303a;color:#c9fff5;box-shadow:0 10px 40px #020911;cursor:pointer}
+@keyframes argon-unknown-progress{0%{transform:translateX(-105%)}50%{transform:translateX(100%)}100%{transform:translateX(300%)}}
+@media(prefers-reduced-motion:reduce){.argon-particle-track>div{animation:none;width:100%!important;background:#638f91}}

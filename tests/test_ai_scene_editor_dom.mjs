@@ -500,7 +500,11 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
 
 function argonDomHarness(ids,jpeg){
   return {
-    getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
+    getElementById(id){if(!ids.has(id)){
+      const element=new Element();
+      if(id==='aiArgonAddDetail')element.checked=false; // legacy tests opt out explicitly
+      ids.set(id,element);
+    }return ids.get(id);},
     createElement(tag){
       if(tag==='video')return new FakeVideo();
       if(tag==='canvas')return {width:0,height:0,getContext:()=>({drawImage:()=>{}}),
@@ -1256,5 +1260,60 @@ test('three automatic paid retries wait 15 seconds and stop after four attempts 
   }finally{
     globalThis.document=oldDocument;globalThis.fetch=oldFetch;globalThis.confirm=oldConfirm;
     globalThis.setTimeout=oldSetTimeout;
+  }
+});
+
+test('checked detail tail submits two fresh paid jobs and appends their objects in order',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
+  const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  const obj=(id,x)=>({id,name:id,layer:'structures',primitive:'box',position:[x,1,0],
+    rotation:[0,0,0],scale:[2,2,2],material:{color:'#334455',metalness:0,roughness:.6}});
+  const run=async({failDetail=0}={})=>{
+    const ids=new Map(),starts=[],actions=[];let preview=null,paid='';
+    globalThis.document=argonDomHarness(ids,jpeg);
+    globalThis.confirm=text=>{paid=text;return true;};
+    globalThis.fetch=async(url,options={})=>{
+      if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'csrf',argonJob:null}));
+      const p=JSON.parse(options.body);actions.push(p.action);
+      if(p.action==='argon_start'){
+        starts.push(p);
+        return new Response(JSON.stringify({ok:true,status:'in_progress',shotId:'shot_a'}));
+      }
+      if(p.action!=='argon_status')throw Error('Unexpected request '+p.action);
+      const n=starts.length;
+      if(n===failDetail)return new Response(JSON.stringify({ok:true,status:'failed',
+        shotId:'shot_a',diagnostic:{reason:'provider_stream_interrupted'}}));
+      const scene={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[obj(n===1?'base':('detail'+(n-1)+'_new'),n*5)],
+        ...(n===1?{camera:{position:[0,3,18],target:[0,2,0],fov:42},
+          lights:[{type:'point',color:'#ffffff',intensity:5,position:[0,4,0],distance:10}]}:{})}]};
+      return new Response(JSON.stringify({ok:true,status:'completed',shotId:'shot_a',proposal:scene}));
+    };
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:entry=>{preview=entry;},onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='environment';ids.get('aiSceneModel').value='argon_direct';
+    ids.get('aiArgonRetry').checked=false;ids.get('aiArgonAddDetail').checked=true;
+    await ids.get('aiSceneGenerate').fire('click');
+    return {starts,actions,preview,paid,log:ids.get('aiSceneLog').textContent};
+  };
+  try{
+    const ok=await run();
+    assert.equal(ok.starts.length,3);
+    assert.equal(ok.starts[0].detailPass,undefined);
+    assert.equal(ok.starts[1].detailPass,1);assert.equal(ok.starts[2].detailPass,2);
+    assert.deepEqual(ok.starts[1].existing.map(x=>x.id),['base']);
+    assert.deepEqual(ok.starts[2].existing.map(x=>x.id),['base','detail1_new']);
+    assert.deepEqual(ok.preview.objects.map(x=>x.id),['base','detail1_new','detail2_new']);
+    assert.equal(ok.preview.lights.length,1);assert.equal(ok.preview.camera.fov,42);
+    assert.match(ok.paid,/TWO additional potentially billable Argon detail calls/);
+    assert.match(ok.log,/Add Detail 1\/2 added 1 new editable objects/);
+    const failed=await run({failDetail:2});
+    assert.equal(failed.starts.length,2,'failed pass one prevents paid pass two');
+    assert.deepEqual(failed.preview.objects.map(o=>o.id),['base']);
+    assert.match(failed.log,/Keeping all earlier successful geometry/);
+  }finally{
+    globalThis.document=oldDocument;globalThis.fetch=oldFetch;globalThis.confirm=oldConfirm;
   }
 });

@@ -530,8 +530,13 @@ if ($action === 'argon_status') {
         reject(502, 'Invalid Argon job status');
     unset($_SESSION['argon_job']['unconfirmed']);
     $_SESSION['argon_job']['status'] = $value['status'];
+    $phase = $value['phase'] ?? null;
+    $elapsed = $value['elapsedSeconds'] ?? null;
+    $progress = in_array($phase, ['waiting','reasoning','geometry','validating'], true) &&
+        is_int($elapsed) && $elapsed >= 0 && $elapsed <= 1800
+        ? ['phase' => $phase, 'elapsedSeconds' => $elapsed] : [];
     answer(200, with_diagnostic(['ok' => true, 'status' => $value['status'],
-        'shotId' => $job['shotId']] +
+        'shotId' => $job['shotId']] + $progress +
         (($value['status'] === 'completed' && isset($value['proposal'])) ?
           ['proposal' => $value['proposal']] : []), $value));
 }
@@ -616,6 +621,20 @@ if (array_key_exists('tokenBudget', $input)) {
         !in_array($input['tokenBudget'], [32768, 65536], true))
         reject(400, 'Invalid Argon token budget');
     $workerInput['tokenBudget'] = $input['tokenBudget'];
+}
+// Add Detail is a new paid direct-image call, not a provider continuation.
+// Restrict this to a small geometry index and two fixed pass numbers. The
+// Worker revalidates each index entry before making any billable request.
+if (array_key_exists('detailPass', $input) || array_key_exists('existing', $input)) {
+    $prior = $input['existing'] ?? null;
+    if ($action !== 'argon_start' || ($workerInput['profile'] ?? '') !== 'argon_direct' ||
+        ($workerInput['mode'] ?? '') !== 'full_scene' ||
+        !in_array($input['detailPass'] ?? null, [1, 2], true) ||
+        !is_array($prior) || count($prior) < 1 || count($prior) >= 240 ||
+        strlen((string) json_encode($prior)) > 60000)
+        reject(400, 'Invalid Argon detail pass');
+    $workerInput['detailPass'] = $input['detailPass'];
+    $workerInput['existing'] = $prior;
 }
 // Authenticated four-pass environment generation. Validate pass name and count
 // before forwarding. The Worker validates every previous object's geometry;
