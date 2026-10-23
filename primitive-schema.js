@@ -5,10 +5,14 @@
 export const PRIMITIVE_TYPES = Object.freeze(['box','sphere','cylinder','plane','torus',
   'cone','wedge','gable','extrude']);
 export const ENVIRONMENT_LAYERS = Object.freeze(['structures','ground','vegetation','details']);
+// glTF's KHR_lights_punctual types, so every light also exports to GLB.
+export const LIGHT_TYPES = Object.freeze(['directional','point','spot']);
 // A repeat array renders every copy as its own mesh, so copies are capped per
 // object and per scene to keep mobile WebGL, GLB and After Effects responsive.
 export const LIMITS = Object.freeze({scenes:120, objectsPerScene:200, totalObjects:2000,
-  instancesPerScene:2000, copiesPerObject:400, repeatPerAxis:50, footprintPoints:32});
+  instancesPerScene:2000, copiesPerObject:400, repeatPerAxis:50, footprintPoints:32,
+  // Each light adds shading cost to every material, so keep mobile WebGL fast.
+  lightsPerScene:8});
 const fail = message => {throw Error('Primitive scene: '+message);};
 const finite = (value, label, min, max) => {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max)
@@ -66,6 +70,33 @@ const sceneCamera=(value,shotId)=>{
   const target=vec(value.target,'camera target',-10000,10000);
   if(Math.hypot(...position.map((n,i)=>n-target[i]))<.01)fail(shotId+' camera must look at a distinct target');
   return {position,target,fov:finite(value.fov,'camera fov',10,120)};
+};
+// Lights add to the editor's base lighting, only while their shot is shown.
+// Intensities use Three.js units: directional in lux-like units, point and
+// spot in candela with physical (squared) falloff, like the original world.
+const sceneLights=(value,shotId)=>{
+  if(!Array.isArray(value)||value.length>LIMITS.lightsPerScene)
+    fail(shotId+' lights must be an array of at most '+LIMITS.lightsPerScene);
+  return value.map((light,i)=>{
+    const label=shotId+' light '+(i+1);
+    if(!light||typeof light!=='object'||Array.isArray(light))fail(label+' is invalid');
+    if(!LIGHT_TYPES.includes(light.type))fail(label+' has unsupported light type');
+    const out={type:light.type,name:displayName(light.name,light.type+' light '+(i+1)),
+      color:hexColor(light.color,label+' color'),
+      intensity:finite(light.intensity,label+' intensity',0,light.type==='directional'?10:500),
+      position:vec(light.position,label+' position',-10000,10000)};
+    if(light.type!=='point'){
+      out.target=light.target==null?[0,0,0]:vec(light.target,label+' target',-10000,10000);
+      if(Math.hypot(...out.position.map((n,k)=>n-out.target[k]))<.01)fail(label+' must aim at a distinct target');
+    }
+    if(light.type!=='directional')
+      out.distance=light.distance==null?0:finite(light.distance,label+' distance',0,1000); // 0: no cutoff
+    if(light.type==='spot'){
+      out.angle=light.angle==null?.6:finite(light.angle,label+' angle',.05,1.5);
+      out.penumbra=light.penumbra==null?.3:finite(light.penumbra,label+' penumbra',0,1);
+    }
+    return out;
+  });
 };
 export function repeatOffsets(repeat){
   if(!repeat)return [[0,0,0]];
@@ -133,7 +164,8 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
         material};
     });
     const camera=scene.camera==null?undefined:sceneCamera(scene.camera,shotId);
-    return {shotId,objects,...(camera?{camera}:{})};
+    const lights=scene.lights==null?[]:sceneLights(scene.lights,shotId);
+    return {shotId,objects,...(camera?{camera}:{}),...(lights.length?{lights}:{})};
   });
   return {schemaVersion:1,scenes};
 }

@@ -105,6 +105,16 @@ test('primitive inspector initializes and adds editable scene geometry without c
       assert.equal(item.material.emissive,'#ffcc66');assert.equal(item.material.opacity,.6);
     }
     assert.deepEqual(scene.camera,{position:[0,3,20],target:[0,2,0],fov:40});
+    // Layers are editable; "manual" removes the layer. Lights are counted.
+    const layer=dom.getElementById('primitiveLayer');
+    layer.value='structures';await layer.fire('change');
+    assert.equal(sequence.primitiveScenes.scenes[0].objects.find(o=>o.id===copy.id).layer,'structures');
+    assert.equal(layer.value,'structures');
+    layer.value='manual';await layer.fire('change');
+    assert.equal('layer' in sequence.primitiveScenes.scenes[0].objects.find(o=>o.id===copy.id),false);
+    sequence.primitiveScenes.scenes[0].lights=[{type:'point',color:'#ffcc88',intensity:20,position:[0,4,0]}];
+    editor.refresh();
+    assert.match(dom.getElementById('primitiveShotLabel').textContent,/· 4 object\(s\) · 1 light\(s\)$/);
   } finally {
     if(previousDocument===undefined)delete globalThis.document;
     else globalThis.document=previousDocument;

@@ -25,7 +25,11 @@ globalThis.FileReader??=class{
 
 const mat={color:'#888888',metalness:.1,roughness:.7};
 const unit=(id,primitive,extra={})=>({id,primitive,position:[0,0,0],rotation:[0,0,0],scale:[1,1,1],material:mat,...extra});
-const document={schemaVersion:1,scenes:[{shotId:'s1',camera:{position:[0,5,20],target:[0,2,0],fov:40},objects:[
+const lights=[
+  {type:'directional',name:'Moonlight',color:'#aabbff',intensity:1.2,position:[20,40,20],target:[0,0,0]},
+  {type:'point',name:'Lamp',color:'#ffcc88',intensity:30,position:[4,5,0],distance:25},
+  {type:'spot',name:'Floodlight',color:'#ffffff',intensity:120,position:[0,12,6],target:[0,0,6],angle:.5,penumbra:.2}];
+const document={schemaVersion:1,scenes:[{shotId:'s1',camera:{position:[0,5,20],target:[0,2,0],fov:40},lights,objects:[
   unit('box','box'),unit('cone','cone'),unit('wedge','wedge'),unit('gable','gable'),
   unit('ell','extrude',{points:[[-.5,-.5],[.5,-.5],[.5,0],[0,0],[0,.5],[-.5,.5]]}),
   unit('clockwise','extrude',{points:[[-.5,-.5],[-.5,.5],[.5,.5],[.5,-.5]]}),
@@ -35,7 +39,7 @@ const document={schemaVersion:1,scenes:[{shotId:'s1',camera:{position:[0,5,20],t
 ]}]};
 function build(){
   const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
-  world.setDocument(document,['s1'],{s1:[100,0,0]});
+  world.setDocument(document,['s1','other'],{s1:[100,0,0]});
   world.showShot('s1');
   const root=scene.children[0];root.updateMatrixWorld(true);
   const meshes=[];root.traverse(node=>node.isMesh&&meshes.push(node));
@@ -47,6 +51,7 @@ const vertices=mesh=>{
   return out;
 };
 const near=(a,b)=>Math.abs(a-b)<1e-6;
+const round=n=>Math.round(n*1e4)/1e4+0; // +0 turns -0 into 0 for deepEqual
 
 test('every primitive fills the unit cube, so scale means size', () => {
   const {of}=build();
@@ -102,14 +107,45 @@ test('the model camera is offset by the shot anchor', () => {
   assert.equal(world.getCamera('missing'),null);
 });
 
+test('scene lights shine from their position toward their target, only during the shot', () => {
+  const {world,root}=build();
+  const found=[];root.traverse(node=>node.isLight&&found.push(node));
+  assert.deepEqual(found.map(node=>[node.type,node.name]),
+    [['DirectionalLight','Moonlight'],['PointLight','Lamp'],['SpotLight','Floodlight']]);
+  const [moon,lamp,flood]=found;
+  assert.equal(lamp.intensity,30);assert.equal(lamp.distance,25);assert.equal(lamp.decay,2);
+  assert.equal(flood.angle,.5);assert.equal(flood.penumbra,.2);
+  assert.equal(moon.color.getHexString(),'aabbff');
+  // Three.js lights point from the light to its target; both are offset by the anchor.
+  const direction=node=>node.target.getWorldPosition(new THREE.Vector3())
+    .sub(node.getWorldPosition(new THREE.Vector3())).normalize().toArray().map(round);
+  assert.deepEqual(direction(moon),new THREE.Vector3(-20,-40,-20).normalize().toArray().map(round));
+  assert.deepEqual(direction(flood),[0,-1,0]);
+  assert.deepEqual(flood.getWorldPosition(new THREE.Vector3()).toArray(),[100,12,6]);
+  assert.ok(flood.target.parent===flood,'target is a child, as glTF expects');
+  world.showShot('other');assert.equal(root.visible,false,'hidden with its shot');
+  // Lights alone never replace the original world for a shot.
+  const scene=new THREE.Scene(),alone=createPrimitiveWorld(scene);
+  alone.setDocument({schemaVersion:1,scenes:[{shotId:'s1',objects:[],lights}]},['s1']);
+  assert.equal(alone.hasObjects('s1'),false);
+});
+
 test('GLB export keeps shared copies, glass and glow', async () => {
   const {world}=build(),scene=world.getSceneForExport('s1');
-  const gltf=await new GLTFExporter().parseAsync(scene,{binary:false});
+  // The editor's GLB download options (primitive-editor.js).
+  const gltf=await new GLTFExporter().parseAsync(scene,{binary:false,onlyVisible:false,trs:true});
   assert.equal(gltf.meshes.length,7,'one glTF mesh per object, reused by every copy');
   assert.ok(gltf.nodes.length>=6+12);
   const glass=gltf.materials.find(material=>material.alphaMode==='BLEND');
   assert.equal(glass.pbrMetallicRoughness.baseColorFactor[3],.5);
   assert.equal(glass.extensions.KHR_materials_emissive_strength.emissiveStrength,2);
+  // Lights export as KHR_lights_punctual, aimed down each node's -Z.
+  assert.deepEqual(gltf.extensions.KHR_lights_punctual.lights.map(light=>light.type),['directional','point','spot']);
+  const point=gltf.extensions.KHR_lights_punctual.lights[1];
+  assert.equal(point.intensity,30);assert.equal(point.range,25);
+  const flood=gltf.nodes.find(node=>node.name==='Floodlight');
+  const aim=new THREE.Vector3(0,0,-1).applyQuaternion(new THREE.Quaternion(...(flood.rotation||[0,0,0,1])));
+  assert.deepEqual(aim.toArray().map(round),[0,-1,0]);
   const glb=await new GLTFExporter().parseAsync(scene,{binary:true});
   assert.ok(glb.byteLength>1000);
   world.dispose();

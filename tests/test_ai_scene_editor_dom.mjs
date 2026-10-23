@@ -420,7 +420,7 @@ test('Medium thinking cannot start a full-environment request or sample video',a
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(upstreamRequests,0);
     assert.equal(videoObjects,0);
-    assert.match(ids.get('aiSceneStatus').textContent,/require Primary subject only/);
+    assert.match(ids.get('aiSceneStatus').textContent,/requires Primary subject only/);
   }finally{
     if(priorDocument===undefined)delete globalThis.document;
     else globalThis.document=priorDocument;
@@ -570,6 +570,57 @@ test('Experimental direct-image Argon discloses image handling, submits once and
     globalThis.fetch=oldFetch;
   }
 });
+test('Argon Direct image rebuilds a full scene in ONE call, with layers and lights',async()=>{
+  const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
+  const ids=new Map(),payloads=[],canvases=[];
+  const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
+  let preview=null,confirmed='';
+  globalThis.confirm=message=>{confirmed=message;return true;};
+  const dom=argonDomHarness(ids,jpeg),create=dom.createElement;
+  dom.createElement=tag=>{const node=create(tag);if(tag==='canvas')canvases.push(node);return node;};
+  globalThis.document=dom;
+  const material={color:'#334455',metalness:0,roughness:.6};
+  const scene={schemaVersion:1,scenes:[{shotId:'shot_a',
+    lights:[{type:'point',name:'Lamp',color:'#ffcc88',intensity:25,position:[6,5,8],distance:30}],objects:[
+    {id:'hall',name:'Hall',layer:'structures',primitive:'box',position:[0,3,0],rotation:[0,0,0],scale:[20,6,12],material},
+    {id:'road',name:'Road',layer:'ground',primitive:'box',position:[0,.05,14],rotation:[0,0,0],scale:[40,.1,6],material},
+    {id:'trees',name:'Tree row',layer:'vegetation',primitive:'sphere',position:[0,3,20],rotation:[0,0,0],scale:[3,3,3],
+      repeat:{count:[8,1,1],spacing:[5,0,0]},material}]}]};
+  globalThis.fetch=async(url,options={})=>{
+    if(!options.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test-csrf',
+      argonJob:null}),{status:200});
+    const payload=JSON.parse(options.body);payloads.push(payload);
+    if(payload.action==='argon_start')return new Response(JSON.stringify({ok:true,status:'in_progress',shotId:'shot_a'}),{status:200});
+    return new Response(JSON.stringify({ok:true,status:'completed',shotId:'shot_a',proposal:scene}),{status:200});
+  };
+  try{
+    const shot={id:'shot_a',start:0,end:6};
+    setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
+      getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      onPreview:entry=>{preview=entry;},onDiscard:()=>{},onAccept:()=>{}});
+    await new Promise(resolve=>setImmediate(resolve));
+    ids.get('aiSceneScope').value='environment';
+    ids.get('aiSceneModel').value='argon_direct';
+    await ids.get('aiSceneGenerate').fire('click');
+    // One paid start, never the four Flash passes.
+    assert.deepEqual(payloads.map(p=>p.action),['argon_start','argon_status']);
+    assert.equal(payloads[0].mode,'full_scene');assert.equal(payloads[0].layer,undefined);
+    assert.equal(payloads[0].frames.length,3);
+    assert.ok(canvases.length>0&&canvases.every(canvas=>canvas.width===768),'Argon gets the detailed frames');
+    assert.match(confirmed,/direct-image generation of the FULL SCENE\? This makes ONE potentially billable call/);
+    const log=ids.get('aiSceneLog').textContent;
+    assert.match(log,/directly to Gemini 4 Argon for the full scene through a Cloudflare job/);
+    assert.match(log,/Preview ready: 3 editable objects \(10 rendered parts\)/);
+    assert.match(log,/Scene lights: 1 \(point\), shown only during this chapter/);
+    assert.match(log,/Layers: Buildings and structures: 1 · Roads and terrain: 1 · Trees and landscaping: 1 · Objects and infrastructure: 0/);
+    assert.deepEqual(preview.objects.map(o=>o.layer),['structures','ground','vegetation']);
+    assert.equal(preview.lights[0].name,'Lamp');
+  }finally{
+    if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
+    if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;
+    globalThis.fetch=oldFetch;
+  }
+});
 test('Argon rejections and failed jobs show the sanitized provider diagnostic without fallback',async()=>{
   const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
   const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
@@ -664,7 +715,7 @@ test('Argon polling survives a backgrounded phone and never resubmits the paid j
     const recovered=await run([dropped(),workerDown,inProgress,done]);
     assert.equal(recovered.preview?.objects[0]?.id,'resumed_block');
     assert.deepEqual(recovered.actions,Array(4).fill('argon_status'),'Polling only; nothing resubmitted');
-    assert.deepEqual(recovered.delays,[5000,10000,5000],'Backs off after an HTTP error');
+    assert.deepEqual(recovered.delays,[6500,13000,6500],'Backs off after an HTTP error');
     assert.equal(recovered.log.split('Status check interrupted (Load failed)').length-1,1);
     assert.match(recovered.log,/Argon job status: in_progress/);
     assert.match(recovered.log,/Argon job status: completed/);
@@ -676,7 +727,7 @@ test('Argon polling survives a backgrounded phone and never resubmits the paid j
     const broken=await run([workerDown,workerDown,workerDown,done]);
     assert.equal(broken.preview,null);
     assert.equal(broken.actions.length,3);
-    assert.deepEqual(broken.delays,[10000,15000]);
+    assert.deepEqual(broken.delays,[13000,19500]);
     assert.match(broken.log,/Argon resume: The AI Worker could not complete the request/);
     // A paid result the Worker could not use reports its tokens once, not per check.
     const unusable=reply(502,{ok:false,error:'Provider scene did not match the editor schema',
@@ -693,7 +744,7 @@ test('Argon polling survives a backgrounded phone and never resubmits the paid j
     globalThis.fetch=oldFetch;globalThis.setTimeout=oldTimeout;
   }
 });
-test('Paid Argon disallows layered environment before spending or sampling video',async()=>{
+test('Argon Previs disallows a full environment before spending or sampling video',async()=>{
   const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
   const ids=new Map();let posts=0,sampled=0;
   globalThis.document={
@@ -716,7 +767,7 @@ test('Paid Argon disallows layered environment before spending or sampling video
     ids.get('aiSceneModel').value='argon_previs';
     await ids.get('aiSceneGenerate').fire('click');
     assert.equal(posts,0);assert.equal(sampled,0);
-    assert.match(ids.get('aiSceneStatus').textContent,/require Primary subject only/);
+    assert.match(ids.get('aiSceneStatus').textContent,/requires Primary subject only\. Use Argon Direct image for a full scene/);
   }finally{
     if(oldDocument===undefined)delete globalThis.document;else globalThis.document=oldDocument;
     if(oldConfirm===undefined)delete globalThis.confirm;else globalThis.confirm=oldConfirm;

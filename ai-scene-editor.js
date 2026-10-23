@@ -21,6 +21,10 @@ async function request(action,data={}) {
   }
   return result;
 }
+// Not 5 s: checking every 5 s failed on every other check ("Load failed",
+// live 2026-10-23), most likely Safari reusing a connection just as the
+// host closed it at Apache's default 5 s keep-alive timeout.
+const POLL_MS=6500;
 // Waits between status checks, but returns early when a backgrounded tab is
 // shown again, so a resumed phone checks immediately.
 function pollPause(ms) {
@@ -222,7 +226,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(Date.now()-started>=16*60*1000)break;
       if(waitInfo)waitInfo.textContent='Argon processing: '+
         Math.floor((Date.now()-started)/1000)+'s elapsed';
-      await pollPause(result?5000:Math.min(30000,5000*(httpErrors+1)));
+      await pollPause(result?POLL_MS:Math.min(30000,POLL_MS*(httpErrors+1)));
     }
     throw Error('Argon is still processing. Use Resume previous Argon job later; do not resubmit a paid request.');
   }
@@ -244,10 +248,13 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     log('Preview ready: '+pending.objects.length+' editable objects'+
       (rendered>pending.objects.length?' ('+rendered+' rendered parts)':'')+'. No scene saved.');
     if(pending.camera)log('Preview starts from the model\'s estimate of the reference camera; timeline cameras are unchanged.');
-    const counts=fullEnvironment?ENVIRONMENT_PASSES.map(p=>
+    if(pending.lights)log('Scene lights: '+pending.lights.length+' ('+pending.lights.map(l=>l.type).join(', ')+
+      '), shown only during this chapter.');
+    const counts=fullEnvironment||pending.objects.some(o=>o.layer)?ENVIRONMENT_PASSES.map(p=>
       p.label+': '+pending.objects.filter(o=>o.layer===p.id).length).join(' · '):'';
-    status('Preview: '+pending.objects.length+' editable objects. '+counts+
-      '. Inspect, accept or discard. No changes saved yet.');
+    if(counts)log('Layers: '+counts+'.');
+    status('Preview: '+pending.objects.length+' editable objects. '+(counts?counts+'. ':'')+
+      'Inspect, accept or discard. No changes saved yet.');
   }
   const ui=()=>{
     loginArea.hidden=authenticated;
@@ -331,27 +338,31 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(!['lite_default','g38_low','g38_medium','argon_previs','argon_direct'].includes(profile))
         throw Error('Unsupported AI profile selected');
       const argon=profile==='argon_previs'||profile==='argon_direct';
-      if(fullEnvironment&&(argon||profile==='g38_medium'))
-        throw Error('Medium and Argon require Primary subject only.');
+      if(fullEnvironment&&profile==='g38_medium')
+        throw Error('Medium thinking requires Primary subject only.');
+      if(fullEnvironment&&profile==='argon_previs')
+        throw Error('Argon Previs requires Primary subject only. Use Argon Direct image for a full scene.');
+      // Argon Direct image rebuilds a full scene in its ONE call, not four passes.
+      const argonFull=fullEnvironment&&profile==='argon_direct';
       if(argon){
         if(argonJob&&['queued','in_progress'].includes(argonJob.status))
           throw Error('An Argon job already exists. Resume it instead of starting another paid request.');
         if(typeof confirm==='function'&&!confirm(profile==='argon_direct'
-          ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'
+          ?'Start EXPERIMENTAL paid Gemini 4 Argon direct-image generation'+(argonFull?' of the FULL SCENE':'')+'? This makes ONE potentially billable call: the reference JPEGs are sent directly to Gemini 4 Argon. A Cloudflare job holds the request for up to 12 minutes and keeps THE REFERENCE IMAGES only until Argon answers; Google is asked not to store the request or result. Nothing falls back automatically. This uses one request slot and may run for several minutes.'
           :'Start paid Gemini 4 Argon Previs? This makes up to two potentially billable calls: Gemini 3.5 Flash-Lite analyzes the reference JPEGs, then Gemini 4 Argon generates geometry in the background from TEXT ONLY. Google stores the visual description and generated scene, not the images in the background job. This uses two request slots and may run for several minutes.'))
           return;
       }
       log('Preparing reference frames from the selected chapter…');
       status('Sampling the selected playhead frame and two chapter context frames…');
       const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.(),
-        fullEnvironment?'standard':'primary');
+        fullEnvironment&&!argon?'standard':'primary');
       log(frames.length+' reference JPEG frames sampled.');
       log('Generation profile: '+({lite_default:'Gemini 3.5 Flash-Lite',
         g38_low:'Gemini 3.8 Low',g38_medium:'Gemini 3.8 Medium',
         argon_previs:'Gemini 4 Argon Previs (paid background)',
         argon_direct:'Gemini 4 Argon direct image (experimental, paid)'}[profile])+'.');
       let doc;
-      if(fullEnvironment){
+      if(fullEnvironment&&!argon){
         let assembled=[];
         for(let i=0;i<ENVIRONMENT_PASSES.length;i++){
           const pass=ENVIRONMENT_PASSES[i];
@@ -371,10 +382,12 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         status('Gemini is analyzing reference views and generating editable geometry…');
         if(argon){
           log(profile==='argon_direct'
-            ?'Sending '+frames.length+' reference frames directly to Gemini 4 Argon through a Cloudflare job (one potentially billable call)…'
+            ?'Sending '+frames.length+' reference frames directly to Gemini 4 Argon'+(argonFull?' for the full scene':'')+
+              ' through a Cloudflare job (one potentially billable call)…'
             :'Analyzing 3 reference frames with Gemini 3.5 Flash-Lite, then starting text-only Argon background geometry (up to two potentially billable calls)…');
           let start;
-          try{start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,mode:'primary_subject'});}
+          try{start=await request('argon_start',{csrf,shotId:shot.id,frames,profile,
+            mode:argonFull?'full_scene':'primary_subject'});}
           catch(error){ // the analysis is billed even when Argon then rejects the job
             if(error.usage)log(describeUsage('Flash-Lite analysis',error.usage));
             throw error;

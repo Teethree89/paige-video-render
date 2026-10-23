@@ -11,8 +11,10 @@ const scriptPath=process.argv[2]||fileURLToPath(new URL('../worker/scene-worker.
 const token='test-token-should-be-at-least-thirty-two-chars-private';
 const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
 // Rich fields exercise the shared validator the Worker imports from the repo root.
-const scene={schemaVersion:1,scenes:[{shotId:'shot_a',camera:{position:[0,3,15],target:[0,1,0],fov:40},objects:[
-  {id:'facade',name:'Facade',primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[4,2,1],
+const scene={schemaVersion:1,scenes:[{shotId:'shot_a',camera:{position:[0,3,15],target:[0,1,0],fov:40},
+  lights:[{type:'spot',name:'Floodlight',color:'#ffffff',intensity:120,position:[0,8,4],target:[0,0,0],
+    distance:40,angle:.5,penumbra:.3}],objects:[
+  {id:'facade',name:'Facade',layer:'structures',primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[4,2,1],
     material:{color:'#334455',metalness:0.1,roughness:0.6}},
   {id:'windows',name:'Windows',primitive:'box',position:[0,1.2,.55],rotation:[0,0,0],scale:[.5,.6,.05],
     repeat:{count:[5,2,1],spacing:[.75,.8,0]},
@@ -41,7 +43,8 @@ const mf=new Miniflare({
 });
 const post=(path,body)=>mf.dispatchFetch('https://worker.test'+path,{method:'POST',
   headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
-const job={shotId:'shot_a',profile:'argon_direct',mode:'primary_subject',
+// Full scene: the same single synchronous call, with the full-scene scope.
+const job={shotId:'shot_a',profile:'argon_direct',mode:'full_scene',
   frames:[{at:2,imageDataUrl:jpeg},{at:0.5,imageDataUrl:jpeg},{at:4,imageDataUrl:jpeg}]};
 async function runJob(){
   const t0=Date.now();
@@ -59,7 +62,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-rich-usage-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-full-scene-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
@@ -71,6 +74,7 @@ try{
   assert.equal(calls[0].url,'https://generativelanguage.googleapis.com/v1beta/interactions');
   assert.equal(calls[0].key,'do-not-print-secret');assert.equal(calls[0].revision,'2026-05-20');
   assert.equal(sent.store,false);assert.equal(sent.background,undefined);
+  assert.match(sent.system_instruction,/SCOPE: FULL SCENE/);
   assert.deepEqual(sent.input.map(x=>x.type),['text','image','text','image','text','image']);
   assert.equal(sent.input[0].text,'Reference frame at 2.000 seconds');
   assert.deepEqual(sent.input.filter(x=>x.type==='image').map(x=>x.resolution),['high','high','high']);
