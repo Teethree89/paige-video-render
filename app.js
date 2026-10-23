@@ -7,6 +7,8 @@ import {setupVideoImport} from './video-import.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
+import {setupSceneObjectEditing} from './scene-object-edit.js';
+import {editPrimitiveTransform,deletePrimitiveObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
@@ -59,12 +61,13 @@ reviewGrid.material.transparent=true;reviewGrid.material.opacity=.42;
 reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
-let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null;
+let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
   primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id),primitiveAnchors());
   lastPrimitiveShotId=null;
   primitiveEditor?.refresh();
+  sceneObjectEditor?.refresh();
 }
 const referenceVideo=el('referenceVideo');referenceVideo.volume=0;
 for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=true;
@@ -72,7 +75,12 @@ let sequence,originalSequence,ready=false,playhead=0,playing=false,lastFrame=per
 const overlayEls=new Map();
 const clamp=(n,a,b)=>Math.min(b,Math.max(a,n));
 function endGeometryReview(){
-  if(!reviewShotId)return;
+  sceneObjectEditor?.setActive(false,{skipExit:true});
+  el('inspectBtn').disabled=false;
+  if(!reviewShotId){
+    if(orbitMode){orbitMode=false;controls.enabled=false;applyCamera();}
+    return;
+  }
   reviewShotId=null;
   orbitMode=false;controls.enabled=false;
   el('inspectBtn').classList.remove('active');
@@ -142,7 +150,7 @@ async function boot(){
  }
  refreshAll();seek(0,{force:true});ready=true;
  if(sequence.videoIntake){referenceVideo.style.display='none';el('showRef').checked=false;el('saveStatus').textContent='● REATTACH SOURCE VIDEO';}
- for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=false;
+ for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn','sceneModeView','sceneModeEdit'])el(id).disabled=false;
  window.__atomsEditorStarted=true;animate(performance.now());
  modelTools=setupModelTools(world,{onSceneChanged:()=>renderWorld()});
  primitiveEditor=setupPrimitiveEditor({
@@ -153,7 +161,41 @@ async function boot(){
      sequence.primitiveScenes=doc;
      syncPrimitiveWorld();
      saveLocal();renderWorld();
-   }
+   },
+   onSelectionChange:id=>sceneObjectEditor?.select(id,false)
+ });
+ sceneObjectEditor=setupSceneObjectEditing({
+   scene,camera,canvas,orbitControls:controls,world:primitiveWorld,
+   getActiveShot:()=>shotAt(playhead),
+   getDocument:()=>sequence.primitiveScenes,
+   onEnter:()=>{
+     if(aiSceneEditor?.hasPending?.()){
+       el('primitiveStatus').textContent='Accept or discard the AI proposal before editing saved objects.';
+       return false;
+     }
+     setPlaying(false);
+     const shot=shotAt(playhead);
+     if(!reviewShotId&&primitiveWorld.hasObjects(shot.id))showGeneratedGeometry(shot.id);
+     else if(!reviewShotId){
+       orbitMode=true;controls.enabled=true;
+       controls.target.set(...cameraAt(playhead).t);controls.update();
+     }
+     el('inspectBtn').disabled=true;
+     return true;
+   },
+   onExit:()=>endGeometryReview(),
+   onTransform:(shotId,objectId,mode,vector)=>{
+     sequence.primitiveScenes=editPrimitiveTransform(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,objectId,mode,vector);
+     syncPrimitiveWorld();saveLocal();renderWorld();
+   },
+   onDelete:(shotId,objectId)=>{
+     sequence.primitiveScenes=deletePrimitiveObject(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,objectId);
+     syncPrimitiveWorld();saveLocal();renderWorld();
+   },
+   onSelect:id=>primitiveEditor?.selectObject(id),
+   onStatus:message=>{el('primitiveStatus').textContent=message;}
  });
  aiSceneEditor=setupAiSceneEditor({
    getSequence:()=>sequence,
@@ -161,6 +203,7 @@ async function boot(){
    getReferenceVideo:()=>referenceVideo,
    getPlayheadTime:()=>playhead,
    onPreview:entry=>{
+     sceneObjectEditor?.setActive(false);
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
      doc.scenes.push(entry);
@@ -219,7 +262,8 @@ function saveLocal(){try{localStorage.setItem('atoms-ai-sequence-v1',JSON.string
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
 function cameraAt(t){let keys=sequence.camera.slice().sort((a,b)=>a.at-b.at);let first=keys[0];if(t<=first.at)return first;for(let i=0;i<keys.length-1;i++){let a=keys[i],b=keys[i+1];if(t>=a.at&&t<b.at){if(b.cut)return a;let u=ease(clamp((t-a.at)/(b.at-a.at),0,1));return{p:a.p.map((v,j)=>lerp(v,b.p[j],u)),t:a.t.map((v,j)=>lerp(v,b.t[j],u)),fov:lerp(a.fov,b.fov,u)};}}return keys[keys.length-1];}
 function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.near=.35;camera.far=500;camera.updateProjectionMatrix();controls.target.set(...c.t);}
-function seek(t,opts={}){if(reviewShotId&&shotAt(t)?.id!==reviewShotId)endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
+function seek(t,opts={}){if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
+ (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
 function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
  world.update(playhead,shot.id,custom);if(reviewShotId&&scene.fog)scene.fog.density=0;
  primitiveWorld.showShot(shot.id);
@@ -250,7 +294,7 @@ function renderInspector(){let item=selectedData();el('projectPanel').hidden=!!i
  if(selection.type==='camera'){el('camTime').textContent='KEYFRAME @ '+fmt(item.at);for(let input of document.querySelectorAll('[data-cam]')){let [k,i]=input.dataset.cam.split('.');input.value=String(+item[k][Number(i)].toFixed(2));}el('camFov').value=item.fov;el('camCut').checked=!!item.cut;}
  else{el('textValue').value=item.value;el('textSubtitle').value=item.subtitle||'';for(let field of ['Start','End','X','Y'])el('text'+field).value=item[field.toLowerCase()];el('textSize').value=item.size||'medium';el('textAlign').value=item.align||'center';el('textTone').value=item.tone||'white';}
 }
-function setPlaying(value){if(!ready||!sequence)return;if(value&&reviewShotId)endGeometryReview();playing=!!value;el('playBtn').textContent=playing?'Ⅱ':'▶';if(playing){orbitMode=false;controls.enabled=false;el('inspectBtn').classList.remove('active');if(playhead>=sequence.duration-.01)seek(0);if(el('showRef').checked){let p=referenceVideo.play();if(p?.catch)p.catch(()=>{});}}else referenceVideo.pause();lastFrame=performance.now();}
+function setPlaying(value){if(!ready||!sequence)return;if(value&&(reviewShotId||sceneObjectEditor?.active))endGeometryReview();playing=!!value;el('playBtn').textContent=playing?'Ⅱ':'▶';if(playing){orbitMode=false;controls.enabled=false;el('inspectBtn').classList.remove('active');if(playhead>=sequence.duration-.01)seek(0);if(el('showRef').checked){let p=referenceVideo.play();if(p?.catch)p.catch(()=>{});}}else referenceVideo.pause();lastFrame=performance.now();}
 function shotBoundary(direction){if(!ready||!sequence)return;let shot=shotAt(playhead);let val;if(direction<0){let prev=sequence.shots.filter(s=>s.start<shot.start-.03).at(-1);val=playhead-shot.start>.6?shot.start:prev?.start??0;}else val=sequence.shots.find(s=>s.start>playhead+.05)?.start??sequence.duration;setPlaying(false);seek(val+.001);}
 function addCameraKey(){if(!ready||!sequence)return;setPlaying(false);const pos=camera.position.toArray(),tar=controls.target.toArray(),at=+playhead.toFixed(3);let id='c'+Date.now();let key={id,at,p:pos.map(x=>+x.toFixed(3)),t:tar.map(x=>+x.toFixed(3)),fov:camera.fov,cut:false};sequence.camera.push(key);sequence.camera.sort((a,b)=>a.at-b.at);select('camera',id);saveLocal();}
 function addText(){if(!ready||!sequence)return;setPlaying(false);const at=+playhead.toFixed(3),id='tx'+Date.now(),item={id,start:at,end:Math.min(at+3,sequence.duration),value:'Your headline here',subtitle:'Supporting detail',x:50,y:42,size:'medium',align:'center',tone:'white'};sequence.text.push(item);selection={type:'text',id};refreshAll();saveLocal();}
@@ -280,7 +324,7 @@ playButton.addEventListener('click',event=>{
 el('backBtn').onclick=()=>shotBoundary(-1);el('nextBtn').onclick=()=>shotBoundary(1);
 el('speed').onchange=e=>speed=Number(e.target.value)||1;
 el('addCameraBtn').onclick=addCameraKey;el('addTextBtn').onclick=addText;
-el('inspectBtn').onclick=()=>{if(!ready||!sequence)return;if(playing)setPlaying(false);orbitMode=!orbitMode;controls.enabled=orbitMode;el('inspectBtn').classList.toggle('active',orbitMode);if(orbitMode)controls.target.set(...cameraAt(playhead).t);else applyCamera();};
+el('inspectBtn').onclick=()=>{if(!ready||!sequence||sceneObjectEditor?.active)return;if(playing)setPlaying(false);orbitMode=!orbitMode;controls.enabled=orbitMode;el('inspectBtn').classList.toggle('active',orbitMode);if(orbitMode)controls.target.set(...cameraAt(playhead).t);else applyCamera();};
 el('captureBtn').onclick=()=>{const item=selectedData();if(!item||selection.type!=='camera')return;item.p=camera.position.toArray().map(x=>+x.toFixed(3));item.t=controls.target.toArray().map(x=>+x.toFixed(3));item.fov=camera.fov;orbitMode=false;controls.enabled=false;el('inspectBtn').classList.remove('active');renderInspector();saveLocal();};
 for(let input of document.querySelectorAll('[data-cam]'))input.addEventListener('input',e=>{let d=selectedData();if(!d)return;let [k,j]=input.dataset.cam.split('.');d[k][Number(j)]=safeNum(input.value);orbitMode=false;controls.enabled=false;el('inspectBtn').classList.remove('active');applyCamera();saveLocal();});
 el('camFov').oninput=e=>{let d=selectedData();if(!d)return;d.fov=clamp(safeNum(e.target.value,50),10,110);applyCamera();saveLocal();};
@@ -336,6 +380,14 @@ el('loadBtn').onclick=()=>{if(!ready)return;el('loadFile').click();};el('loadFil
 el('showRef').onchange=e=>{referenceVideo.style.display=e.target.checked?'block':'none';if(!e.target.checked)referenceVideo.pause();else if(playing)referenceVideo.play().catch(()=>{});};
 referenceVideo.addEventListener('loadedmetadata',()=>{try{referenceVideo.currentTime=playhead;}catch(e){}});
 window.addEventListener('keydown',e=>{const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
+ if(ready&&sceneObjectEditor?.active){
+   if(e.code==='KeyW'||e.code==='KeyG'){e.preventDefault();sceneObjectEditor.setMode('translate');return;}
+   if(e.code==='KeyE'||e.code==='KeyR'){e.preventDefault();sceneObjectEditor.setMode('rotate');return;}
+   if(e.code==='Escape'){e.preventDefault();sceneObjectEditor.select(null);return;}
+   if(e.code==='Delete'||e.code==='Backspace'){
+     e.preventDefault();sceneObjectEditor.deleteSelected();return;
+   }
+ }
  if(e.code==='Space'){e.preventDefault();if(ready)setPlaying(!playing);}if(e.code==='ArrowRight'){e.preventDefault();if(ready){setPlaying(false);seek(playhead+1/30);}}if(e.code==='ArrowLeft'){e.preventDefault();if(ready){setPlaying(false);seek(playhead-1/30);}}if(e.code==='Delete'||e.code==='Backspace'){e.preventDefault();if(ready)deleteSelected();}});
 new ResizeObserver(()=>{let w=viewport.clientWidth,h=viewport.clientHeight;if(w<=0||h<=0)return;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);}).observe(viewport);
 boot().catch(error=>{el('errorBanner').hidden=false;el('errorBanner').textContent='Project could not start: '+error.message;console.error(error);});
