@@ -48,6 +48,35 @@ export function setupReferenceBuilder({onApply}){
   if(!modal||!list||!fileInput)throw Error('Reference Builder markup is missing');
   const assets=new Map();
   let items=[],selectedId=null,busy=false;
+  let previewPlaying=false,previewElapsed=0,previewFrame=0,lastTick=0;
+  const transport=el('rbPlaySequence');
+  function stopSequence(){
+    previewPlaying=false;if(previewFrame)cancelAnimationFrame(previewFrame);
+    previewFrame=0;video.pause();
+    transport.textContent='▶ Play sequence';transport.setAttribute('aria-pressed','false');
+  }
+  function tick(now){
+    if(!previewPlaying)return;
+    previewElapsed+=Math.max(0,Math.min(.25,(now-lastTick)/1000));lastTick=now;
+    let offset=0,item=items[items.length-1];
+    for(const entry of items){
+      if(previewElapsed<offset+entry.duration){item=entry;break;}
+      offset+=entry.duration;
+    }
+    if(!item){stopSequence();return;}
+    if(selectedId!==item.id){selectedId=item.id;render();}
+    const source=assetFor(item);
+    if(item.kind==='video'&&source&&video.readyState>=1){
+      const wanted=Math.min(item.sourceOut-.001,item.sourceIn+Math.max(0,previewElapsed-offset));
+      if(Math.abs(video.currentTime-wanted)>.2)try{video.currentTime=wanted;}catch{}
+      if(video.paused)video.play().catch(()=>{});
+    }else video.pause();
+    el('rbSequenceClock').textContent=fmt(previewElapsed);
+    const total=items.reduce((sum,entry)=>sum+entry.duration,0);
+    if(previewElapsed>=total){stopSequence();return;}
+    previewFrame=requestAnimationFrame(tick);
+  }
+
   const say=message=>{status.textContent=message;};
   const current=()=>items.find(x=>x.id===selectedId)||null;
   const assetFor=item=>item&&assets.get(item.mediaId);
@@ -57,6 +86,7 @@ export function setupReferenceBuilder({onApply}){
     return {...item,url:asset.url,file:asset.file};
   }
   function loadFromSequence(sequence){
+    stopSequence();
     const loaded=sequence?.referenceSequence?.items;
     if(!loaded){items=[];selectedId=null;render();return;}
     try{items=validateReferenceItems(loaded);}catch(error){say(error.message);return;}
@@ -98,7 +128,7 @@ export function setupReferenceBuilder({onApply}){
       const select=document.createElement('button');select.type='button';
       select.className='rb-select';select.append(thumb,details);
       select.setAttribute('aria-label','Select scene '+item.name);
-      select.addEventListener('click',()=>{selectedId=item.id;render();});
+      select.addEventListener('click',()=>{stopSequence();selectedId=item.id;render();});
       const actions=document.createElement('div');actions.className='rb-scene-actions';
       const action=(glyph,title,callback,disabled=false)=>{
         const button=document.createElement('button');button.type='button';button.textContent=glyph;
@@ -109,6 +139,18 @@ export function setupReferenceBuilder({onApply}){
       action('↓','Move scene later',()=>{[items[index],items[index+1]]=[items[index+1],items[index]];},index===items.length-1);
       action('⧉','Duplicate scene',()=>{items.splice(index+1,0,{...item,id:newId('ref')});});
       action('×','Remove scene',()=>{items.splice(index,1);if(selectedId===item.id)selectedId=items[Math.min(index,items.length-1)]?.id||null;});
+      row.draggable=true;
+      row.addEventListener('dragstart',event=>{
+        stopSequence();event.dataTransfer?.setData('text/plain',item.id);
+        if(event.dataTransfer)event.dataTransfer.effectAllowed='move';
+      });
+      row.addEventListener('dragover',event=>{event.preventDefault();});
+      row.addEventListener('drop',event=>{
+        event.preventDefault();const id=event.dataTransfer?.getData('text/plain');
+        const from=items.findIndex(x=>x.id===id),to=items.findIndex(x=>x.id===item.id);
+        if(from<0||to<0||from===to)return;
+        const [moved]=items.splice(from,1);items.splice(to,0,moved);render();
+      });
       row.append(select,actions);list.append(row);
     });
     const item=current();
@@ -129,7 +171,7 @@ export function setupReferenceBuilder({onApply}){
       cell.style.flex=String(Math.max(.2,item.duration));cell.title=item.name+' · '+fmt(item.duration);
       cell.textContent=item.kind==='video'?'▶ '+item.name:'▧ '+item.name;
       cell.setAttribute('aria-pressed',String(selectedId===item.id));
-      cell.addEventListener('click',()=>{selectedId=item.id;render();});
+      cell.addEventListener('click',()=>{stopSequence();selectedId=item.id;render();});
       strip.append(cell);
     }
     el('rbApply').disabled=busy||!items.length||items.some(i=>!assetFor(i));
@@ -174,8 +216,17 @@ export function setupReferenceBuilder({onApply}){
   el('rbAddMedia').addEventListener('click',()=>fileInput.click());
   el('rbRelinkButton').addEventListener('click',()=>relinkInput.click());
   el('referenceBuilderOpenBtn').addEventListener('click',()=>{modal.hidden=false;render();});
-  el('rbClose').addEventListener('click',()=>{modal.hidden=true;video.pause();});
-  modal.addEventListener('click',event=>{if(event.target===modal){modal.hidden=true;video.pause();}});
+  el('rbClose').addEventListener('click',()=>{stopSequence();modal.hidden=true;});
+  modal.addEventListener('click',event=>{if(event.target===modal){stopSequence();modal.hidden=true;}});
+  transport.addEventListener('click',()=>{
+    if(previewPlaying){stopSequence();return;}
+    if(!items.length||items.some(i=>!assetFor(i))){
+      say('Relink all images/videos before playing this reference sequence.');return;
+    }
+    previewElapsed=0;lastTick=performance.now();previewPlaying=true;selectedId=items[0].id;
+    transport.textContent='Ⅱ Pause sequence';transport.setAttribute('aria-pressed','true');
+    render();previewFrame=requestAnimationFrame(tick);
+  });
   el('rbName').addEventListener('input',event=>{const item=current();if(!item)return;item.name=event.target.value.slice(0,100);const row=list.querySelector('.rb-scene.active strong');if(row)row.textContent=item.name;});
   el('rbName').addEventListener('change',render);
   el('rbFit').addEventListener('change',event=>{const item=current();if(item){item.fit=event.target.value;render();}});
@@ -199,7 +250,7 @@ export function setupReferenceBuilder({onApply}){
       const timeline=buildReferenceTimeline(items);
       if(items.some(i=>!assetFor(i)))throw Error('Relink all source media before applying.');
       if(!confirm('Use this reference sequence in the editor? This replaces the current working timeline. Export existing edits first.'))return;
-      onApply({timeline});modal.hidden=true;video.pause();say('Reference sequence applied. Media stays local.');
+      onApply({timeline});stopSequence();modal.hidden=true;say('Reference sequence applied. Media stays local.');
     }catch(error){say(error.message);}
   });
   el('rbDownload').addEventListener('click',()=>{
