@@ -2,6 +2,7 @@
 // long HTML file, authentication form and current video analyzer remain intact.
 export function mountReferenceBuilderUI(root=document){
  if(root.getElementById('referenceBuilderModal'))return;
+ const stylesheet=root.createElement('link');stylesheet.rel='stylesheet';stylesheet.href='./reference-builder.css';root.head.append(stylesheet);
  const videoButton=root.getElementById('videoImportOpenBtn');
  if(!videoButton)throw Error('Video import toolbar button is missing');
  const opener=root.createElement('button');
