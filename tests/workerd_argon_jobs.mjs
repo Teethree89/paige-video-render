@@ -48,7 +48,7 @@ async function runJob(){
 }
 try{
   const health=await (await mf.dispatchFetch('https://worker.test/health')).json();
-  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-direct-durable-object-v1');
+  assert.equal(health.argonDirectJobs,true);assert.equal(health.workerRevision,'argon-direct-quality-v1');
   // 1) Success: start returns before the slow model finishes; polling sees it.
   const ok=await runJob();
   console.log('start returned in',ok.startMs,'ms; statuses seen:',ok.seen.join(' -> '));
@@ -61,6 +61,7 @@ try{
   assert.equal(sent.store,false);assert.equal(sent.background,undefined);
   assert.deepEqual(sent.input.map(x=>x.type),['text','image','text','image','text','image']);
   assert.equal(sent.input[0].text,'Reference frame at 2.000 seconds');
+  assert.deepEqual(sent.input.filter(x=>x.type==='image').map(x=>x.resolution),['high','high','high']);
   // Re-polling a finished job never calls Google again.
   const again=await (await post('/api/scene/argon/status',{jobId:ok.start.jobId,shotId:'shot_a'})).json();
   assert.equal(again.status,'completed');assert.equal(calls.length,1);
