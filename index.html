@@ -28,6 +28,16 @@
         <canvas id="scene"></canvas>
         <div class="vignette"></div>
         <button id="returnTimelineCameraBtn" class="review-return" type="button" hidden>← Return to timeline camera</button>
+        <section id="sceneEditTools" class="scene-edit-tools" aria-label="Object transform tools" hidden>
+          <div class="scene-edit-selected"><span>SELECTED OBJECT</span><strong id="sceneEditName">No object selected</strong></div>
+          <div class="scene-edit-actions" role="group" aria-label="Transform mode">
+            <button id="sceneEditMove" type="button" title="Move selected object on X Y Z (W)" aria-pressed="true">↔ Move (W)</button>
+            <button id="sceneEditRotate" type="button" title="Rotate selected object around X Y Z (E)" aria-pressed="false">⟳ Rotate (E)</button>
+            <button id="sceneEditDelete" class="scene-edit-delete" type="button" disabled>Delete</button>
+          </div>
+          <p id="sceneEditStatus" role="status">Click an editable shape to select it.</p>
+          <p class="scene-edit-note">Drag gizmo axes · Drag empty space to orbit · Scroll to zoom</p>
+        </section>
         <div class="stage-top"><span class="pill"><span class="pulse-dot"></span> 3D PREVIEW</span><span id="shotTitle">01 / ESTABLISHING THE INFRASTRUCTURE</span></div>
         <div id="overlayLayer" class="overlay-layer"></div>
         <div id="cutFlash" class="cut-flash"></div>
@@ -36,14 +46,14 @@
       </section>
       <section class="transport">
         <div class="transport-left"><button id="backBtn" disabled class="icon-button" title="Previous shot">⏮</button><button id="playBtn" disabled class="play-button" title="Play / Pause (Space)">▶</button><button id="nextBtn" disabled class="icon-button" title="Next shot">⏭</button><span id="clock" class="timecode">00:00.00 <span>/</span> 00:56.47</span></div>
-        <div class="transport-right"><button id="addCameraBtn" disabled title="Create camera keyframe at playhead">+ Camera key</button><button id="addTextBtn" disabled title="Create text overlay at playhead">+ Text</button><label for="speed">SPEED</label><select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><button id="inspectBtn" disabled class="toggle-button" title="Enable orbit camera for editing while paused">Orbit inspect</button></div>
+        <div class="transport-right"><button id="addCameraBtn" disabled title="Create camera keyframe at playhead">+ Camera key</button><button id="addTextBtn" disabled title="Create text overlay at playhead">+ Text</button><label for="speed">SPEED</label><select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><button id="inspectBtn" disabled class="toggle-button" title="Enable orbit camera while paused">Orbit inspect</button><div class="scene-mode-switch" role="group" aria-label="Viewport mode"><button id="sceneModeView" type="button" class="active" aria-pressed="true" disabled>View</button><button id="sceneModeEdit" type="button" aria-pressed="false" disabled>Edit</button></div></div>
       </section>
       <section class="timeline-section">
         <div class="timeline-header"><div><span class="tiny-eyebrow">SEQUENCE TIMELINE</span><span class="timeline-subhead">Drag the playhead · select camera keys or captions to edit</span></div><div id="timelineDuration">56.47 SEC</div></div>
         <div class="timeline-layout"><div class="track-labels"><div class="ruler-label"></div><div class="track-label">SCENES</div><div class="track-label">CAMERA <small>◆</small></div><div class="track-label">TEXT <small>▮</small></div></div>
           <div class="tracks" id="tracks"><div id="ruler" class="ruler"></div><div class="track shot-track" id="shotTrack"></div><div class="track camera-track" id="cameraTrack"></div><div class="track text-track" id="textTrack"></div><div class="playhead" id="playhead"><span class="head-knob"></span></div></div>
         </div>
-        <div class="timeline-bottom"><span><i class="legend teal"></i> Power systems</span><span><i class="legend orange"></i> Materials</span><span><i class="legend purple"></i> Optical chain</span><span class="shortcut">SPACE: Play/Pause &nbsp; · &nbsp; ← →: Frame step &nbsp; · &nbsp; Delete: Remove selected</span></div>
+        <div class="timeline-bottom"><span><i class="legend teal"></i> Power systems</span><span><i class="legend orange"></i> Materials</span><span><i class="legend purple"></i> Optical chain</span><span class="shortcut">SPACE: Play/Pause &nbsp; · &nbsp; ← →: Frame step &nbsp; · &nbsp; EDIT: W Move · E Rotate · Delete</span></div>
       </section>
     </main>
     <aside class="inspector">
@@ -53,7 +63,7 @@
         <button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><div class="divider"></div>
         <details id="primitiveEditor" class="primitive-inspector" open>
           <summary>3D PRIMITIVE SCENE EDITOR</summary>
-          <p class="field-help">Build and edit chapter geometry. AI scenes are organized by environment layer, with individual editable shapes.</p>
+          <p class="field-help">Build and edit chapter geometry. Switch to <strong>Edit</strong> below the viewport to click, highlight, move, rotate or delete an accepted object. Repeated copies move as one object. Generated proposals must be accepted first.</p>
           <div id="primitiveShotLabel" class="model-status">Choose a shot to edit</div>
           <label class="field">Object type
             <select id="primitiveType">
