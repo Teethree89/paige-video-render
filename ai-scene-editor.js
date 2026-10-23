@@ -2,6 +2,7 @@ import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {appendArgonDetail,argonDetailIndex} from './argon-detail.js';
 import {createArgonOverlay} from './ai-generation-overlay.js';
+import {createGenerationSounds} from './generation-sounds.js';
 import {referenceFrameTimes,ENVIRONMENT_PASSES,appendEnvironmentPass} from './environment-generation.js';
 
 const el=id=>document.getElementById(id);
@@ -196,7 +197,8 @@ async function sampleVideo(reference,shot,playhead,detailProfile='standard') {
     video.removeAttribute('src');video.load();
   }
 }
-export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect}) {
+export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,
+  generationSounds=createGenerationSounds()}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
@@ -205,6 +207,10 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const retryField=el('aiArgonRetryField'),retrySelect=el('aiArgonRetry');
   const addDetailField=el('aiArgonAddDetailField'),addDetailSelect=el('aiArgonAddDetail');
   const overlay=createArgonOverlay();
+  const signalFinal=outcome=>{if(outcome)void generationSounds.play(outcome);};
+  // A timed-out poll or an uncertain started job is not a provider failure.
+  const unfinished=error=>/Argon is still processing\.|existing Argon job/i.test(error?.message||'')||
+    (error?.transient===true&&['queued','in_progress'].includes(argonJob?.status));
   // Chrome silently dismisses window.confirm() when the tab is not in front
   // (live 2026-10-23), which reads as Cancel. Paid requests ask in the page
   // instead, in a dialog that waits for an answer; confirm() is the fallback.
@@ -475,7 +481,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       status('Reattach your imported MP4 before requesting an AI scene.');
       return;
     }
+    generationSounds.arm(); // keep this within the user click (Safari/Chrome gesture policy)
     busy=true;ui();clearActivity();
+    let finalOutcome=null,detailFailed=false;
     log('Checking your authenticated editor session…');
     try {
       // Check PHP's actual current session BEFORE decoding/compressing video.
@@ -605,6 +613,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
                 log('Add Detail '+pass+'/2 added '+result.added+' new editable objects; '+doc.scenes[0].objects.length+
                   ' objects and '+result.rendered+' rendered parts in total. Existing scene preserved.');
               }catch(error){
+                detailFailed=true;
                 log('Add Detail '+pass+'/2 stopped: '+error.message+'. Keeping all earlier successful geometry; no later detail pass submitted.');
                 logDiagnostic(error);
                 status('Detail pass stopped; previewing all previously completed geometry.');
@@ -621,7 +630,11 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
       }
       showProposal(doc,shot,fullEnvironment);
+      // A salvaged base preview remains useful, but an incomplete requested
+      // detail tail is an overall failed/partial generation, not success.
+      finalOutcome=detailFailed?'failed':'success';
     }catch(error){
+      if(!unfinished(error))finalOutcome='failed';
       log('Generation failed: '+error.message);
       logDiagnostic(error);
       if(error.status===401){
@@ -645,7 +658,10 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         status('AI proposal failed: '+error.message);
       }
       onDiscard();pending=null;pendingShot=null;
-    }finally{overlay.hide();busy=false;ui();}
+    }finally{
+      overlay.hide();busy=false;ui();
+      signalFinal(finalOutcome); // ONE cue per whole generation, never per pass/retry
+    }
   });
   smokeButton?.addEventListener('click',async()=>{
     if(busy||!authenticated||smoke.state==='done')return;
@@ -658,7 +674,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         '? This submits exactly one additional potentially billable API request. No client footage is sent.',
         'Run paid diagnostic')){notStarted();return;}
     }
+    generationSounds.arm();
     busy=true;ui();
+    let finalOutcome=null;
     try{
       const session=await readServerSession();
       if(!session.authenticated){sessionEnded();return;}
@@ -673,6 +691,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         isPoll?{csrf}:{csrf,step,...(retry?{retry:true}:{})});
       smoke={step:result.step,state:result.state};
       if(result.state==='done'||result.state==='passed'){
+        finalOutcome='success';
         log('Argon diagnostic '+(step+1)+'/'+smokeNames.length+' passed.');
         status('Argon diagnostic stage '+(step+1)+' passed. '+(smoke.state==='done'?
           'All tests complete.':'Confirm the next stage when ready.'));
@@ -680,11 +699,13 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         log('Argon background diagnostic accepted. Use Check running diagnostic to poll without starting another request.');
         status('Argon background diagnostic is running. Check again to retrieve its result.');
       }else{
+        finalOutcome='failed';
         log('Argon diagnostic stage '+(step+1)+' did not pass. Sequence stopped.');
         logDiagnostic(result);
         status('Argon diagnostic stage '+(step+1)+' failed or returned no usable answer. Do not continue; inspect the error.');
       }
     }catch(error){
+      if(smoke.state!=='running')finalOutcome='failed';
       log('Argon diagnostic error on stage '+(step+1)+': '+error.message);
       logDiagnostic(error);
       status('Argon diagnostic failed: '+error.message+' (no automatic retry)');
@@ -693,7 +714,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       try{const session=await readServerSession();
         smoke=session.argonSmoke||{step,state:'failed'};csrf=session.csrf;
       }catch{smoke={step,state:'failed'};}
-    }finally{busy=false;ui();}
+    }finally{busy=false;ui();signalFinal(finalOutcome);}
   });
   smokeReset?.addEventListener('click',async()=>{
     if(busy||!authenticated||smoke.state==='running')return;
@@ -761,7 +782,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(!shot||shot.id!==argonJob.shotId){
       status('Select chapter '+argonJob.shotId+' to resume its Argon result.');return;
     }
+    generationSounds.arm();
     busy=true;ui();clearActivity();
+    let finalOutcome=null;
     try{
       const session=await readServerSession();
       if(!session.authenticated){sessionEnded();return;}
@@ -772,11 +795,13 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const proposal=await pollArgon(shot.id);
       argonJob={shotId:shot.id,status:'completed'};
       showProposal(proposal,shot);
+      finalOutcome='success';
     }catch(error){
+      if(!unfinished(error))finalOutcome='failed';
       log('Argon resume: '+error.message);
       logDiagnostic(error);
       status('Argon resume: '+error.message);
-    }finally{overlay.hide();busy=false;if(waitInfo)waitInfo.textContent='';ui();}
+    }finally{overlay.hide();busy=false;if(waitInfo)waitInfo.textContent='';ui();signalFinal(finalOutcome);}
   });
   inspect.addEventListener('click',()=>{
     if(pending&&!busy&&getActiveShot()?.id===pendingShot)onInspect?.(pendingShot);
