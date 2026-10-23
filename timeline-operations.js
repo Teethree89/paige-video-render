@@ -2,7 +2,7 @@
 // All chapter mutations preserve shot IDs unless a deliberate duplicate creates one.
 const rnd=n=>Math.round(n*1000)/1000;
 const clone=x=>structuredClone(x);
-const MIN=.25;
+const MIN=.15; // Legacy shot detection can legitimately produce 0.15s scenes.
 const near=(a,b)=>Math.abs(a-b)<.004;
 const num=n=>Number.isFinite(n);
 export function checkTimeline(seq){
