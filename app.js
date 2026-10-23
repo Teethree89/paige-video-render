@@ -174,6 +174,9 @@ async function boot(){
        return false;
      }
      setPlaying(false);
+     // Edit mode owns the inspector; clear camera/text key selection so the
+     // existing numeric XYZ primitive fields remain visible and synchronized.
+     selection=null;renderInspector();renderTimeline();
      const shot=shotAt(playhead);
      if(!reviewShotId&&primitiveWorld.hasObjects(shot.id))showGeneratedGeometry(shot.id);
      else if(!reviewShotId){
