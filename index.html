@@ -26,6 +26,12 @@
     <main class="main-col">
       <section class="viewport" id="viewport">
         <canvas id="scene"></canvas>
+        <button id="sceneCreateMenuButton" type="button" class="scene-create-trigger" title="Open Create wheel (hold right-click or Shift+C)">＋ Create</button>
+        <div id="sceneCreateMenu" class="scene-create-menu" role="group" aria-label="Create scene object" hidden>
+          <div id="sceneCreateWheel" class="scene-create-wheel"></div>
+          <div id="sceneCreateSubmenu" class="scene-create-submenu" hidden></div>
+          <span id="sceneCreateMenuHint" class="scene-create-center">HOLD TO CREATE</span>
+        </div>
         <div class="vignette"></div>
         <button id="returnTimelineCameraBtn" class="review-return" type="button" hidden>← Return to timeline camera</button>
         <section id="sceneEditTools" class="scene-edit-tools" aria-label="Object transform tools" hidden>
@@ -118,6 +124,15 @@
           </label>
           <div id="primitiveFields" hidden>
             <div class="primitive-field-note">Shape: <strong id="primitiveShapeReadOnly">—</strong></div>
+            <label class="field">Geometry shape
+              <select id="primitiveShapeEdit">
+                <option value="box">Box</option><option value="sphere">Sphere</option>
+                <option value="cylinder">Cylinder</option><option value="cone">Cone</option>
+                <option value="plane">Plane</option><option value="torus">Torus</option>
+                <option value="wedge">Wedge</option><option value="gable">Gable roof</option>
+                <option value="extrude">Footprint extrusion</option>
+              </select>
+            </label>
             <label class="field">Object name <input id="primitiveName" type="text" maxlength="100" /></label>
             <label class="field">Layer
               <select id="primitiveLayer">
@@ -150,6 +165,9 @@
               <label class="field">Color <input id="primitiveColor" type="color" /></label>
               <label class="field">Metalness <input id="primitiveMetalness" type="number" min="0" max="1" step="0.05" /></label>
               <label class="field">Roughness <input id="primitiveRoughness" type="number" min="0" max="1" step="0.05" /></label>
+              <label class="field">Emission color <input id="primitiveEmissive" type="color" value="#000000" /></label>
+              <label class="field">Emission power <input id="primitiveEmissiveIntensity" type="number" min="0" max="10" step="0.1" value="0" /></label>
+              <label class="field">Opacity <input id="primitiveOpacity" type="number" min="0.05" max="1" step="0.05" value="1" /></label>
             </div>
             <div class="primitive-buttons">
               <button id="primitiveDuplicate" class="secondary" type="button">Duplicate</button>
@@ -157,8 +175,47 @@
             </div>
           </div>
           <div class="divider"></div>
+          <section id="primitiveLightEditor" class="primitive-light-editor" aria-label="Lights in current chapter">
+            <div class="section-label">SCENE LIGHTS</div>
+            <p class="field-help">Directional, point and spot lights affect this chapter. Select a light to edit its color, intensity, position and beam.</p>
+            <label class="field">Light
+              <select id="primitiveLightSelect"><option value="">No lights yet</option></select>
+            </label>
+            <div class="primitive-buttons"><button id="primitiveAddLight" type="button" class="secondary">+ Add point light</button>
+              <button id="primitiveDeleteLight" type="button" class="ghost">Delete light</button></div>
+            <div id="primitiveLightFields" hidden>
+              <label class="field">Light name <input id="primitiveLightName" type="text" maxlength="100"></label>
+              <label class="field">Light type
+                <select id="primitiveLightType"><option value="point">Point</option>
+                  <option value="spot">Spot</option><option value="directional">Directional</option></select>
+              </label>
+              <label class="field">Light color <input id="primitiveLightColor" type="color" value="#ffffff"></label>
+              <label class="field">Intensity <input id="primitiveLightIntensity" type="number" min="0" max="500" step="0.1"></label>
+              <div class="input-group-title">Light position (x, y, z)</div>
+              <div class="triple-input">
+                <label>X<input data-light="position.0" type="number" step="0.1"></label>
+                <label>Y<input data-light="position.1" type="number" step="0.1"></label>
+                <label>Z<input data-light="position.2" type="number" step="0.1"></label>
+              </div>
+              <div id="primitiveLightTargetWrap"><div class="input-group-title">Beam target (x, y, z)</div>
+                <div class="triple-input">
+                  <label>X<input data-light="target.0" type="number" step="0.1"></label>
+                  <label>Y<input data-light="target.1" type="number" step="0.1"></label>
+                  <label>Z<input data-light="target.2" type="number" step="0.1"></label>
+                </div></div>
+              <label id="primitiveLightRangeWrap" class="field">Range (0 = infinite)
+                <input id="primitiveLightDistance" type="number" min="0" max="1000" step="0.5"></label>
+              <div id="primitiveLightSpotWrap">
+                <label class="field">Cone angle (radians)
+                  <input id="primitiveLightAngle" type="number" min="0.05" max="1.5" step="0.05"></label>
+                <label class="field">Penumbra (0–1)
+                  <input id="primitiveLightPenumbra" type="number" min="0" max="1" step="0.05"></label>
+              </div>
+            </div>
+          </section>
+          <div class="divider"></div>
           <div class="primitive-buttons">
-            <button id="primitiveImport" class="ghost" type="button">Import JSON</button>
+            <button id="primitiveImport' class="ghost" type="button">Import JSON</button>
             <button id="primitiveExportJSON" class="secondary" type="button">Export JSON</button>
           </div>
           <button id="primitiveCleanupSaved" class="wide ghost" type="button">Clean up saved chapter geometry</button>
