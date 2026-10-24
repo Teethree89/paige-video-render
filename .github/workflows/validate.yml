@@ -21,7 +21,7 @@ jobs:
         run: |
           for file in app.js world.js model-tools.js ae-package-export.js ae-package-plan.js zip-utils.js render.js video-import.js shot-analysis.js chapter-analysis.js draft-world.js primitive-schema.js primitive-cleanup.js primitive-world.js primitive-editor.js ai-scene-editor.js primitive-preview.js environment-generation.js help-toggles.js scene-object-edit.js scene-object-operations.js generation-sounds.js ai-generation-overlay.js; do node --check --input-type=module < "$file"; done
       - name: Test video cut analysis and draft timeline
-        run: node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs tests/test_primitive_cleanup.mjs tests/test_primitive_editor_dom.mjs tests/test_scene_worker.mjs tests/test_ae_package_export.mjs tests/test_aftereffects_builder.mjs tests/test_primitive_preview.mjs tests/test_ai_scene_editor_dom.mjs tests/test_environment_generation.mjs tests/test_help_toggles.mjs tests/test_scene_object_edit.mjs tests/test_generation_sounds.mjs
+        run: node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs tests/test_primitive_cleanup.mjs tests/test_primitive_editor_dom.mjs tests/test_scene_worker.mjs tests/test_ae_package_export.mjs tests/test_aftereffects_builder.mjs tests/test_primitive_preview.mjs tests/test_ai_scene_editor_dom.mjs tests/test_environment_generation.mjs tests/test_help_toggles.mjs tests/test_scene_object_edit.mjs tests/test_generation_sounds.mjs tests/test_workspace_controls.mjs
       - name: Check and test After Effects project builder (ExtendScript syntax)
         run: |
           node --check --input-type=commonjs < AfterEffects/BUILD_EDITABLE_PROJECT.jsx

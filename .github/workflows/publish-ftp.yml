@@ -33,8 +33,8 @@ jobs:
           python -m unittest discover -s tests -p 'test_zen*.py' -v
       - name: Check and test video importer
         run: |
-          for file in app.js render.js shot-analysis.js chapter-analysis.js video-import.js draft-world.js primitive-schema.js primitive-cleanup.js primitive-world.js primitive-editor.js scene-object-edit.js scene-object-operations.js ai-scene-editor.js primitive-preview.js environment-generation.js argon-detail.js ai-generation-overlay.js generation-sounds.js help-toggles.js; do node --check --input-type=module < "$file"; done
-          node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs tests/test_primitive_cleanup.mjs tests/test_primitive_editor_dom.mjs tests/test_scene_worker.mjs tests/test_aftereffects_builder.mjs tests/test_ai_scene_editor_dom.mjs tests/test_primitive_preview.mjs tests/test_environment_generation.mjs tests/test_generation_sounds.mjs
+          for file in app.js render.js shot-analysis.js chapter-analysis.js video-import.js draft-world.js primitive-schema.js primitive-cleanup.js primitive-world.js primitive-editor.js workspace-controls.js scene-object-edit.js scene-object-operations.js ai-scene-editor.js primitive-preview.js environment-generation.js argon-detail.js ai-generation-overlay.js generation-sounds.js help-toggles.js; do node --check --input-type=module < "$file"; done
+          node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs tests/test_primitive_cleanup.mjs tests/test_primitive_editor_dom.mjs tests/test_scene_worker.mjs tests/test_aftereffects_builder.mjs tests/test_ai_scene_editor_dom.mjs tests/test_primitive_preview.mjs tests/test_environment_generation.mjs tests/test_generation_sounds.mjs tests/test_workspace_controls.mjs
       - name: Check and test After Effects project builder (ExtendScript syntax)
         run: |
           node --check --input-type=commonjs < AfterEffects/BUILD_EDITABLE_PROJECT.jsx
@@ -69,7 +69,7 @@ jobs:
           # Copy all root JS modules: app.js imports the video-intake and draft-world modules.
           # Wildcard staging avoids dropping newly added browser modules on future changes.
           cp dist/*.html dist/*.css dist/*.js dist/*.php dist/timeline.json ftp-public/
-          for file in video-import.js shot-analysis.js draft-world.js primitive-schema.js primitive-cleanup.js primitive-world.js primitive-editor.js scene-object-edit.js scene-object-operations.js ai-scene-editor.js primitive-preview.js environment-generation.js argon-detail.js ai-generation-overlay.js generation-sounds.js help-toggles.js scene-proxy.php; do
+          for file in video-import.js shot-analysis.js draft-world.js primitive-schema.js primitive-cleanup.js primitive-world.js primitive-editor.js workspace-controls.js scene-object-edit.js scene-object-operations.js ai-scene-editor.js primitive-preview.js environment-generation.js argon-detail.js ai-generation-overlay.js generation-sounds.js help-toggles.js scene-proxy.php; do
             test -s "ftp-public/$file" || { echo "Missing browser module: $file"; exit 1; }
           done
           # The only contents shipped into .private/ are a web access-deny
