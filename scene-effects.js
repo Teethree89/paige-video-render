@@ -69,6 +69,12 @@ export function vignetteOpacity(profile){
  const v=profile?.vignette??.45;
  return Math.max(0,Math.min(1,v/.45));
 }
+export function vignetteStyle(profile){
+ const strength=profile?.vignette??.45;
+ const scale=Math.min(2.2,Math.max(0,strength/.45));
+ const top=Math.min(.9,.25*scale),bottom=Math.min(.94,.48*scale);
+ return `linear-gradient(180deg,rgba(3,8,13,${top}) 0%,transparent 26%,transparent 75%,rgba(4,11,17,${bottom}) 100%)`;
+}
 export function paintVignette(ctx,w,h,profile){
  const strength=profile?.vignette??.45;
  if(strength<=0)return;
