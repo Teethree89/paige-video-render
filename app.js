@@ -17,6 +17,7 @@ import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupSceneObjectEditing} from './scene-object-edit.js';
+import {setupRadialCreate} from './radial-create.js';
 import {editPrimitiveTransform,deletePrimitiveObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
@@ -328,6 +329,28 @@ async function boot(){
      if(ready){applyCamera();renderWorld();}
    }
  });
+ setupRadialCreate({
+    viewport,
+    canCreate:()=>ready&&sceneObjectEditor?.active&&
+      !aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
+    getCreateOrigin:(clientX,clientY)=>{
+      const id=shotAt(playhead)?.id;
+      const anchor=primitiveAnchors()[id]||[0,0,0];
+      let target=controls.target.clone();
+      if(Number.isFinite(clientX)&&Number.isFinite(clientY)){
+        const rect=canvas.getBoundingClientRect();
+        const nx=2*(clientX-rect.left)/rect.width-1,ny=1-2*(clientY-rect.top)/rect.height;
+        const ray=new THREE.Raycaster();
+        ray.setFromCamera(new THREE.Vector2(nx,ny),camera);
+        const hit=new THREE.Vector3();
+        if(ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),hit))
+          target=hit;
+      }
+      return target.toArray().map((v,i)=>Math.max(-9000,Math.min(9000,v-anchor[i])));
+    },
+    onCreate:(category,item,origin)=>primitiveEditor.createAsset(category,item,origin),
+    onStatus:message=>{el('primitiveStatus').textContent=message;el('sceneEditStatus').textContent=message;}
+  });
  el('primitiveCleanupSaved')?.addEventListener('click',()=>{
    const note=el('primitiveStatus');
    try{
