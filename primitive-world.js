@@ -160,12 +160,12 @@ export function createPrimitiveWorld(scene) {
         markerRoot.add(marker);markers.set(id,marker);
       });
       markerRoot.visible=false;
-      scene.add(markerRoot);
       lightMarkerGroups.set(entry.shotId,markerRoot);
       lightMarkers.set(entry.shotId,markers);
       groups.set(entry.shotId,root);
       objectNodes.set(entry.shotId,nodes);
       scene.add(root);
+      scene.add(markerRoot); // keep the scene's primary root first for existing integrations
     }
     showShot(activeShotId);
   }
