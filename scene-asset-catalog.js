@@ -102,6 +102,7 @@ export function insertCreatedAsset(source,shotId,category,id,origin=[0,0,0]){
      }
      if(layer)obj.layer=layer;
      if(shape==='plane'&&category==='terrain')obj.rotation=[-Math.PI/2,0,0];
+     if(shape==='cylinder'&&category==='vehicles')obj.rotation=[Math.PI/2,0,0];
      entry.objects.push(obj);selected={kind:'object',id:obj.id};
    }
  }
