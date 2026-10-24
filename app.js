@@ -12,6 +12,7 @@ import {evaluateCamera,curveEasing} from './animation-curves.js';
 import {setupAnimationGraph} from './animation-graph.js';
 import {sampleReferenceMedia} from './reference-frames.js';
 import {syncChapterCameraMotion,clipPlanesForScene} from './camera-motion-sync.js';
+import {setupAcceptedCameraSync} from './accepted-camera-sync.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
@@ -70,7 +71,7 @@ reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
 const cameraBoundsCache=new Map();
-let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null;
+let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
   cameraBoundsCache.clear();
@@ -222,6 +223,8 @@ async function boot(){
    getReferenceFrames:referenceSampler,
    getPlayheadTime:()=>playhead,
    onPreview:entry=>{
+     acceptedCameraSync?.reset();
+     acceptedCameraPreview=null;
      sceneObjectEditor?.setActive(false);
      // Snapshot the SAVED geometry before mounting a newly generated proposal.
      // Cleanup may preview the same pending scene again; retain the original.
@@ -266,10 +269,14 @@ async function boot(){
      }
    },
    onDiscard:()=>{
+     acceptedCameraSync?.reset();
+     acceptedCameraPreview=null;
      cameraSyncPreview=null;cameraSyncSession=null;
      endGeometryReview();syncPrimitiveWorld();renderWorld();
    },
    onAccept:(entry,{syncCamera=false}={})=>{
+     acceptedCameraSync?.reset();
+     acceptedCameraPreview=null;
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
      doc.scenes.push(entry);
@@ -288,6 +295,37 @@ async function boot(){
      cameraSyncPreview=null;cameraSyncSession=null;
      endGeometryReview();syncPrimitiveWorld();
      refreshAll();seek(Math.min(playhead,sequence.duration));saveLocal();
+   }
+ });
+ acceptedCameraSync=setupAcceptedCameraSync({
+   getSequence:()=>sequence,
+   getActiveShot:()=>shotAt(playhead),
+   getBounds:id=>primitiveWorld.getBounds(id),
+   getCamera:id=>primitiveWorld.getCamera(id),
+   getAnchor:id=>[...(primitiveAnchors()[id]||[0,0,0])],
+   canEdit:()=>ready&&!aiSceneEditor?.isBusy?.()&&!aiSceneEditor?.hasPending?.(),
+   onPreview:proposal=>{
+     setPlaying(false);
+     sceneObjectEditor?.setActive(false);
+     // Camera alignment is reversible: never change sequence here.
+     endGeometryReview();
+     acceptedCameraPreview=proposal;
+     seek(sequence.shots.find(shot=>shot.id===proposal.shotId).start+.01);
+   },
+   onApply:proposal=>{
+     const next=proposal.sequence;
+     validatePrimitiveDocument(next.primitiveScenes,next.shots.map(shot=>shot.id));
+     checkTimeline(next);
+     const at=playhead;
+     acceptedCameraPreview=null;
+     sequence=next;
+     endGeometryReview();
+     syncPrimitiveWorld();
+     refreshAll();seek(at);saveLocal();
+   },
+   onDiscard:()=>{
+     acceptedCameraPreview=null;
+     if(ready){applyCamera();renderWorld();}
    }
  });
  el('primitiveCleanupSaved')?.addEventListener('click',()=>{
@@ -404,7 +442,7 @@ function applyHistory(doc){
 function saveLocal(record=true){
  if(record){try{timelineHistory?.record(sequence);}catch(error){console.warn('Timeline history skipped invalid intermediate edit:',error.message);}}
  try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));}catch(e){}
- el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();
+ el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();acceptedCameraSync?.refresh?.();
 }
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
 function cameraAt(t){
@@ -412,6 +450,8 @@ function cameraAt(t){
  // No scene JSON, exported camera, or local storage changes before Accept.
  if(cameraSyncPreview&&cameraSyncSession?.shotId===shotAt(t)?.id)
    return evaluateCamera(cameraSyncPreview.camera,t);
+ if(acceptedCameraPreview?.shotId===shotAt(t)?.id)
+   return evaluateCamera(acceptedCameraPreview.sequence.camera,t);
  return evaluateCamera(sequence.camera,t);
 }
 function applyCamera(){
@@ -425,7 +465,7 @@ function applyCamera(){
  camera.updateProjectionMatrix();controls.target.set(...c.t);
 }
 function seek(t,opts={}){if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
- (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
+ (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();acceptedCameraSync?.refresh?.();}
 function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
  world.update(playhead,shot.id,custom);if(reviewShotId&&scene.fog)scene.fog.density=0;
  primitiveWorld.showShot(shot.id);
