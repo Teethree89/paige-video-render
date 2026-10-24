@@ -20,7 +20,7 @@ FILES = [
     "index.html", "render.html", "403.html", "private-denied.html", "styles.css", "app.js", "world.js", "render.js",
     "model-tools.js", "ae-package-export.js", "ae-package-plan.js", "zip-utils.js", "shot-analysis.js", "video-import.js",
     "draft-world.js", "chapter-analysis.js", "primitive-schema.js", "primitive-cleanup.js",
-    "primitive-world.js", "primitive-editor.js", "workspace-controls.js", "timeline-operations.js", "timeline-tools.js", "scene-object-edit.js", "scene-object-operations.js",
+    "primitive-world.js", "primitive-editor.js", "workspace-controls.js", "timeline-operations.js", "timeline-tools.js", "animation-curves.js", "animation-graph.js", "scene-object-edit.js", "scene-object-operations.js",
     "ai-scene-editor.js", "primitive-preview.js", "environment-generation.js",
     "argon-detail.js", "ai-generation-overlay.js", "generation-sounds.js",
     "reference-sequence.js", "reference-builder.js", "reference-builder-ui.js", "reference-frames.js", "reference-builder.css", "help-toggles.js",

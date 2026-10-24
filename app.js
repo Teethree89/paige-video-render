@@ -8,6 +8,8 @@ import {setupReferenceBuilder} from './reference-builder.js';
 import {referenceAt} from './reference-sequence.js';
 import {createTimelineHistory,checkTimeline} from './timeline-operations.js';
 import {setupTimelineEditing} from './timeline-tools.js';
+import {evaluateCamera,curveEasing} from './animation-curves.js';
+import {setupAnimationGraph} from './animation-graph.js';
 import {sampleReferenceMedia} from './reference-frames.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
@@ -66,7 +68,7 @@ reviewGrid.material.transparent=true;reviewGrid.material.opacity=.42;
 reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
-let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null;
+let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
   primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id),primitiveAnchors());
@@ -286,6 +288,10 @@ async function boot(){
  }});
  referenceBuilder.loadFromSequence(sequence);
  if(sequence.referenceSequence)syncReferenceMedia(playhead);
+ animationGraph=setupAnimationGraph({
+   getSequence:()=>sequence,getSelected:()=>selection,
+   onCommit:doc=>{if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.())throw Error('Finish the current AI job or proposal before editing camera curves.');sequence=doc;refreshAll();renderWorld();saveLocal();}
+ });
  timelineEditing=setupTimelineEditing({
    getSequence:()=>sequence,getShotId:()=>shotAt(playhead),getSelectedKey:()=>selection,
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
@@ -348,7 +354,7 @@ function saveLocal(record=true){
  el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();
 }
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
-function cameraAt(t){let keys=sequence.camera.slice().sort((a,b)=>a.at-b.at);let first=keys[0];if(t<=first.at)return first;for(let i=0;i<keys.length-1;i++){let a=keys[i],b=keys[i+1];if(t>=a.at&&t<b.at){if(b.cut)return a;let u=ease(clamp((t-a.at)/(b.at-a.at),0,1));return{p:a.p.map((v,j)=>lerp(v,b.p[j],u)),t:a.t.map((v,j)=>lerp(v,b.t[j],u)),fov:lerp(a.fov,b.fov,u)};}}return keys[keys.length-1];}
+function cameraAt(t){return evaluateCamera(sequence.camera,t);}
 function applyCamera(){if(orbitMode&&!playing)return;const c=cameraAt(playhead);camera.position.set(...c.p);camera.lookAt(...c.t);camera.fov=c.fov;camera.near=.35;camera.far=500;camera.updateProjectionMatrix();controls.target.set(...c.t);}
 function seek(t,opts={}){if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
  (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();}
@@ -367,7 +373,7 @@ function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  renderer.render(scene,camera);requestAnimationFrame(animate);
 }
 function renderShotName(){let shot=shotAt(playhead),i=sequence.shots.indexOf(shot);el('shotTitle').textContent=String(i+1).padStart(2,'0')+' / '+shot.title;el('stageName').textContent=shot.name;el('shotIndex').textContent=String(i+1).padStart(2,'0');for(const node of document.querySelectorAll('.chapter-item'))node.classList.toggle('current',node.dataset.shot===shot.id);}
-function renderOverlays(){for(let item of sequence.text){let dom=overlayEls.get(item.id);if(!dom)continue;let active=playhead>=item.start&&playhead<item.end,fade=.58,fadeOut=.55;let opacity=active?Math.min(1,(playhead-item.start)/fade,(item.end-playhead)/fadeOut):0;dom.style.opacity=String(clamp(opacity,0,1));dom.style.display=opacity>0?'block':'none';dom.style.left=item.x+'%';dom.style.top=item.y+'%';dom.style.textAlign=item.align||'center';dom.className='scene-caption '+(item.size||'medium')+' '+(item.tone||'white');dom.querySelector('.main-copy').textContent=item.value;dom.querySelector('.sub-copy').textContent=item.subtitle||'';}
+function renderOverlays(){for(let item of sequence.text){let dom=overlayEls.get(item.id);if(!dom)continue;let active=playhead>=item.start&&playhead<item.end,fade=.58,fadeOut=.55;let opacity=active?Math.min(1,curveEasing((playhead-item.start)/fade,{mode:item.textFade||'linear'}),curveEasing((item.end-playhead)/fadeOut,{mode:item.textFade||'linear'})):0;dom.style.opacity=String(clamp(opacity,0,1));dom.style.display=opacity>0?'block':'none';dom.style.left=item.x+'%';dom.style.top=item.y+'%';dom.style.textAlign=item.align||'center';dom.className='scene-caption '+(item.size||'medium')+' '+(item.tone||'white');dom.querySelector('.main-copy').textContent=item.value;dom.querySelector('.sub-copy').textContent=item.subtitle||'';}
 }
 function rebuildOverlayDom(){el('overlayLayer').replaceChildren();overlayEls.clear();for(let item of sequence.text){let dom=document.createElement('div');dom.className='scene-caption';let main=document.createElement('div');main.className='main-copy';let sub=document.createElement('div');sub.className='sub-copy';dom.append(main,sub);el('overlayLayer').appendChild(dom);overlayEls.set(item.id,dom);}renderOverlays();}
 function refreshPlayhead(){el('playhead').style.left=atPercent(playhead);el('clock').innerHTML=`${fmt(playhead)} <span>/</span> ${fmt(sequence.duration)}`;}
@@ -384,7 +390,8 @@ function selectedData(){return selection?sequence[selection.type==='camera'?'cam
 function renderInspector(){let item=selectedData();el('projectPanel').hidden=!!item;el('cameraPanel').hidden=!item||selection.type!=='camera';el('textPanel').hidden=!item||selection.type!=='text';el('inspectorHeading').textContent=!item?'Project settings':selection.type==='camera'?'Camera keyframe':'Text overlay';el('inspectorHint').textContent=!item?'Select a timeline item to adjust its animation.':selection.type==='camera'?'Edit position, focal target, lens and cut behavior.':'Adjust wording, timing, screen location and styling.';
  if(!item)return;
  if(selection.type==='camera'){el('camTime').textContent='KEYFRAME @ '+fmt(item.at);for(let input of document.querySelectorAll('[data-cam]')){let [k,i]=input.dataset.cam.split('.');input.value=String(+item[k][Number(i)].toFixed(2));}el('camFov').value=item.fov;el('camCut').checked=!!item.cut;}
- else{el('textValue').value=item.value;el('textSubtitle').value=item.subtitle||'';for(let field of ['Start','End','X','Y'])el('text'+field).value=item[field.toLowerCase()];el('textSize').value=item.size||'medium';el('textAlign').value=item.align||'center';el('textTone').value=item.tone||'white';}
+ else{el('textValue').value=item.value;el('textSubtitle').value=item.subtitle||'';for(let field of ['Start','End','X','Y'])el('text'+field).value=item[field.toLowerCase()];el('textSize').value=item.size||'medium';el('textAlign').value=item.align||'center';el('textTone').value=item.tone||'white';const fade=el('textFadeMode');if(fade)fade.value=item.textFade||'linear';}
+ animationGraph?.refresh();
 }
 function setPlaying(value){if(!ready||!sequence)return;if(value&&(reviewShotId||sceneObjectEditor?.active))endGeometryReview();playing=!!value;el('playBtn').textContent=playing?'Ⅱ':'▶';if(playing){orbitMode=false;controls.enabled=false;el('inspectBtn').classList.remove('active');if(playhead>=sequence.duration-.01)seek(0);if(sequence.referenceSequence)syncReferenceMedia(playhead);else if(el('showRef').checked){let p=referenceVideo.play();if(p?.catch)p.catch(()=>{});}}else referenceVideo.pause();lastFrame=performance.now();}
 function shotBoundary(direction){if(!ready||!sequence)return;let shot=shotAt(playhead);let val;if(direction<0){let prev=sequence.shots.filter(s=>s.start<shot.start-.03).at(-1);val=playhead-shot.start>.6?shot.start:prev?.start??0;}else val=sequence.shots.find(s=>s.start>playhead+.05)?.start??sequence.duration;setPlaying(false);seek(val+.001);}
