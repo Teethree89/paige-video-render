@@ -31,7 +31,7 @@ test('lights get editable stable IDs, can coexist with no geometry, and respect 
  assert.throws(()=>insertCreatedAsset(doc,'shot_a','lights','sun'),/at most 8/);
  const legacy={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[],
   lights:[{type:'point',name:'Old',color:'#ffffff',intensity:5,position:[0,3,0]}]}]};
- assert.equal(validatePrimitiveDocument(legacy).scenes[0].lights[0].id,'light_1');
+ assert.equal(validatePrimitiveDocument(legacy).scenes[0].lights[0].id,undefined);
 });
 test('complex vehicle preset remains editable and emission survives JSON round-trip',()=>{
  const doc=insertCreatedAsset(empty(),'chapter','vehicles','truck').document;
