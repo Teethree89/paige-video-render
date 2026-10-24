@@ -197,7 +197,9 @@
     // reads the NEXT shot's cut pose and drags the prior camera toward the
     // next scene, including a different world-space origin.
     var visibleEnd=Math.max(shot.start,shot.end-1/FPS);
-    var samples=Math.max(1,Math.ceil((visibleEnd-shot.start)*5));
+    // One baked sample per source frame avoids interpolating across HOLD
+    // keyframe plateaus or losing short custom Bezier motion changes.
+    var samples=Math.max(1,Math.ceil((visibleEnd-shot.start)*FPS));
     for(var n=0;n<=samples;n++) {
       var t=shot.start+(visibleEnd-shot.start)*n/samples;
       var a=interpCamera(seq,Math.min(t,seq.duration));
