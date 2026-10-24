@@ -19,7 +19,7 @@ import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupSceneObjectEditing} from './scene-object-edit.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
-import {createScenePostprocessor,applyShotEffects,effectsForShot,vignetteOpacity} from './scene-effects.js';
+import {createScenePostprocessor,applyShotEffects,effectsForShot,vignetteStyle} from './scene-effects.js';
 import {editPrimitiveTransform,deletePrimitiveObject,editLightTransform,deleteLightObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
@@ -521,7 +521,7 @@ function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.h
  const profile=applyShotEffects(scene,renderer,effectsForShot(sequence,shot.id),{review:!!reviewShotId});
  studioPost.configure(profile);
  const vignette=viewport.querySelector('.vignette');
- if(vignette)vignette.style.opacity=String(vignetteOpacity(profile));
+ if(vignette){vignette.style.opacity='1';vignette.style.background=vignetteStyle(profile);}
  if(lastEffectsShot!==shot.id){lastEffectsShot=shot.id;sceneEffectsPanel?.refresh?.();}
  primitiveWorld.showShot(shot.id);
  draftWorld.update(shot,custom);
