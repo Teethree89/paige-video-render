@@ -32,7 +32,21 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   const editable=el('primitiveFields');
   const file=el('primitiveImportFile');
   const allowed=()=>getSequence().shots.map(s=>s.id);
-  const getPrimitiveDocument=()=>validatePrimitiveDocument(getSequence().primitiveScenes||blankPrimitiveDocument(),allowed());
+  const getPrimitiveDocument=()=>{
+    const doc=validatePrimitiveDocument(getSequence().primitiveScenes||blankPrimitiveDocument(),allowed());
+    // Legacy light entries predate stable IDs. Do not rewrite the stored file
+    // just by opening it; assign identifiers only in the editable working copy.
+    for(const scene of doc.scenes){
+      const taken=new Set((scene.lights||[]).map(l=>l.id).filter(Boolean));
+      (scene.lights||[]).forEach((light,index)=>{
+        if(light.id)return;
+        let id='light_'+(index+1),suffix=1;
+        while(taken.has(id))id='light_'+(index+1)+'_'+(++suffix);
+        light.id=id;taken.add(id);
+      });
+    }
+    return doc;
+  };
   const sceneFor=(doc,shotId,create=false)=>{
     let entry=doc.scenes.find(s=>s.shotId===shotId);
     if(!entry && create){entry={shotId,objects:[]};doc.scenes.push(entry);}
