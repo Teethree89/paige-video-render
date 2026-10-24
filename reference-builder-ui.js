@@ -47,7 +47,10 @@ export function mountReferenceBuilderUI(root=document){
           <video id="rbVideo" controls muted playsinline hidden aria-label="Reference video preview"></video>
           <div class="rb-empty-preview">Add a video clip or image to begin</div>
         </div>
-        <div class="rb-sequence-heading"><strong>REFERENCE SEQUENCE</strong><span>Ordered scene durations</span></div>
+        <div class="rb-sequence-heading"><strong>REFERENCE SEQUENCE</strong><div class="rb-preview-transport">
+          <span id="rbSequenceClock">0:00.00</span>
+          <button id="rbPlaySequence" type="button" aria-pressed="false">▶ Play sequence</button>
+        </div></div>
         <div id="rbSequenceStrip" class="rb-sequence-strip" aria-label="Reference scene order"></div>
         <p id="rbStatus" role="status">Add your first media file to build a reference sequence.</p>
       </main>
@@ -61,7 +64,8 @@ export function mountReferenceBuilderUI(root=document){
           <div id="rbVideoFields">
             <label class="field">Video in (seconds)<input id="rbSourceIn" type="number" min="0" step="0.1"></label>
             <label class="field">Video out (seconds)<input id="rbSourceOut" type="number" min="0.5" step="0.1"></label>
-            <p class="field-help">Video duration follows the selected source in/out points. Stills use the duration field.</p>
+            <button id="rbSplitVideo" type="button" class="rb-split-button">Split clip at current preview time</button>
+            <p class="field-help">Move the preview playhead between the in/out points, then split to create two reference scenes. The source file is reused.</p>
           </div>
         </div>
         <p class="rb-inspector-help">Select a scene to adjust source in/out points, duration, and framing. Editable 3D generation happens later for each reference scene.</p>
