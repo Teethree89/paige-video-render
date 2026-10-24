@@ -28,14 +28,18 @@ right-click memory is local to your browser, not part of the project ZIP.
 Within **3D Primitive Scene Editor**, use **Scene Lights** to select any of the
 chapter's point, spot or directional lights. You can change the light name,
 type, color, intensity and position, plus aiming target and range/beam fields
-where relevant. New lights are fully validated and included in GLB exports
-via KHR_lights_punctual. Each scene supports eight active punctual lights.
+where relevant. In **Edit** mode, clickable colored light markers also appear
+in the 3D viewport. Selecting one opens its settings in the Inspector, and the
+XYZ gizmo can move it. Rotation is expressed by the aiming target fields rather
+than rotating the light marker. These editor-only markers never enter GLB/video.
+New lights are fully validated and included in GLB exports via
+KHR_lights_punctual. Each scene supports eight active punctual lights.
 
 Select a primitive to adjust its geometry type, material color, metalness,
 roughness, *emissive color/power* and opacity. The underlying shape remains an
 ordinary bounded primitive. Some shape-specific footprint properties are still
-edited in scene JSON. Lights are selected using the Inspector dropdown and
-positioned numerically; they do not yet have in-viewport light-gizmo handles.
+edited in scene JSON. Lights can be selected via the Inspector or viewport. Light aiming targets
+are currently edited numerically; the viewport gizmo moves light position.
 
 ## Scene post-processing
 
