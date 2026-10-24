@@ -316,3 +316,18 @@ html,body{font-size:14px}
  .scene-create-petal{width:68px;font-size:10px}
  .scene-create-submenu{width:145px}
 }
+
+/* Chapter look controls — saved to scene JSON and shared with video renderer. */
+.scene-effects-panel{margin:12px 0 17px;padding:12px;border:1px solid #375e67;
+ background:#122533;border-radius:9px}
+.scene-effects-panel summary{cursor:pointer;color:#aaf3e8;font-size:11px;font-weight:800;
+ letter-spacing:.05em}
+.scene-effects-panel .field{margin:13px 0;color:#d2e7ee;font-size:11px}
+.scene-effects-panel .field input[type=range]{width:100%;accent-color:#74cbd0}
+.scene-effects-panel .checkbox-field{display:flex;align-items:center;gap:10px;font-size:12px}
+.scene-effects-panel .checkbox-field input{accent-color:#7ae0d7}
+.scene-effects-panel #sceneFogFields[hidden],.scene-effects-panel #sceneBloomFields[hidden]{display:none}
+.scene-effects-panel #sceneFogFields,.scene-effects-panel #sceneBloomFields{padding:3px 10px;
+ border-left:2px solid #4a8990;margin-top:7px}
+.scene-effects-panel #sceneFogFields input[type=color]{height:38px;width:100%}
+.scene-effects-panel #sceneEffectsStatus{margin:10px 0;line-height:1.5}
