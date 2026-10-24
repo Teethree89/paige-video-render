@@ -285,3 +285,26 @@ test('rotated repeated groups stay enclosed by their object-local outline after 
   outline.dispose();
   world.dispose();
 });
+
+
+test('lights-only chapters export a valid punctual-light GLTF without mesh geometry',async()=>{
+  const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+  try{
+    world.setDocument({schemaVersion:1,scenes:[{
+      shotId:'lights',objects:[],lights:[{
+        type:'point',name:'Light only',color:'#ffcc88',
+        intensity:20,position:[0,4,0]
+      }]
+    }]},['lights'],{lights:[0,0,0]});
+    assert.equal(world.hasObjects('lights'),false,
+      'lights-only chapters intentionally have no geometry override');
+    const asset=world.getSceneForExport('lights');
+    const gltf=await new Promise((resolve,reject)=>{
+      new GLTFExporter().parse(asset,resolve,reject,{
+        binary:false,onlyVisible:false,trs:true
+      });
+    });
+    assert.equal(gltf.extensions?.KHR_lights_punctual?.lights?.length,1);
+    assert.equal(gltf.extensions.KHR_lights_punctual.lights[0].name,'Light only');
+  }finally{world.dispose();}
+});
