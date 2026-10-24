@@ -197,7 +197,7 @@ async function sampleVideo(reference,shot,playhead,detailProfile='standard') {
     video.removeAttribute('src');video.load();
   }
 }
-export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,
+export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,
   generationSounds=createGenerationSounds()}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
@@ -477,6 +477,11 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(busy||!authenticated)return;
     const shot=getActiveShot();
     if(!shot){status('Select a chapter first.');return;}
+    if(getSequence().referenceSequence&&
+      (!getReferenceFrames?.available?.(shot.id))){
+      status('Reference source missing. Open Reference Builder and relink the original image or video before generating.');
+      return;
+    }
     if(getSequence().videoIntake&&el('showRef')?.checked===false){
       status('Reattach your imported MP4 before requesting an AI scene.');
       return;
@@ -529,8 +534,10 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(profile==='argon_direct')overlay.show({totalStages:addDetailEnabled?3:1});
       log('Preparing reference frames from the selected chapter…');
       status('Sampling the selected playhead frame and two chapter context frames…');
-      const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.(),
-        fullEnvironment&&!argon?'standard':'primary');
+      const profileDetail=fullEnvironment&&!argon?'standard':'primary';
+      const frames=getSequence().referenceSequence
+        ?await getReferenceFrames(shot,getPlayheadTime?.(),profileDetail)
+        :await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.(),profileDetail);
       log(frames.length+' reference JPEG frames sampled.');
       log('Generation profile: '+({lite_default:'Gemini 3.5 Flash-Lite',
         g38_low:'Gemini 3.8 Low',g38_medium:'Gemini 3.8 Medium',

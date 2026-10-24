@@ -6,6 +6,7 @@ import {buildAfterEffectsPackage} from './ae-package-export.js';
 import {setupVideoImport} from './video-import.js';
 import {setupReferenceBuilder} from './reference-builder.js';
 import {referenceAt} from './reference-sequence.js';
+import {sampleReferenceMedia} from './reference-frames.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
@@ -203,10 +204,14 @@ async function boot(){
    onSelect:id=>primitiveEditor?.selectObject(id),
    onStatus:message=>{el('primitiveStatus').textContent=message;}
  });
+ const referenceSampler=(shot,at,detail)=>sampleReferenceMedia(
+   referenceBuilder?.sourceForShot(shot.id),shot,at,detail);
+ referenceSampler.available=id=>referenceBuilder?.hasSourceForShot(id)===true;
  aiSceneEditor=setupAiSceneEditor({
    getSequence:()=>sequence,
    getActiveShot:()=>shotAt(playhead),
    getReferenceVideo:()=>referenceVideo,
+   getReferenceFrames:referenceSampler,
    getPlayheadTime:()=>playhead,
    onPreview:entry=>{
      sceneObjectEditor?.setActive(false);
