@@ -86,6 +86,10 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
    const rect=viewport.getBoundingClientRect(),center=menu.getBoundingClientRect();
    const leftOfMenu=center.left+center.width/2>rect.left+rect.width*.65;
    submenu.classList.toggle('left-side',leftOfMenu);
+   const desiredHeight=Math.min(330,category.items.length*39+49);
+   const maximumTop=rect.bottom-center.top-desiredHeight-6;
+   const minimumTop=rect.top-center.top+6;
+   submenu.style.top=Math.max(minimumTop,Math.min(45,maximumTop))+'px';
    status.textContent=category.label.toUpperCase();
  }
  function open(clientX,clientY){
@@ -107,12 +111,15 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
  function pointerDown(event){
    if(event.button!==2||!viewport.contains(event.target)||event.target.closest('button,input,select,textarea'))return;
    if(!canCreate())return;
+   // In Edit mode, secondary mouse input belongs to Create, not orbit.
+   event.preventDefault();event.stopPropagation();
    press={x:event.clientX,y:event.clientY,started:performance.now(),held:false};
    cleanup();
    hold=setTimeout(()=>{if(press){press.held=true;open(press.x,press.y);}},CREATE_HOLD_MS);
  }
  function pointerUp(event){
    if(event.button!==2||!press)return;
+   event.preventDefault();event.stopPropagation();
    const original=press;press=null;
    if(hold)clearTimeout(hold);hold=null;
    if(!original.held){
