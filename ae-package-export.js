@@ -19,7 +19,8 @@ async function loadAEBuilder(){
   const response=await fetch('./AfterEffects/BUILD_EDITABLE_PROJECT.jsx',{cache:'no-store'});
   if(!response.ok)throw Error('AE builder unavailable (HTTP '+response.status+')');
   const script=await response.text();
-  if(!script.includes('function addCameraKeys')||!script.includes('aeOrigin'))
+  if(!script.includes('function addCameraKeys')||!script.includes('aeOrigin')||
+     !script.includes('function addShotLights')||!script.includes('function addShotEffects'))
     throw Error('AE builder is outdated; reload the editor and retry.');
   return script;
 }
@@ -30,7 +31,7 @@ const instructions=`AFTER EFFECTS — EDITABLE PROJECT EXPORT
 2. In Adobe After Effects 24.1+ use File > Scripts > Run Script File and choose
    AfterEffects/BUILD_EDITABLE_PROJECT.jsx.
 3. The builder saves a new, non-overwriting .aep with editable shot workspaces,
-   3D model layers, camera guides, and text layers. The master sequences those
+   3D model layers, camera guides, native light layers and editable text. The master sequences those
    shot workspaces at their timeline cuts beneath the editable titles.
 4. For the nine original flythrough shots, assets/models/ holds the seven live
    editable GLB models. For shots with accepted custom primitives, assets/shots/
@@ -39,12 +40,21 @@ const instructions=`AFTER EFFECTS — EDITABLE PROJECT EXPORT
    Do not use Make Comp Size: it changes model scale independently of cameras.
    The builder compensates AE's 512 px/m import conversion with 3.515625% layer
    Scale so models and cameras both use 18 pixels per source world unit.
-6. Inspect MODEL CHECK and shot cameras in AE before treating the export as final.
+6. Open each shot workspace to edit PAIGE LIGHT layers and PAIGE LOOK effects:
+   native point/spot/parallel lights, Glow, Exposure, CC Vignette (where available)
+   and a flat 2D fog tint. AE photometric units and renderers differ from
+   Three.js; fog is NOT volumetric and these are approximate starting points.
+7. Each per-shot GLB strips embedded punctual lights before AE import to avoid
+   double illumination. Standalone GLB exports from Studio still include lights.
+8. AE cameras bake Paige smooth/linear/hold/ease/custom Bezier animation at the
+   source frame rate. Validate first/last shot frames, camera registration,
+   model brightness and scene compositing in an actual AE installation.
+9. Inspect MODEL CHECK and shot cameras before treating the export as final.
 
 This ZIP captures the current saved timeline and the editor's CURRENT model
 replacements, including imported GLB previews. Unaccepted AI geometry is not
 exported. Source/reference videos, browser-only video URLs, Three.js runtime
-lighting, sprites, particles, and a prebuilt .aep are NOT included. The editor's
+procedural lighting, sprites, particles, and a prebuilt .aep are NOT included.\nAccepted punctual scene lights and chapter FX metadata ARE included. The editor's
 Export JSON remains available as a lightweight timeline-only backup.
 `;
 
@@ -67,6 +77,16 @@ export async function buildAfterEffectsPackage({
     entries.push({name:'assets/models/'+id+'.glb',data:bytes});
   }
   let shotCount=0;
+  // The AE builder reconstructs light nodes natively with editable color,
+  // intensity, position and cone controls. Remove these from per-shot GLBs
+  // to avoid counting the SAME light twice in the AE Advanced 3D renderer.
+  // The live Three.js scene and standalone GLB editor export are untouched.
+  // Export clones are already private (see primitiveWorld.getSceneForExport).
+  const stripGltfLights=root=>{
+    if(!root?.traverse)return;
+    const nodes=[];root.traverse(node=>{if(node.isLight)nodes.push(node);});
+    for(const light of nodes)light.removeFromParent?.();
+  };
   // Custom primitives REPLACE the legacy world in the live renderer.
   // Only accepted primitive scenes get their own GLB override.
   const accepted=sequence.primitiveScenes?.scenes||[];
@@ -83,6 +103,7 @@ export async function buildAfterEffectsPackage({
     root.position.x-=shot.aeOrigin[0];
     root.position.y-=shot.aeOrigin[1];
     root.position.z-=shot.aeOrigin[2];
+    stripGltfLights(root);
     entries.push({name:shotAssetPath(index),data:await exportGLB(root,shot.name)});
     shotCount++;
   }
