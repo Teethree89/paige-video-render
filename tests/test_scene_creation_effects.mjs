@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {CREATE_CATEGORIES,CREATE_DEFAULTS,insertCreatedAsset,validateCreateChoice} from '../scene-asset-catalog.js';
 import {validatePrimitiveDocument,validateSceneEffects,LIMITS} from '../primitive-schema.js';
+import {editLightTransform,deleteLightObject} from '../scene-object-operations.js';
 const empty=()=>({schemaVersion:1,scenes:[]});
 test('every radial Create submenu item creates validated scene geometry or a punctual light',()=>{
  for(const category of CREATE_CATEGORIES)for(const [preset] of category.items){
@@ -71,4 +72,25 @@ test('Create menu and scene effect render paths ship in both editor and video',a
  assert.match(markup,/id="sceneBloomEnabled"/);
  assert.match(world,/if\(!entry\.objects\.length&&/);
  assert.match(editor,/createAsset\(category,preset,origin=/);
+});
+
+test('light gizmo move/delete preserves unrelated accepted shapes and never exports markers',async()=>{
+ const base=insertCreatedAsset(empty(),'a','primitives','sphere',[0,0,0]).document;
+ const created=insertCreatedAsset(base,'a','lights','spot-warm',[0,0,0]);
+ const light=created.document.scenes[0].lights[0],before=JSON.stringify(created.document.scenes[0].objects);
+ const moved=editLightTransform(created.document,['a'],'a',light.id,[9,6,-3]);
+ assert.deepEqual(moved.scenes[0].lights[0].position,[9,6,-3]);
+ assert.equal(JSON.stringify(moved.scenes[0].objects),before);
+ const deleted=deleteLightObject(moved,['a'],'a',light.id);
+ assert.equal(deleted.scenes[0].lights?.length||0,0);
+ assert.equal(JSON.stringify(deleted.scenes[0].objects),before);
+ const world=await readFile(new URL('../primitive-world.js',import.meta.url),'utf8');
+ const editor=await readFile(new URL('../scene-object-edit.js',import.meta.url),'utf8');
+ assert.match(world,/Editor_light_markers_/);
+ assert.match(world,/markerRoot\.visible=false/);
+ assert.match(world,/setLightMarkersVisible/);
+ assert.match(world,/return copy;/);
+ assert.match(editor,/onLightTransform/);
+ assert.match(editor,/primitiveLightId/);
+ assert.throws(()=>editLightTransform(deleted,['a'],'a',light.id,[0,0,0]),/no longer exists/);
 });
