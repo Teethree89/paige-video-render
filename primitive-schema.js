@@ -102,6 +102,25 @@ const sceneLights=(value,shotId)=>{
     return out;
   });
 };
+// Chapter-specific look profile; additive v1 schema extension. These
+// parameters are stored in JSON (and portable projects), not arbitrary GLSL.
+export function validateSceneEffects(value){
+ if(value===undefined||value===null)return undefined;
+ if(!value||typeof value!=='object'||Array.isArray(value))fail('effects must be an object');
+ const fog=value.fog||{mode:'default',color:'#526779',density:.008};
+ if(!['default','off','custom'].includes(fog.mode))fail('invalid fog mode');
+ const bloom=value.bloom||{enabled:false,strength:.45,threshold:.8,radius:.35};
+ if(typeof bloom.enabled!=='boolean')fail('bloom enabled must be boolean');
+ return {
+   fog:{mode:fog.mode,color:hexColor(fog.color||'#526779','fog color'),
+     density:finite(fog.density??.008,'fog density',0,.15)},
+   bloom:{enabled:bloom.enabled,strength:finite(bloom.strength??.45,'bloom strength',0,4),
+     threshold:finite(bloom.threshold??.8,'bloom threshold',0,1),
+     radius:finite(bloom.radius??.35,'bloom radius',0,1)},
+   exposure:finite(value.exposure??1.35,'scene exposure',.2,5),
+   vignette:finite(value.vignette??.45,'vignette strength',0,1)
+ };
+}
 export function repeatOffsets(repeat){
   if(!repeat)return [[0,0,0]];
   const [nx,ny,nz]=repeat.count,[dx,dy,dz]=repeat.spacing,offsets=[];
@@ -172,7 +191,9 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
     });
     const camera=scene.camera==null?undefined:sceneCamera(scene.camera,shotId);
     const lights=scene.lights==null?[]:sceneLights(scene.lights,shotId);
-    return {shotId,objects,...(camera?{camera}:{}),...(lights.length?{lights}:{})};
+    const effects=validateSceneEffects(scene.effects);
+    return {shotId,objects,...(camera?{camera}:{}),...(lights.length?{lights}:{}),
+      ...(effects?{effects}:{})};
   });
   return {schemaVersion:1,scenes};
 }
