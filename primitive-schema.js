@@ -80,12 +80,12 @@ const sceneLights=(value,shotId)=>{
   const seen=new Set();
   return value.map((light,i)=>{
     const label=shotId+' light '+(i+1);
-    const id=identifier(light?.id??('light_'+(i+1)),'light id');
-    if(seen.has(id))fail('duplicate light id '+id);
-    seen.add(id);
+    const id=light?.id==null?null:identifier(light.id,'light id');
+    if(id&&seen.has(id))fail('duplicate light id '+id);
+    if(id)seen.add(id);
     if(!light||typeof light!=='object'||Array.isArray(light))fail(label+' is invalid');
     if(!LIGHT_TYPES.includes(light.type))fail(label+' has unsupported light type');
-    const out={id,type:light.type,name:displayName(light.name,light.type+' light '+(i+1)),
+    const out={...(id?{id}:{}),type:light.type,name:displayName(light.name,light.type+' light '+(i+1)),
       color:hexColor(light.color,label+' color'),
       intensity:finite(light.intensity,label+' intensity',0,light.type==='directional'?10:500),
       position:vec(light.position,label+' position',-10000,10000)};
