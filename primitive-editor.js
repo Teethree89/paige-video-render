@@ -60,7 +60,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       edit(entry,doc,shot);
       onDocumentChange(validatePrimitiveDocument(doc,allowed()));
       status.textContent='Scene changes saved in your editable timeline.';
-      refresh();onSelectionChange(selectedId);
+      refresh();onSelectionChange(selectedId||(selectedLightId?'light::'+selectedLightId:null));
     }catch(err){status.textContent='Change rejected: '+err.message;console.error(err);}
   }
   function refresh(){
@@ -170,7 +170,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     const entry=shot?sceneFor(getPrimitiveDocument(),shot.id):null;
     const valid=entry?.objects.some(item=>item.id===id);
     selectedId=valid?id:null;
-    if(valid)selectedLightId=null;
+    if(valid||!id)selectedLightId=null;
     if(valid&&layerFilter.value!=='all'&&
        !entry.objects.find(item=>item.id===id&&
          (item.layer||'manual')===layerFilter.value))layerFilter.value='all';
@@ -178,7 +178,16 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     if(notify)onSelectionChange(selectedId);
     return valid||!id;
   }
-  layerFilter.addEventListener('change',()=>{selectedId=null;refresh();onSelectionChange(null);});
+  function selectLight(id,{notify=false}={}){
+    const shot=getActiveShot();
+    const entry=shot?sceneFor(getPrimitiveDocument(),shot.id):null;
+    const valid=entry?.lights?.some(light=>light.id===id);
+    selectedLightId=valid?id:null;selectedId=null;
+    refresh();
+    if(notify)onSelectionChange(valid?'light::'+id:null);
+    return !!valid||!id;
+  }
+  layerFilter.addEventListener('change',()=>{selectedId=null;selectedLightId=null;refresh();onSelectionChange(null);});
   objectSelect.addEventListener('change',()=>selectObject(objectSelect.value||null,{notify:true}));
   el('primitiveName').addEventListener('change',event=>apply(entry=>{
     const item=entry.objects.find(o=>o.id===selectedId);if(item)item.name=event.target.value;
@@ -243,7 +252,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       selectedLightId=result.selected.kind==='light'?result.selected.id:null;
       if(selectedId)layerFilter.value='all';
       onDocumentChange(validatePrimitiveDocument(result.document,allowed()));
-      refresh();onSelectionChange(selectedId);
+      refresh();onSelectionChange(selectedId||(selectedLightId?'light::'+selectedLightId:null));
       editor.open=true;
       status.textContent='Created '+preset.replaceAll('-',' ')+' in '+shot.name+'.';
       return true;
@@ -252,10 +261,8 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     }
   }
   el('primitiveAddLight').addEventListener('click',()=>createAsset('lights','point-white'));
-  el('primitiveLightSelect').addEventListener('change',event=>{
-    selectedLightId=event.target.value||null;selectedId=null;
-    refresh();onSelectionChange(null);
-  });
+  el('primitiveLightSelect').addEventListener('change',event=>
+    selectLight(event.target.value||null,{notify:true}));
   function editLight(changer){
     apply(entry=>{
       const light=entry.lights?.find(l=>l.id===selectedLightId);
@@ -322,5 +329,5 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     finally{button.disabled=false;refresh();}
   });
   refresh();
-  return {refresh,selectObject,createAsset,getSelectedId:()=>selectedId,getSelectedLightId:()=>selectedLightId};
+  return {refresh,selectObject,selectLight,createAsset,getSelectedId:()=>selectedId,getSelectedLightId:()=>selectedLightId};
 }
