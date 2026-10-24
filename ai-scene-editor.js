@@ -852,7 +852,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     status('Preview discarded; saved geometry is unchanged.');ui();
   });
   ui();checkLogin();
-  return {hasPending:()=>!!pending,reset:()=>{
+  return {hasPending:()=>!!pending,isBusy:()=>busy||!!(argonJob&&['queued','in_progress'].includes(argonJob.status)),reset:()=>{
     if(pending)onDiscard();
     pending=null;pendingShot=null;ui();
   }};

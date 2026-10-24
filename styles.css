@@ -212,3 +212,19 @@ html,body{font-size:14px}
  .header-actions{margin-left:0;flex-wrap:wrap}
  .workbench{height:auto}
 }
+
+/* Nonlinear sequence timeline interactions and precision edit handles. */
+.timeline-edit-tools{display:flex;align-items:center;flex-wrap:wrap;gap:5px;flex-shrink:0;padding:6px 15px;background:#132234;border-bottom:1px solid #304859}
+.timeline-edit-tools button{padding:6px 10px;font-size:11px;font-weight:650;border:1px solid #3c586a;border-radius:6px;background:#223447;color:#d0e5ee;white-space:nowrap}
+.timeline-edit-tools button[aria-pressed=true]{background:#20474b;border-color:#4cb9ad;color:#c9fff3}
+.timeline-edit-tools button:disabled{opacity:.3;cursor:not-allowed}
+#timelineEditStatus{font-size:10px;color:#8caebb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:120px;flex:1}
+.track-label{justify-content:space-between;gap:5px;padding-right:8px}
+.timeline-track-lock{flex-shrink:0;padding:5px;background:transparent;border:1px solid #3a5064;color:#83a7bb;border-radius:4px;font-size:11px}
+.timeline-track-lock[aria-pressed=true]{border-color:#d6a86c;color:#ffd1a5}
+.chapter-resize-handle,.text-resize-handle{position:absolute;top:0;right:0;height:100%;width:11px;background:linear-gradient(90deg,transparent,rgba(208,255,246,.46));cursor:ew-resize;z-index:6;border-left:1px solid rgba(255,255,255,.35)}
+.chapter-resize-handle:hover,.text-resize-handle:hover{background:#b4f4e0aa}
+.shot-item{touch-action:pan-y;user-select:none}
+.key-marker,.text-item{touch-action:none;user-select:none}
+.timeline-section{min-height:260px}
+@media(max-width:780px){.timeline-edit-tools{padding:5px 9px;gap:3px}.timeline-edit-tools button{font-size:10px;padding:5px 7px}}

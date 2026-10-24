@@ -83,7 +83,7 @@ export function setupReferenceBuilder({onApply}){
   function sourceForShot(id){
     const item=items.find(x=>x.id===id),asset=assetFor(item);
     if(!item||!asset)return null;
-    return {...item,url:asset.url,file:asset.file};
+    return {...item,url:asset.url,file:asset.file,mediaDuration:asset.duration};
   }
   function loadFromSequence(sequence){
     stopSequence();
