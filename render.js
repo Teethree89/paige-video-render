@@ -6,6 +6,7 @@ import {createPrimitiveWorld} from './primitive-world.js';
 import {shotAnchorMap,restoreSavedPrimitiveWorld} from './primitive-preview.js';
 import {evaluateCamera,curveEasing} from './animation-curves.js';
 import {clipPlanesForScene} from './camera-motion-sync.js';
+import {effectsForShot,applyShotEffects,createScenePostprocessor,paintVignette} from './scene-effects.js';
 import {createGenerationSounds} from './generation-sounds.js';
 const $=id=>document.getElementById(id);
 const out=$('output'), ctx=out.getContext('2d',{alpha:false});
@@ -15,6 +16,7 @@ renderer.setPixelRatio(1);renderer.outputColorSpace=THREE.SRGBColorSpace;rendere
 const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(50,16/9,.35,500);const world=buildWorld(scene),draftWorld=createDraftWorld(scene),primitiveWorld=createPrimitiveWorld(scene);
 let seq,modelCount=0,frameRequest=0,previewing=false,recording=false,previewStart=0,previewTime=0,recorder=null;
 const renderBoundsCache=new Map();
+const post=createScenePostprocessor(renderer,scene,cam);
 const generationSounds=createGenerationSounds();
 let exportFinalized=false;
 const finalExportSound=outcome=>{
@@ -50,14 +52,16 @@ function render(t){
  const planes=clipPlanesForScene(c.p,c.t,renderBoundsCache.get(currentShot.id));
  cam.position.set(...c.p);cam.lookAt(...c.t);cam.fov=c.fov;cam.aspect=16/9;
  cam.near=planes.near;cam.far=planes.far;cam.updateProjectionMatrix();
- const custom=primitiveWorld.hasObjects(currentShot.id);world.update(t,currentShot.id,custom);primitiveWorld.showShot(currentShot.id);draftWorld.update(currentShot,custom);renderer.render(scene,cam);ctx.drawImage(source,0,0,out.width,out.height);
- // Approximate viewport's vignette in the output so the scene exports without editor chrome.
- const gr=ctx.createLinearGradient(0,0,0,out.height);gr.addColorStop(0,'rgba(3,8,13,.25)');gr.addColorStop(.26,'rgba(3,8,13,0)');gr.addColorStop(.75,'rgba(4,11,17,0)');gr.addColorStop(1,'rgba(4,11,17,.48)');ctx.fillStyle=gr;ctx.fillRect(0,0,out.width,out.height);
+ const custom=primitiveWorld.hasObjects(currentShot.id);world.update(t,currentShot.id,custom);primitiveWorld.showShot(currentShot.id);draftWorld.update(currentShot,custom);
+ const profile=applyShotEffects(scene,renderer,effectsForShot(seq,currentShot.id));
+ post.configure(profile);post.render();ctx.drawImage(source,0,0,out.width,out.height);
+ // Match the saved chapter vignette while omitting editor controls.
+ paintVignette(ctx,out.width,out.height,profile);
  labelsAt(t);
  // Match source timeline's intentionally brief black flash at camera cuts.
  let flash=0;for(const k of seq.camera){if(!k.cut||k.at<=0)continue;const dt=Math.abs(t-k.at);if(dt<.17)flash=Math.max(flash,(1-dt/.17)*.72);}if(flash){ctx.fillStyle=`rgba(3,11,18,${flash})`;ctx.fillRect(0,0,out.width,out.height);}
 }
-function resize(){const w=Number($('size').value);out.width=source.width=w;out.height=source.height=Math.round(w*9/16);renderer.setSize(w,out.height,false);cam.aspect=w/out.height;cam.updateProjectionMatrix();render(previewTime);}
+function resize(){const w=Number($('size').value);out.width=source.width=w;out.height=source.height=Math.round(w*9/16);renderer.setSize(w,out.height,false);post.setSize(w,out.height);cam.aspect=w/out.height;cam.updateProjectionMatrix();render(previewTime);}
 async function loadModels(){const response=await fetch('./assets/models/manifest.json',{cache:'no-store'});if(!response.ok)throw Error('Missing GLB manifest');const manifest=await response.json(),loader=new GLTFLoader();let failed=[];
  for(const id of ['exterior','hall','pcb','atoms','laser','fiber','optics']){
   const ent=manifest.models?.[id];if(!ent?.enabled)continue;
