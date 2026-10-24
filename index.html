@@ -93,6 +93,28 @@
           </div>
           <p id="acceptedCameraSyncStatus" class="field-help" role="status">Choose a chapter containing accepted 3D geometry.</p>
         </section>
+        <details id="sceneEffectsPanel" class="scene-effects-panel">
+          <summary>SCENE EFFECTS · FOG / BLOOM / LOOK</summary>
+          <p class="field-help">Per-chapter post-processing is reflected in the live viewport and rendered video. Bloom can cost GPU performance. These are visual effects, not extra geometry.</p>
+          <label class="field">Atmosphere
+            <select id="sceneFogMode"><option value="default">Environment default</option>
+              <option value="off">No fog</option><option value="custom">Custom fog</option></select>
+          </label>
+          <div id="sceneFogFields">
+            <label class="field">Fog color <input id="sceneFogColor" type="color" value="#526779"></label>
+            <label class="field">Fog density <input id="sceneFogDensity" type="number" min="0" max="0.15" step="0.001" value="0.008"></label>
+          </div>
+          <label class="checkbox-field"><input id="sceneBloomEnabled" type="checkbox"> Enable bloom</label>
+          <div id="sceneBloomFields">
+            <label class="field">Bloom strength <input id="sceneBloomStrength" type="range" min="0" max="4" step="0.05" value="0.45"></label>
+            <label class="field">Threshold <input id="sceneBloomThreshold" type="range" min="0" max="1" step="0.01" value="0.8"></label>
+            <label class="field">Bloom radius <input id="sceneBloomRadius" type="range" min="0" max="1" step="0.01" value="0.35"></label>
+          </div>
+          <label class="field">Exposure <input id="sceneExposure" type="range" min="0.2" max="5" step="0.05" value="1.35"></label>
+          <label class="field">Vignette <input id="sceneVignette" type="range" min="0" max="1" step="0.02" value="0.45"></label>
+          <p id="sceneEffectsStatus" class="field-help" role="status">Effects apply to the current chapter only.</p>
+          <button id="sceneEffectsReset" type="button" class="wide ghost">Reset chapter effects</button>
+        </details>
         <details id="primitiveEditor" class="primitive-inspector">
           <summary>3D PRIMITIVE SCENE EDITOR</summary>
           <p class="field-help">Build and edit chapter geometry. Switch to <strong>Edit</strong> below the viewport to click, highlight, move, rotate or delete an accepted object. Repeated copies move as one object. Generated proposals must be accepted first.</p>
