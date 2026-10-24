@@ -60,8 +60,12 @@ export function setupAcceptedCameraSync({
     mode.disabled=!edit;
     apply.disabled=!edit||!staged;
     if(reason&&!staged)tell(reason);
-    if(staged&&acceptedCameraSnapshot(getSequence(),staged.shotId)!==staged.snapshot)
-      discard({notify:false});
+    if(staged){
+      let unchanged=false;
+      try{unchanged=acceptedCameraSnapshot(getSequence(),staged.shotId)===staged.snapshot;}
+      catch{}
+      if(!unchanged)discard({notify:false});
+    }
   }
   preview.addEventListener('click',()=>{
     if(!canEdit())return tell('Finish the active AI job or proposal before camera synchronization.');
