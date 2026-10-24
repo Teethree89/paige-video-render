@@ -1,6 +1,52 @@
 import * as THREE from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 
+// Construct the bounds in the selected object's LOCAL coordinates. A world
+// BoxHelper is axis aligned and visually slips away from rotated primitives.
+// Keeping this line in the scene (rather than under the selected object) also
+// prevents temporary editing chrome from appearing in GLB/AE exports.
+export function createSelectionOutline(object){
+  if(!object)throw Error('Selection outline requires an object');
+  object.updateWorldMatrix(true,true);
+  const inverse=new THREE.Matrix4().copy(object.matrixWorld).invert();
+  const relative=new THREE.Matrix4(),localBounds=new THREE.Box3();
+  let found=false;
+  object.traverse(node=>{
+    if(!node.isMesh||!node.geometry)return;
+    if(!node.geometry.boundingBox)node.geometry.computeBoundingBox();
+    if(!node.geometry.boundingBox)return;
+    relative.multiplyMatrices(inverse,node.matrixWorld);
+    const bounds=node.geometry.boundingBox.clone().applyMatrix4(relative);
+    localBounds.union(bounds);
+    found=true;
+  });
+  if(!found||localBounds.isEmpty())return null;
+  // Edges of a unit cube, transformed first to LOCAL object bounds and then
+  // by the selected node's complete world matrix (shot anchor + rotation +
+  // nonuniform scale). This is an oriented box, unlike BoxHelper.
+  const unit=new THREE.BoxGeometry(1,1,1);
+  const edges=new THREE.EdgesGeometry(unit);unit.dispose();
+  const line=new THREE.LineSegments(edges,new THREE.LineBasicMaterial({
+    color:0x93fff0,depthTest:false,transparent:true,opacity:.95
+  }));
+  const center=localBounds.getCenter(new THREE.Vector3());
+  const dimensions=localBounds.getSize(new THREE.Vector3());
+  const localTransform=new THREE.Matrix4().compose(
+    center,new THREE.Quaternion(),dimensions);
+  line.name='Selected object outline (editor only)';
+  line.renderOrder=999;
+  line.frustumCulled=false;line.matrixAutoUpdate=false;
+  function update(){
+    object.updateWorldMatrix(true,false);
+    line.matrix.multiplyMatrices(object.matrixWorld,localTransform);
+    line.matrixWorld.copy(line.matrix);
+  }
+  update();
+  return {line,update,dispose(){
+    line.removeFromParent();line.geometry.dispose();line.material.dispose();
+  }};
+}
+
 // View/Edit is deliberately separate from AI proposals. Only accepted
 // primitives can be selected and edited; all changes go through validated
 // scene JSON and the existing local-save/export path.
@@ -25,14 +71,13 @@ export function setupSceneObjectEditing({
   const message=text=>{if(hint)hint.textContent=text;onStatus?.(text);};
   const currentShot=()=>getActiveShot()?.id||null;
   function clearHighlight(){
-    if(highlight){scene.remove(highlight);highlight.geometry?.dispose();highlight.material?.dispose();highlight=null;}
+    highlight?.dispose();highlight=null;
   }
-  function updateHighlight(){if(highlight&&transform.object)highlight.update();}
+  function updateHighlight(){highlight?.update();}
   function showHighlight(object){
-    clearHighlight();highlight=new THREE.BoxHelper(object,0x93fff0);
-    highlight.material.depthTest=false;highlight.material.transparent=true;
-    highlight.material.opacity=.95;highlight.renderOrder=999;
-    scene.add(highlight);
+    clearHighlight();
+    highlight=createSelectionOutline(object);
+    if(highlight)scene.add(highlight.line);
   }
   function updateButtons(){
     view?.setAttribute('aria-pressed',String(!active));
@@ -164,7 +209,7 @@ export function setupSceneObjectEditing({
   return {
     get active(){return active;},
     get selectedId(){return selectedId;},
-    setActive,refresh,select,setMode,deleteSelected,
+    setActive,refresh,select,setMode,deleteSelected,updateHighlight,
     dispose(){setActive(false,{skipExit:true});transform.dispose?.();scene.remove(helper);clearHighlight();}
   };
 }
