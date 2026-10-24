@@ -137,15 +137,50 @@
     layer.property("ADBE Transform Group").property("ADBE Position").setValue([x*W/100,y*H/100]);
     fadeOpacity(layer,start,end);return layer;
   }
+  // Mirrors animation-curves.js. AE camera paths are sampled (baked), so
+  // key interpolation modes are respected without requiring AE expressions.
+  function easeCamera(u,curve) {
+    u=Math.max(0,Math.min(1,u));
+    var mode=curve && curve.mode ? curve.mode : "smooth";
+    if(mode==="linear")return u;
+    if(mode==="hold")return 0;
+    if(mode==="ease-in")return u*u;
+    if(mode==="ease-out")return 1-(1-u)*(1-u);
+    if(mode==="bezier") {
+      var h=curve.handles,valid=h && h.length===4;
+      if(valid)for(var j=0;j<4;j++)
+        if(!(typeof h[j]==="number" && isFinite(h[j]) && h[j]>=0 && h[j]<=1))valid=false;
+      if(valid){
+        if(u===0 || u===1)return u;
+        var lo=0,hi=1,mid,k;
+        for(k=0;k<24;k++){
+          mid=(lo+hi)/2;
+          var x=3*h[0]*(1-mid)*(1-mid)*mid+3*h[2]*(1-mid)*mid*mid+mid*mid*mid;
+          if(x<u)lo=mid;else hi=mid;
+        }
+        mid=(lo+hi)/2;
+        var y=3*h[1]*(1-mid)*(1-mid)*mid+3*h[3]*(1-mid)*mid*mid+mid*mid*mid;
+        return Math.max(0,Math.min(1,y));
+      }
+    }
+    return u*u*(3-2*u);
+  }
   function interpCamera(seq,t) {
     var keys=seq.camera;if(t<=keys[0].at)return keys[0];
     for(var i=0;i<keys.length-1;i++){
-      var k0=keys[i],k1=keys[i+1];if(t>=k0.at && t<k1.at){if(k1.cut)return k0;
-        var u=(t-k0.at)/(k1.at-k0.at);u=u*u*(3-2*u);
-        var p=[],look=[];for(var j=0;j<3;j++){p.push(k0.p[j]*(1-u)+k1.p[j]*u);look.push(k0.t[j]*(1-u)+k1.t[j]*u);}
-        return {p:p,t:look,fov:k0.fov*(1-u)+k1.fov*u};
+      var a=keys[i],b=keys[i+1];
+      if(t>=a.at && t<b.at){
+        if(b.cut || b.at<=a.at)return a;
+        var u=easeCamera((t-a.at)/(b.at-a.at),a.curve);
+        var p=[],look=[];
+        for(var j=0;j<3;j++){
+          p.push(a.p[j]*(1-u)+b.p[j]*u);
+          look.push(a.t[j]*(1-u)+b.t[j]*u);
+        }
+        return {p:p,t:look,fov:a.fov*(1-u)+b.fov*u};
       }
-    }return keys[keys.length-1];
+    }
+    return keys[keys.length-1];
   }
   function addCameraKeys(comp,seq,shot,sceneOffset) {
     var camera=comp.layers.addCamera("Camera path reference — approximate AE axes",[W/2,H/2]);
