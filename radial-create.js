@@ -10,7 +10,7 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
  const submenu=document.getElementById('sceneCreateSubmenu');
  const trigger=document.getElementById('sceneCreateMenuButton');
  if(!viewport||!menu||!wheel||!submenu||!trigger)throw Error('Missing Create radial menu UI');
- let shown=false,press=null,hold=null,hover=null,submenuClosing=null;
+ let shown=false,press=null,hold=null,hover=null,submenuClosing=null,menuPoint=null;
  let last={category:'primitives',item:'box'};
  const perCategory={...CREATE_DEFAULTS};
  try{
@@ -33,7 +33,7 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
    b.textContent=label;b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();handler();});
    return b;
  };
- function create(category,item,at=press){
+ function create(category,item,at=press||menuPoint){
    try{
      validateCreateChoice(category,item);
      if(!canCreate()){onStatus('Switch to Edit mode and finish any active AI preview before creating.');hide();return false;}
@@ -92,6 +92,7 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
    if(!canCreate()){onStatus('Switch to Edit mode before using the Create wheel.');return;}
    cleanup();categories();shown=true;
    const rect=viewport.getBoundingClientRect();
+   menuPoint={x:clientX,y:clientY};
    const size=Math.min(320,rect.width-12,rect.height-12),half=size/2;
    const x=Number.isFinite(clientX)?clientX:rect.left+rect.width/2;
    const y=Number.isFinite(clientY)?clientY:rect.top+rect.height/2;
