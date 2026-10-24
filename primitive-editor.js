@@ -276,11 +276,6 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       editLight(light=>{light[key][Number(index)]=Number(event.target.value);});
     });
   el('primitiveDeleteLight').addEventListener('click',()=>{
-    editLight(light=>{
-      const doc=getPrimitiveDocument(),id=selectedLightId;
-      // Use apply() so the same validated save and undo path applies.
-      return light;
-    });
     apply(entry=>{entry.lights=(entry.lights||[]).filter(l=>l.id!==selectedLightId);selectedLightId=null;});
   });
   el('primitiveExportJSON').addEventListener('click',()=>{
