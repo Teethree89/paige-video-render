@@ -54,13 +54,56 @@ Merge or deploy only while no paid Argon job is active.
 
 ## Explicit scope limitations
 
-- Browser-local sources must be relinked after reload; ZIP/portable media
-  bundling is not implemented.
+- Browser-local sources still require relinking after ordinary JSON import/reload;
+  **Export with media ZIP** and **Open project ZIP** are now available for projects
+  with up to 256 MiB of source media.
 - Still scenes can set their duration, but generating one does not create motion
   automatically; resulting Three.js 3D geometry remains editable.
 - Mixed-media playback is a browser storyboard preview, not a pre-rendered
   concatenated MP4.
-- Timeline zoom, resizing and precise shot navigation are implemented, but
-  advanced multitrack ripple edits, full undo/redo and animation curves are
-  not yet part of this change set.
+- Timeline shot duplication/copy/paste, camera/text key dragging, ripple trimming,
+  chapter reorder/delete, track locks, and undo/redo now follow in PR #104.
+  Advanced camera easing, Bézier handles and multi-channel graphs follow in #105.
+  These work across the existing scene/camera/text tracks; audio editing and
+  transition effects are outside this project scope.
 - The original 3D camera track, text track and export formats remain intact.
+
+## Complete timeline editing (PR #104)
+
+Use the bar above the timeline to select **Copy** and **Paste** for the active
+chapter, including its accepted scene geometry, contained camera keys, text and
+reference media ID. Pasted scenes have new shot/object/key IDs, not aliases.
+Drag the right edge of a chapter to resize; **Ripple ON** shifts later scenes
+and keys, while **Ripple OFF** moves the shared boundary and retimes the
+adjacent scene. You can type an exact chapter duration in the Inspector.
+Drag camera diamonds and text bars to retime them; resize text with its
+right-edge handle. Camera key time is also editable numerically. Use track
+locks to prevent accidental edits and **Snap ON** to snap to frame/boundary
+positions. Undo/Redo work with Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Y).
+
+Moving/deleting a chapter that has a caption spanning multiple chapter
+boundaries is intentionally refused: split the caption first rather than
+silently moving or truncating it. Structural timeline edits are disabled
+while a paid Argon job is active or an unsaved geometry proposal is pending.
+
+## Camera curves (PR #105)
+
+Select a camera key in the timeline to use the Inspector's **Animation Curves**
+panel. Choose legacy smooth, linear, ease-in, ease-out, hold/step or custom
+Bézier. Drag either cubic handle or type normalized coordinates. The value
+graph plots X/Y/Z camera position and field of view over the whole timeline.
+Select a text overlay to choose a fade interpolation profile. Existing timelines
+without per-key curve metadata retain the original smooth camera path.
+
+## Portable full-project ZIP (PR #106)
+
+Reference Builder's **Export with media ZIP** writes a portable archive with
+the editable timeline and all attached source images/videos, deduplicated by
+media ID. **Open project ZIP** reimports both the document and its local source
+files, after explicitly asking before replacing the current timeline. Existing
+JSON export and After Effects export are unchanged.
+
+This is an uncompressed stored ZIP. To avoid browser memory exhaustion, export
+and import are capped at 256 MiB of original media and 80 unique media assets.
+For larger productions, use JSON plus original files, or split the project.
+No source media or API key is uploaded to any server during ZIP creation.

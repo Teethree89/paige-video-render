@@ -1,5 +1,6 @@
 import {buildReferenceTimeline,validateReferenceItems} from './reference-sequence.js';
 import {mountReferenceBuilderUI} from './reference-builder-ui.js';
+import {makePortableProject,openPortableProject} from './portable-reference.js';
 
 const el=id=>document.getElementById(id);
 const rounded=n=>Math.round(n*1000)/1000;
@@ -40,7 +41,7 @@ async function loadVideoMetadata(url){
 }
 let counter=0;
 const newId=prefix=>prefix+'_'+Date.now().toString(36)+'_'+(++counter).toString(36);
-export function setupReferenceBuilder({onApply}){
+export function setupReferenceBuilder({onApply,getSequence=()=>null}){
   mountReferenceBuilderUI();
   const modal=el('referenceBuilderModal'),status=el('rbStatus'),
     list=el('rbScenes'),image=el('rbImage'),video=el('rbVideo'),
@@ -267,6 +268,51 @@ export function setupReferenceBuilder({onApply}){
       if(!confirm('Use this reference sequence in the editor? This replaces the current working timeline. Export existing edits first.'))return;
       onApply({timeline});stopSequence();modal.hidden=true;say('Reference sequence applied. Media stays local.');
     }catch(error){say(error.message);}
+  });
+  const bundlePicker=el('rbBundlePicker');
+  el('rbBundleOpen').addEventListener('click',()=>bundlePicker.click());
+  bundlePicker.addEventListener('change',async()=>{
+    const file=bundlePicker.files?.[0];bundlePicker.value='';
+    if(!file||busy)return;
+    if(!confirm('Import this portable project with its original media? This replaces the working editor timeline. Export current edits first.'))return;
+    busy=true;render();say('Reading portable project and validating media files…');
+    try{
+      const loaded=await openPortableProject(file);
+      stopSequence();
+      for(const item of loaded.media){
+        const old=assets.get(item.mediaId);
+        const url=URL.createObjectURL(item.file);
+        let details={duration:5,thumbnail:item.kind==='image'?url:''};
+        try{if(item.kind==='video')details=await loadVideoMetadata(url);}
+        catch(err){URL.revokeObjectURL(url);throw Error('Bundled video cannot be decoded: '+err.message);}
+        assets.set(item.mediaId,{file:item.file,url,kind:item.kind,...details});
+        if(old?.url&&old.url!==url)URL.revokeObjectURL(old.url);
+      }
+      onApply({timeline:loaded.timeline,fromBundle:true});
+      loadFromSequence(loaded.timeline);
+      modal.hidden=true;
+      say('Portable project and all '+loaded.media.length+' sources restored locally.');
+    }catch(err){say('Could not open portable project: '+err.message);}
+    finally{busy=false;render();}
+  });
+  el('rbBundleExport').addEventListener('click',async()=>{
+    if(busy||!items.length)return;
+    busy=true;render();say('Packaging project and original media locally…');
+    try{
+      const original=getSequence();
+      const normalized=validateReferenceItems(items);
+      const matches=original?.referenceSequence?.items&&
+        JSON.stringify(validateReferenceItems(original.referenceSequence.items))===JSON.stringify(normalized);
+      const timeline=matches?original:buildReferenceTimeline(normalized);
+      const zip=await makePortableProject(timeline,item=>assets.get(item.mediaId)?.file);
+      const url=URL.createObjectURL(zip),a=document.createElement('a');
+      a.href=url;a.download='paige-studio-portable-project.zip';
+      document.body.append(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),30000);
+      say('Project ZIP exported with '+new Set(items.map(x=>x.mediaId)).size+' original media file(s).'+
+        (matches?'':' Unapplied scene changes were exported as a draft timeline.'));
+    }catch(err){say('Portable project export failed: '+err.message);}
+    finally{busy=false;render();}
   });
   el('rbDownload').addEventListener('click',()=>{
     try{

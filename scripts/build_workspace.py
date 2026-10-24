@@ -23,7 +23,7 @@ FILES = [
     "primitive-world.js", "primitive-editor.js", "workspace-controls.js", "timeline-operations.js", "timeline-tools.js", "animation-curves.js", "animation-graph.js", "scene-object-edit.js", "scene-object-operations.js",
     "ai-scene-editor.js", "primitive-preview.js", "environment-generation.js",
     "argon-detail.js", "ai-generation-overlay.js", "generation-sounds.js",
-    "reference-sequence.js", "reference-builder.js", "reference-builder-ui.js", "reference-frames.js", "reference-builder.css", "help-toggles.js",
+    "reference-sequence.js", "reference-builder.js", "reference-builder-ui.js", "reference-frames.js", "portable-reference.js", "reference-builder.css", "help-toggles.js",
     "scene-proxy.php", "wrangler.toml", "timeline.json", "README.md", "AGENTS.md",
     "EXTERNAL_MODELS.md", "VIDEO_AND_AFTER_EFFECTS.md",
     "start.sh", "convert_to_mp4.sh", "convert_to_mp4.bat",

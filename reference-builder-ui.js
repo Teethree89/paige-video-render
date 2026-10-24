@@ -73,7 +73,10 @@ export function mountReferenceBuilderUI(root=document){
     </div>
     <footer class="reference-builder-footer">
       <span>LOCAL MEDIA · REATTACH ORIGINAL FILES AFTER RELOADING</span>
-      <div><button id="rbDownload" type="button" class="ghost">Export reference JSON</button>
+      <div><input id="rbBundlePicker" type="file" accept=".zip,application/zip" hidden>
+        <button id="rbBundleOpen" type="button" class="ghost">Open project ZIP</button>
+        <button id="rbBundleExport" type="button" class="ghost">Export with media ZIP</button>
+        <button id="rbDownload" type="button" class="ghost">Export reference JSON</button>
         <button id="rbApply" type="button" class="primary" disabled>Use in 3D Editor →</button>
       </div>
     </footer>
