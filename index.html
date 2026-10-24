@@ -70,6 +70,23 @@
       <div id="projectPanel" class="panel-block">
         <div class="section-label">SEQUENCE</div><div class="stat-row"><span>Project</span><b>Advanced Materials</b></div><div class="stat-row"><span>Runtime</span><b>56.47 s</b></div><div class="stat-row"><span>Camera keys</span><b id="keyCount">—</b></div><div class="stat-row"><span>Text overlays</span><b id="textCount">—</b></div>
         <button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><div class="divider"></div>
+        <section id="acceptedCameraSyncPanel" class="camera-sync-panel accepted-camera-sync" hidden aria-label="Sync camera to already accepted 3D chapter model">
+          <div class="section-label">SYNC ACCEPTED MODEL CAMERA · FREE</div>
+          <p class="field-help">Already accepted a 3D model? Align this chapter's existing pan, orbit, and dolly path to its actual model size. Preview first; your geometry and saved camera keys remain unchanged until you apply.</p>
+          <label class="field">Camera alignment
+            <select id="acceptedCameraSyncMode">
+              <option value="motion" selected>Preserve authored motion (recommended)</option>
+              <option value="fit">Fit entire model</option>
+              <option value="model-view">Align with model's suggested view</option>
+            </select>
+          </label>
+          <button id="acceptedCameraSyncPreview" class="wide secondary" type="button">Preview camera sync</button>
+          <div class="primitive-buttons">
+            <button id="acceptedCameraSyncApply" class="secondary" type="button" disabled>Apply to camera keys</button>
+            <button id="acceptedCameraSyncCancel" class="ghost" type="button" hidden>Discard preview</button>
+          </div>
+          <p id="acceptedCameraSyncStatus" class="field-help" role="status">Choose a chapter containing accepted 3D geometry.</p>
+        </section>
         <details id="primitiveEditor" class="primitive-inspector">
           <summary>3D PRIMITIVE SCENE EDITOR</summary>
           <p class="field-help">Build and edit chapter geometry. Switch to <strong>Edit</strong> below the viewport to click, highlight, move, rotate or delete an accepted object. Repeated copies move as one object. Generated proposals must be accepted first.</p>
