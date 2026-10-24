@@ -3,7 +3,8 @@
  File > Scripts > Run Script File… > select this file.
  Creates a native .aep on your computer with editable text, shot workspaces,
  camera references and linked GLBs (including optional per-shot primitives).
- The Three.js VFX are NOT translated into AE geometry or effects.
+ Native editable lights and approximate fog, Glow, exposure and vignette
+ are reconstructed from saved chapter profiles.
 */
 (function () {
   // Never append another set of GLBs and workspaces to an existing project.
@@ -137,15 +138,50 @@
     layer.property("ADBE Transform Group").property("ADBE Position").setValue([x*W/100,y*H/100]);
     fadeOpacity(layer,start,end);return layer;
   }
+  // Mirrors animation-curves.js. AE camera paths are sampled (baked), so
+  // key interpolation modes are respected without requiring AE expressions.
+  function easeCamera(u,curve) {
+    u=Math.max(0,Math.min(1,u));
+    var mode=curve && curve.mode ? curve.mode : "smooth";
+    if(mode==="linear")return u;
+    if(mode==="hold")return 0;
+    if(mode==="ease-in")return u*u;
+    if(mode==="ease-out")return 1-(1-u)*(1-u);
+    if(mode==="bezier") {
+      var h=curve.handles,valid=h && h.length===4;
+      if(valid)for(var j=0;j<4;j++)
+        if(!(typeof h[j]==="number" && isFinite(h[j]) && h[j]>=0 && h[j]<=1))valid=false;
+      if(valid){
+        if(u===0 || u===1)return u;
+        var lo=0,hi=1,mid,k;
+        for(k=0;k<24;k++){
+          mid=(lo+hi)/2;
+          var x=3*h[0]*(1-mid)*(1-mid)*mid+3*h[2]*(1-mid)*mid*mid+mid*mid*mid;
+          if(x<u)lo=mid;else hi=mid;
+        }
+        mid=(lo+hi)/2;
+        var y=3*h[1]*(1-mid)*(1-mid)*mid+3*h[3]*(1-mid)*mid*mid+mid*mid*mid;
+        return Math.max(0,Math.min(1,y));
+      }
+    }
+    return u*u*(3-2*u);
+  }
   function interpCamera(seq,t) {
     var keys=seq.camera;if(t<=keys[0].at)return keys[0];
     for(var i=0;i<keys.length-1;i++){
-      var k0=keys[i],k1=keys[i+1];if(t>=k0.at && t<k1.at){if(k1.cut)return k0;
-        var u=(t-k0.at)/(k1.at-k0.at);u=u*u*(3-2*u);
-        var p=[],look=[];for(var j=0;j<3;j++){p.push(k0.p[j]*(1-u)+k1.p[j]*u);look.push(k0.t[j]*(1-u)+k1.t[j]*u);}
-        return {p:p,t:look,fov:k0.fov*(1-u)+k1.fov*u};
+      var a=keys[i],b=keys[i+1];
+      if(t>=a.at && t<b.at){
+        if(b.cut || b.at<=a.at)return a;
+        var u=easeCamera((t-a.at)/(b.at-a.at),a.curve);
+        var p=[],look=[];
+        for(var j=0;j<3;j++){
+          p.push(a.p[j]*(1-u)+b.p[j]*u);
+          look.push(a.t[j]*(1-u)+b.t[j]*u);
+        }
+        return {p:p,t:look,fov:a.fov*(1-u)+b.fov*u};
       }
-    }return keys[keys.length-1];
+    }
+    return keys[keys.length-1];
   }
   function addCameraKeys(comp,seq,shot,sceneOffset) {
     var camera=comp.layers.addCamera("Camera path reference — approximate AE axes",[W/2,H/2]);
@@ -161,7 +197,9 @@
     // reads the NEXT shot's cut pose and drags the prior camera toward the
     // next scene, including a different world-space origin.
     var visibleEnd=Math.max(shot.start,shot.end-1/FPS);
-    var samples=Math.max(1,Math.ceil((visibleEnd-shot.start)*5));
+    // One baked sample per source frame avoids interpolating across HOLD
+    // keyframe plateaus or losing short custom Bezier motion changes.
+    var samples=Math.max(1,Math.ceil((visibleEnd-shot.start)*FPS));
     for(var n=0;n<=samples;n++) {
       var t=shot.start+(visibleEnd-shot.start)*n/samples;
       var a=interpCamera(seq,Math.min(t,seq.duration));
@@ -174,6 +212,86 @@
         zoom.setValueAtTime(local,(H/2)/Math.tan(a.fov*Math.PI/360));
     }
     camera.shy=true;return camera;
+  }
+  // Native editable AE analogues for Paige's Three.js lights and screen FX.
+  function bounded(v,fallback,min,max){return typeof v==="number"&&isFinite(v)?Math.max(min,Math.min(max,v)):fallback;}
+  function rgb(v){var h=typeof v==="string"&&/^#[0-9a-fA-F]{6}$/.test(v)?v:"#ffffff";
+    return [parseInt(h.substr(1,2),16)/255,parseInt(h.substr(3,2),16)/255,parseInt(h.substr(5,2),16)/255];}
+  function shotScene(seq,id){var list=seq.primitiveScenes&&seq.primitiveScenes.scenes?seq.primitiveScenes.scenes:[];
+    for(var i=0;i<list.length;i++)if(list[i].shotId===id)return list[i];return null;}
+  function aePoint(v,anchor,origin){return [W/2+(v[0]+anchor[0]-origin[0])*AE_PX_PER_WORLD_UNIT,
+    H/2-(v[1]+anchor[1]-origin[1])*AE_PX_PER_WORLD_UNIT,
+    -(v[2]+anchor[2]-origin[2])*AE_PX_PER_WORLD_UNIT];}
+  function addShotLights(comp,shot,data,origin){
+    var lights=data&&data.lights?data.lights:[],anchor=shot.aeSceneAnchor||shot.sceneAnchor||origin;
+    for(var i=0;i<lights.length;i++){
+      var l=lights[i],label="PAIGE LIGHT — "+(l.name||"Untitled");
+      try{
+        if(!l||!l.position||l.position.length!==3)continue;
+        var node=comp.layers.addLight(label,[W/2,H/2]);
+        node.name=label;
+        var type=l.type==="directional"?"PARALLEL":l.type==="spot"?"SPOT":"POINT";
+        if(typeof LightType!=="undefined"&&typeof LightType[type]!=="undefined")node.lightType=LightType[type];
+        var tr=node.property("ADBE Transform Group");
+        tr.property("ADBE Position").setValue(aePoint(l.position,anchor,origin));
+        if(type!=="POINT"&&l.target&&l.target.length===3){
+          try{node.autoOrient=AutoOrientType.CAMERA_OR_POINT_OF_INTEREST;
+            tr.property("ADBE Anchor Point").setValue(aePoint(l.target,anchor,origin));
+          }catch(e){reportWarning("Light aim "+label,e);}
+        }
+        var options=node.property("ADBE Light Options Group");
+        if(options){
+          var color=options.property("ADBE Light Color");
+          if(color)color.setValue(rgb(l.color));
+          var power=options.property("ADBE Light Intensity");
+          if(power)power.setValue(bounded(l.intensity*(type==="PARALLEL"?55:3.5),100,0,1000));
+          if(type==="SPOT"){
+            var cone=options.property("ADBE Light Cone Angle");
+            if(cone)cone.setValue(bounded(l.angle*360/Math.PI,80,5,170));
+            var soft=options.property("ADBE Light Cone Feather 2");
+            if(soft)soft.setValue(bounded(l.penumbra*100,30,0,100));
+          }
+        }
+      }catch(e){reportWarning("AE native light "+label,e);}
+    }
+  }
+  function setFX(effect,property,value){var p=effect?effect.property(property):null;
+    if(p)p.setValue(value);return !!p;}
+  function addShotEffects(comp,shot,data){
+    var fx=data&&data.effects?data.effects:null;
+    if(!fx)return;
+    var adjustment=comp.layers.addSolid([0,0,0],"PAIGE LOOK — editable bloom/exposure/vignette",
+      W,H,1,comp.duration);
+    adjustment.adjustmentLayer=true;
+    var group=adjustment.property("ADBE Effect Parade");
+    if(!group){reportWarning("AE effects "+shot.name,"Missing effects group");return;}
+    if(fx.bloom&&fx.bloom.enabled&&fx.bloom.strength>0){
+      try{
+        var glow=group.addProperty("ADBE Glo2");
+        setFX(glow,"ADBE Glo2-0001",bounded(fx.bloom.threshold*100,80,0,100));
+        setFX(glow,"ADBE Glo2-0002",bounded(10+fx.bloom.radius*150,62,1,300));
+        setFX(glow,"ADBE Glo2-0003",bounded(fx.bloom.strength,.45,0,4));
+      }catch(e){reportWarning("AE glow "+shot.name,e);}
+    }
+    if(typeof fx.exposure==="number"&&Math.abs(fx.exposure-1.35)>.025){
+      try{var exposure=group.addProperty("ADBE Exposure2");
+        var ev=Math.log(bounded(fx.exposure/1.35,1,.01,32))/Math.LN2;
+        if(!setFX(exposure,"ADBE Exposure2-0002",ev))setFX(exposure,"Exposure",ev);
+      }catch(e){reportWarning("AE exposure "+shot.name,e);}
+    }
+    if(typeof fx.vignette==="number"&&fx.vignette>0){
+      try{var vignette=group.addProperty("CS Vignette");
+        if(vignette)vignette.name="PAIGE vignette — source strength "+fx.vignette;
+      }catch(e){reportWarning("AE vignette "+shot.name,e);}
+    }
+    if(fx.fog&&fx.fog.mode==="custom"&&fx.fog.density>0){
+      // Flat haze approximation, NOT depth-dependent volumetric 3D fog.
+      try{var haze=comp.layers.addSolid(rgb(fx.fog.color),
+          "PAIGE FOG — editable 2D approximation",W,H,1,comp.duration);
+        var opacity=haze.property("ADBE Transform Group").property("ADBE Opacity");
+        if(opacity)opacity.setValue(bounded(fx.fog.density*1500,12,0,45));
+      }catch(e){reportWarning("AE fog "+shot.name,e);}
+    }
   }
   function findPlate(){
     var dir=new Folder(base.fsName+"/exports");if(!dir.exists)return null;
@@ -253,6 +371,11 @@
       var origin=(shot.aeOrigin && shot.aeOrigin.length===3)?shot.aeOrigin:fallbackOrigin;
       try{addCameraKeys(workspace,seq,shot,origin);}
       catch(e){reportWarning("Camera import warning for "+shot.name,e);}
+      var sceneData=shotScene(seq,shot.id);
+      try{addShotLights(workspace,shot,sceneData,origin);}
+      catch(lightError){reportWarning("AE native lighting "+shot.name,lightError);}
+      try{addShotEffects(workspace,shot,sceneData);}
+      catch(fxError){reportWarning("AE shot look "+shot.name,fxError);}
       // Keep this a flat precomp so AE renders the workspace's own camera.
       // Collapse transformations would expose its 3D layers to the master camera.
       var sceneLayer=comp.layers.add(workspace);
@@ -286,7 +409,7 @@
     currentStage="import reference video";
     var ref=safeImport(path("assets/reference.mp4"),otherFolder);
     if(ref)ref.comment="Reference only — not used for rendering";
-    var readme=comp.layers.addText("EDITABLE TEXT: all TITLE/SUBTITLE layers above.\n3D GLB source scenes: open 02 — 3D scene workspaces.\nSCENE layers sequence the editable 3D workspaces at their timeline cuts.\nAn optional MP4 plate replaces scene rendering; enable SCENE layers and disable the plate to return to 3D. Three.js runtime FX are not translated to AE.");
+    var readme=comp.layers.addText("EDITABLE TEXT: all TITLE/SUBTITLE layers above.\n3D GLB source scenes: open 02 — 3D scene workspaces.\nSCENE layers sequence the editable 3D workspaces at their timeline cuts.\nAn optional MP4 plate replaces scene rendering; enable SCENE layers and disable the plate to return to 3D. PAIGE light layers, Glow, exposure, vignette and 2D fog are editable per shot; not guaranteed pixel-identical.");
     readme.name="INSTRUCTIONS — guide layer (not rendered)";readme.guideLayer=true;readme.enabled=false;
     currentStage="save AEP";
     // Never overwrite an existing project or the prior (potentially edited) .aep.

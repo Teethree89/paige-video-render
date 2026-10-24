@@ -25,6 +25,19 @@ export function aeOriginForShot(shot,cameraAt){
 
 export function createAETimeline(sequence,cameraAt){
   const copy=JSON.parse(JSON.stringify(sequence));
-  copy.shots=copy.shots.map(shot=>({...shot,aeOrigin:aeOriginForShot(shot,cameraAt)}));
+  copy.shots=copy.shots.map(shot=>{
+    const out={...shot,aeOrigin:aeOriginForShot(shot,cameraAt)};
+    const scene=sequence.primitiveScenes?.scenes?.find(s=>s.shotId===shot.id);
+    if(scene && (scene.objects?.length||scene.lights?.length)){
+      // Three.js primitive groups and light transforms use a shot-local
+      // anchor; aeOrigin describes only the AE comp registration. They can
+      // differ after post-accept camera synchronization.
+      const at=Math.min(shot.end-.001,shot.start+.01);
+      const target=cameraAt(at)?.t||[0,0,0];
+      out.aeSceneAnchor=Array.isArray(shot.sceneAnchor)?[...shot.sceneAnchor]:
+        [target[0]||0,0,target[2]||0];
+    }
+    return out;
+  });
   return copy;
 }
