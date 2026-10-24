@@ -315,7 +315,9 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     }catch(err){status.textContent='Invalid primitive JSON: '+err.message;}
   });
   el('primitiveExportGLB').addEventListener('click',async()=>{
-    const shot=getActiveShot();if(!shot||!world.hasObjects(shot.id))return;
+    // A chapter containing punctual lights but no mesh objects is still a
+    // valid GLB scene (KHR_lights_punctual); hasObjects() is intentionally false.
+    const shot=getActiveShot();if(!shot)return;
     const button=el('primitiveExportGLB');button.disabled=true;
     status.textContent='Exporting editable GLB for '+shot.name+'…';
     try{
