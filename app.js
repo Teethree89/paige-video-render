@@ -20,7 +20,7 @@ import {setupSceneObjectEditing} from './scene-object-edit.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
 import {createScenePostprocessor,applyShotEffects,effectsForShot,vignetteOpacity} from './scene-effects.js';
-import {editPrimitiveTransform,deletePrimitiveObject} from './scene-object-operations.js';
+import {editPrimitiveTransform,deletePrimitiveObject,editLightTransform,deleteLightObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
@@ -186,7 +186,7 @@ async function boot(){
    scene,camera,canvas,orbitControls:controls,world:primitiveWorld,
    getActiveShot:()=>shotAt(playhead),
    getDocument:()=>sequence.primitiveScenes,
-   getInitialObjectId:()=>primitiveEditor?.getSelectedId?.()||null,
+   getInitialObjectId:()=>primitiveEditor?.getSelectedId?.()||(primitiveEditor?.getSelectedLightId?.()?'light::'+primitiveEditor.getSelectedLightId():null),
    onEnter:()=>{
      if(aiSceneEditor?.hasPending?.()){
        el('primitiveStatus').textContent='Accept or discard the AI proposal before editing saved objects.';
@@ -216,7 +216,18 @@ async function boot(){
        sequence.shots.map(s=>s.id),shotId,objectId);
      syncPrimitiveWorld();saveLocal();renderWorld();
    },
-   onSelect:id=>primitiveEditor?.selectObject(id),
+   onLightTransform:(shotId,lightId,position)=>{
+     sequence.primitiveScenes=editLightTransform(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,lightId,position);
+     syncPrimitiveWorld();saveLocal();renderWorld();
+   },
+   onDeleteLight:(shotId,lightId)=>{
+     sequence.primitiveScenes=deleteLightObject(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,lightId);
+     syncPrimitiveWorld();saveLocal();renderWorld();
+   },
+   onSelect:id=>id?.startsWith('light::')?
+     primitiveEditor?.selectLight(id.slice(7)):primitiveEditor?.selectObject(id),
    onStatus:message=>{el('primitiveStatus').textContent=message;}
  });
  const referenceSampler=(shot,at,detail)=>sampleReferenceMedia(
