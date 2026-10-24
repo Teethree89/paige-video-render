@@ -197,7 +197,7 @@ async function sampleVideo(reference,shot,playhead,detailProfile='standard') {
     video.removeAttribute('src');video.load();
   }
 }
-export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,
+export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,onCameraSync=null,onCameraSyncReset=null,
   generationSounds=createGenerationSounds()}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
@@ -206,6 +206,34 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const budgetField=el('aiArgonBudgetField'),budgetSelect=el('aiArgonBudget');
   const retryField=el('aiArgonRetryField'),retrySelect=el('aiArgonRetry');
   const addDetailField=el('aiArgonAddDetailField'),addDetailSelect=el('aiArgonAddDetail');
+  const cameraSyncPanel=el('aiCameraSyncPanel'),syncMode=el('aiCameraSyncMode'),
+    syncButton=el('aiCameraSyncPreview'),syncApply=el('aiCameraSyncApply'),
+    syncStatus=el('aiCameraSyncStatus');
+  const resetSync=()=>{
+    if(syncApply){syncApply.checked=false;syncApply.disabled=true;}
+    if(syncStatus)syncStatus.textContent='No camera edits staged. Syncing uses local geometry, not another paid AI request.';
+    onCameraSyncReset?.();
+  };
+  syncButton?.addEventListener('click',()=>{
+    if(!pending||busy||getActiveShot()?.id!==pendingShot)return;
+    try{
+      const result=onCameraSync?.(pending,syncMode?.value||'motion');
+      if(!result)throw Error('Camera alignment is not available.');
+      if(syncApply){syncApply.disabled=false;syncApply.checked=true;}
+      if(syncStatus)syncStatus.textContent=
+        result.updatedKeys+' keyframes retargeted ('+result.addedKeys+' boundary keys added). '+
+        'Scale '+result.scale+'× based on '+(result.source==='previous-geometry'?'existing scene bounds':'existing camera motion')+
+        '. Preview staged only; accepting geometry will save it.';
+      log('Camera sync preview prepared locally: '+result.updatedKeys+' keys, scale '+result.scale+'×. No AI provider request.');
+    }catch(error){
+      resetSync();
+      if(syncStatus)syncStatus.textContent='Camera sync unavailable: '+error.message;
+    }
+  });
+  syncMode?.addEventListener('change',resetSync);
+  syncApply?.addEventListener('change',()=>{
+    if(!syncApply.checked)resetSync();
+  });
   const overlay=createArgonOverlay();
   const signalFinal=outcome=>{if(outcome)void generationSounds.play(outcome);};
   // A timed-out poll or an uncertain started job is not a provider failure.
@@ -391,6 +419,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     const result=cleanupPrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
     log(cleanupSummary(result.report));
     if(pending){onDiscard();pending=null;pendingShot=null;}
+    resetSync();
     pending=result.document.scenes[0];pendingShot=shot.id;
     onPreview(pending);
     // Repeat arrays render many copies per editable object.
@@ -430,6 +459,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       downloadArgon.disabled=busy||!authenticated;
     }
     inspect.hidden=!pending;inspect.disabled=busy||!pending;
+    if(cameraSyncPanel)cameraSyncPanel.hidden=!pending;
+    if(syncButton)syncButton.disabled=busy||!pending||!onCameraSync;
+    if(syncMode)syncMode.disabled=busy||!pending;
     accept.hidden=!pending; discard.hidden=!pending;
     if(cleanupButton){cleanupButton.hidden=!pending;cleanupButton.disabled=busy||!pending;}
     accept.disabled=busy;discard.disabled=busy;
@@ -823,6 +855,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       const result=cleanupPrimitiveDocument({schemaVersion:1,scenes:[pending]},
         getSequence().shots.map(s=>s.id));
       pending=result.document.scenes[0];
+      resetSync();
       onPreview(pending);
       const summary=cleanupSummary(result.report);
       log(summary);
@@ -838,22 +871,22 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     const current=getSequence().primitiveScenes?.scenes?.find(x=>x.shotId===pendingShot);
     if(current?.objects?.length&&!confirm('Replace existing objects in this shot with the proposed geometry?'))return;
     try{
-      onAccept(pending);
-      log('Preview accepted into the editable timeline.');
+      onAccept(pending,{syncCamera:syncApply?.checked===true});
+      log('Preview accepted into the editable timeline.'+(syncApply?.checked?' Camera motion retargeted.':''));
       status('Accepted. Geometry saved in your working timeline; export JSON for a backup.');
-      pending=null;pendingShot=null;
+      pending=null;pendingShot=null;resetSync();
     }catch(error){status('Could not accept geometry: '+error.message);}
     ui();
   });
   discard.addEventListener('click',()=>{
     if(busy)return;
-    onDiscard();pending=null;pendingShot=null;
+    onDiscard();pending=null;pendingShot=null;resetSync();
     log('Preview discarded. Saved geometry was not changed.');
     status('Preview discarded; saved geometry is unchanged.');ui();
   });
   ui();checkLogin();
   return {hasPending:()=>!!pending,isBusy:()=>busy||!!(argonJob&&['queued','in_progress'].includes(argonJob.status)),reset:()=>{
     if(pending)onDiscard();
-    pending=null;pendingShot=null;ui();
+    pending=null;pendingShot=null;resetSync();ui();
   }};
 }

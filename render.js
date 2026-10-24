@@ -4,6 +4,8 @@ import {buildWorld} from './world.js';
 import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {shotAnchorMap,restoreSavedPrimitiveWorld} from './primitive-preview.js';
+import {evaluateCamera,curveEasing} from './animation-curves.js';
+import {clipPlanesForScene} from './camera-motion-sync.js';
 import {createGenerationSounds} from './generation-sounds.js';
 const $=id=>document.getElementById(id);
 const out=$('output'), ctx=out.getContext('2d',{alpha:false});
@@ -12,6 +14,7 @@ const renderer=new THREE.WebGLRenderer({canvas:source,antialias:true,preserveDra
 renderer.setPixelRatio(1);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.35;
 const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(50,16/9,.35,500);const world=buildWorld(scene),draftWorld=createDraftWorld(scene),primitiveWorld=createPrimitiveWorld(scene);
 let seq,modelCount=0,frameRequest=0,previewing=false,recording=false,previewStart=0,previewTime=0,recorder=null;
+const renderBoundsCache=new Map();
 const generationSounds=createGenerationSounds();
 let exportFinalized=false;
 const finalExportSound=outcome=>{
@@ -22,9 +25,9 @@ const finalExportSound=outcome=>{
 const lerp=(a,b,u)=>a+(b-a)*u, ease=u=>u*u*(3-2*u), clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function modelId(id){return id==='hallreturn'?'hall':id==='finale'?'exterior':id;}
 function shotAt(t){return seq.shots.find((s,i)=>t>=s.start&&(t<s.end||i===seq.shots.length-1))||seq.shots[0];}
-function cameraAt(t){const keys=seq.camera.slice().sort((a,b)=>a.at-b.at);if(t<=keys[0].at)return keys[0];for(let i=0;i<keys.length-1;i++){const a=keys[i],b=keys[i+1];if(t>=a.at&&t<b.at){if(b.cut)return a;const u=ease(clamp((t-a.at)/(b.at-a.at),0,1));return{p:a.p.map((v,j)=>lerp(v,b.p[j],u)),t:a.t.map((v,j)=>lerp(v,b.t[j],u)),fov:lerp(a.fov,b.fov,u)};}}return keys[keys.length-1];}
+function cameraAt(t){return evaluateCamera(seq.camera,t);}
 function labelsAt(t){if(!$('captions').checked)return;const W=out.width,H=out.height;
- for(const tx of seq.text){if(t<tx.start||t>=tx.end)continue;let alpha=clamp(Math.min((t-tx.start)/.58,(tx.end-t)/.55),0,1);if(alpha<=0)continue;
+ for(const tx of seq.text){if(t<tx.start||t>=tx.end)continue;let alpha=clamp(Math.min(curveEasing((t-tx.start)/.58,{mode:tx.textFade||'linear'}),curveEasing((tx.end-t)/.55,{mode:tx.textFade||'linear'})),0,1);if(alpha<=0)continue;
  ctx.save();ctx.globalAlpha=alpha;ctx.textBaseline='top';ctx.shadowColor='rgba(0,0,0,.97)';ctx.shadowBlur=W*.014;ctx.shadowOffsetY=H*.004;
  const fontSize=({'small':17,'medium':26,'large':40,'hero':50}[tx.size]||26)*W/1280;
  ctx.font=`700 ${Math.round(fontSize)}px Inter,Arial,sans-serif`;ctx.textAlign=tx.align||'center';
@@ -39,7 +42,15 @@ function labelsAt(t){if(!$('captions').checked)return;const W=out.width,H=out.he
  ctx.restore();
  }
 }
-function render(t){if(!seq)return;const c=cameraAt(t);cam.position.set(...c.p);cam.lookAt(...c.t);cam.fov=c.fov;cam.aspect=16/9;cam.updateProjectionMatrix();const currentShot=shotAt(t),custom=primitiveWorld.hasObjects(currentShot.id);world.update(t,currentShot.id,custom);primitiveWorld.showShot(currentShot.id);draftWorld.update(currentShot,custom);renderer.render(scene,cam);ctx.drawImage(source,0,0,out.width,out.height);
+function render(t){
+ if(!seq)return;
+ const c=cameraAt(t),currentShot=shotAt(t);
+ if(!renderBoundsCache.has(currentShot.id))
+   renderBoundsCache.set(currentShot.id,primitiveWorld.getBounds(currentShot.id));
+ const planes=clipPlanesForScene(c.p,c.t,renderBoundsCache.get(currentShot.id));
+ cam.position.set(...c.p);cam.lookAt(...c.t);cam.fov=c.fov;cam.aspect=16/9;
+ cam.near=planes.near;cam.far=planes.far;cam.updateProjectionMatrix();
+ const custom=primitiveWorld.hasObjects(currentShot.id);world.update(t,currentShot.id,custom);primitiveWorld.showShot(currentShot.id);draftWorld.update(currentShot,custom);renderer.render(scene,cam);ctx.drawImage(source,0,0,out.width,out.height);
  // Approximate viewport's vignette in the output so the scene exports without editor chrome.
  const gr=ctx.createLinearGradient(0,0,0,out.height);gr.addColorStop(0,'rgba(3,8,13,.25)');gr.addColorStop(.26,'rgba(3,8,13,0)');gr.addColorStop(.75,'rgba(4,11,17,0)');gr.addColorStop(1,'rgba(4,11,17,.48)');ctx.fillStyle=gr;ctx.fillRect(0,0,out.width,out.height);
  labelsAt(t);
@@ -116,6 +127,7 @@ $('export').onclick=()=>{
  }
 };
 async function boot(){let original=await fetch('./timeline.json').then(r=>{if(!r.ok)throw Error('timeline.json missing');return r.json();});let cached=null;try{cached=JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')||'null');}catch(e){}seq=(cached&&cached.duration>0&&Array.isArray(cached.camera)&&Array.isArray(cached.text)&&Array.isArray(cached.shots))?cached:original;
+ renderBoundsCache.clear();
  const geometryError=restoreSavedPrimitiveWorld(primitiveWorld,seq,shotAnchorMap(seq,cameraAt));
  resize();const failed=await loadModels();render(0);$('info').textContent=`Ready · ${seq.duration.toFixed(2)} seconds · ${modelCount}/7 linked GLBs${failed.length?' ('+failed.length+' procedural fallback)':''}`;$('export').disabled=!!geometryError;$('preview').disabled=false;frameRequest=requestAnimationFrame(animationLoop);const codec=chosenType();$('status').textContent=geometryError?'Saved geometry could not be loaded. Return to the editor and export Timeline JSON for repair; the saved project is retained.':codec?`Ready to record ${codec[1].toUpperCase()}. ${seq.camera.length} camera keys and ${seq.text.length} text overlays detected.`:'No MediaRecorder codec found in this browser.';}
 boot().catch(e=>{$('status').textContent='Unable to initialize: '+e.message;$('info').textContent='Check browser console and serve project with an HTTP server.';console.error(e);});

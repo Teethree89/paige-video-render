@@ -89,7 +89,9 @@ test('preview is wired into Three.js viewport and does not persist camera key ch
   assert.match(app,/reviewGrid\.scale\.setScalar\(stageSize\/40\)/);
   assert.match(app,/renderer\.toneMappingExposure=1\.65/);
   assert.match(app,/renderer\.toneMappingExposure=1\.35/);
-  assert.match(app,/onDiscard:\(\)=>\{endGeometryReview\(\);/);
+  assert.match(app,/onDiscard:\(\)=>\{\s*cameraSyncPreview=null;cameraSyncSession=null;\s*endGeometryReview\(\);syncPrimitiveWorld\(\);renderWorld\(\);/);
+  assert.match(app,/onCameraSyncReset:\(\)=>\{/);
+  assert.match(app,/if\(cameraSyncPreview&&cameraSyncSession\?\.shotId===shotAt\(t\)\?\.id\)/);
   assert.match(html,/id="returnTimelineCameraBtn"/);
   assert.match(html,/id="aiSceneInspect"/);
   assert.match(html,/id="aiSceneCleanup"/);

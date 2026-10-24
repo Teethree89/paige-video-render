@@ -16,6 +16,13 @@ export function restoreSavedPrimitiveWorld(world,sequence,anchors={}) {
 
 export function shotAnchorMap(sequence, cameraAt) {
   return Object.fromEntries(sequence.shots.map(shot => {
+    // Camera Sync freezes the original scene anchor before retargeting keys.
+    // Without this, camera-target changes shift regenerated geometry too,
+    // creating feedback on every subsequent refresh/export.
+    if(Array.isArray(shot.sceneAnchor)&&shot.sceneAnchor.length===3&&
+      shot.sceneAnchor.every(n=>Number.isFinite(n)&&Math.abs(n)<=10000)){
+      return [shot.id,[...shot.sceneAnchor]];
+    }
     const at = Math.min(shot.end - 0.001, shot.start + 0.01);
     const target = cameraAt(Math.max(shot.start, at))?.t;
     const x = Number.isFinite(target?.[0]) ? target[0] : 0;
