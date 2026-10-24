@@ -284,8 +284,11 @@ async function boot(){
      acceptedCameraSync?.reset();
      acceptedCameraPreview=null;
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
+     const previous=doc.scenes.find(s=>s.shotId===entry.shotId);
+     const replacement=previous?.effects&&!entry.effects?
+       {...entry,effects:structuredClone(previous.effects)}:entry;
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
-     doc.scenes.push(entry);
+     doc.scenes.push(replacement);
      const accepted=validatePrimitiveDocument(doc,sequence.shots.map(s=>s.id));
      if(syncCamera){
        if(cameraSyncSession?.shotId!==entry.shotId||!cameraSyncPreview)
