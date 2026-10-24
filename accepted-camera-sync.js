@@ -90,8 +90,12 @@ export function setupAcceptedCameraSync({
       if(getActiveShot()?.id!==staged.shotId||
          acceptedCameraSnapshot(getSequence(),staged.shotId)!==staged.snapshot)
         throw Error('Chapter, camera keys, or geometry changed. Preview alignment again.');
-      onApply(staged);
+      // Clear the pending preview before onApply persists its new camera keys;
+      // saveLocal() refreshes the inspector and must not read this as a stale
+      // external mutation or discard the just-accepted result.
+      const proposal=staged;
       staged=null;
+      onApply(proposal);
       apply.disabled=true;cancel.hidden=true;
       tell('Camera keys saved for this accepted chapter. The 3D model was not regenerated or moved. Undo is available.');
     }catch(error){discard({notify:false});tell('Not applied: '+error.message);}
