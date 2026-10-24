@@ -259,3 +259,12 @@ html,body{font-size:14px}
   margin:0;accent-color:#80eada}
 .camera-sync-panel #aiCameraSyncStatus{padding:10px;background:#0a2530;
   border:1px solid #315967;border-radius:6px;min-height:44px;overflow-wrap:anywhere}
+
+/* Camera alignment also works on already accepted model geometry; this panel
+   is independent of AI authentication and incurs no provider calls. */
+.accepted-camera-sync{margin:14px 0 17px}
+.accepted-camera-sync .primitive-buttons{margin:10px 0 7px;display:flex;gap:9px}
+.accepted-camera-sync .primitive-buttons button{min-width:0;flex:1}
+.accepted-camera-sync .primitive-buttons button:disabled{opacity:.35;cursor:not-allowed}
+.accepted-camera-sync .primitive-buttons button[hidden]{display:none!important}
+.accepted-camera-sync #acceptedCameraSyncStatus{margin-bottom:0}
