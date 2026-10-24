@@ -21,3 +21,22 @@ export function deletePrimitiveObject(source,allowedShots,shotId,objectId){
   entry.objects=entry.objects.filter(o=>o.id!==objectId);
   return validatePrimitiveDocument(doc,allowedShots);
 }
+
+export function editLightTransform(source,allowedShots,shotId,lightId,position){
+ if(!Array.isArray(position)||position.length!==3||
+   position.some(v=>typeof v!=='number'||!Number.isFinite(v)))
+   throw Error('Light position must contain three finite coordinates');
+ const doc=validatePrimitiveDocument(source,allowedShots);
+ const light=doc.scenes.find(s=>s.shotId===shotId)?.lights?.find(l=>l.id===lightId);
+ if(!light)throw Error('Selected light no longer exists in this chapter');
+ light.position=[...position];
+ return validatePrimitiveDocument(doc,allowedShots);
+}
+export function deleteLightObject(source,allowedShots,shotId,lightId){
+ const doc=validatePrimitiveDocument(source,allowedShots);
+ const entry=doc.scenes.find(s=>s.shotId===shotId);
+ if(!entry?.lights?.some(x=>x.id===lightId))
+   throw Error('Selected light no longer exists in this chapter');
+ entry.lights=entry.lights.filter(x=>x.id!==lightId);
+ return validatePrimitiveDocument(doc,allowedShots);
+}
