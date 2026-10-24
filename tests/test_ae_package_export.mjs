@@ -62,7 +62,7 @@ function fakePackageRuntime(){
   }
   let scriptRequests=0;
   const fetch=async()=>{scriptRequests++;return {
-    ok:true,text:async()=> 'function addCameraKeys(){ /* aeOrigin */ }'
+    ok:true,text:async()=> 'function addCameraKeys(){ /* aeOrigin */ } function addShotLights(){} function addShotEffects(){}'
   };};
   const build=getBuilder(GLTFExporter,entries=>entries,plan.AE_MODEL_IDS,
     plan.modelIdForShot,plan.shotAssetPath,plan.createAETimeline,fetch);
