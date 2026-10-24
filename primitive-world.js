@@ -67,7 +67,8 @@ const light = spec => {
 export function createPrimitiveWorld(scene) {
   const groups=new Map();
   // Saved primitive ID -> top-level transform node (repeat arrays share one holder).
-  const objectNodes=new Map();
+  const objectNodes=new Map(),lightMarkers=new Map(),lightMarkerGroups=new Map();
+  let markersEnabled=false;
   let document={schemaVersion:1,scenes:[]};
   let activeShotId=null;
 
@@ -80,13 +81,20 @@ export function createPrimitiveWorld(scene) {
       });
     }
     groups.clear();objectNodes.clear();
+    for(const root of lightMarkerGroups.values()){
+      scene.remove(root);
+      root.traverse(node=>{
+        if(node.isMesh){node.geometry.dispose();node.material.dispose();}
+      });
+    }
+    lightMarkerGroups.clear();lightMarkers.clear();
   }
   function setDocument(value,allowedShotIds=null,anchors={}) {
     const next=validatePrimitiveDocument(value,allowedShotIds);
     clear();document=next;
     for(const entry of next.scenes){
       // A shot with geometry replaces the original world; lights alone do not.
-      if(!entry.objects.length)continue;
+      if(!entry.objects.length&&!(entry.lights?.length))continue;
       const root=new THREE.Group();
       root.name='Primitives_'+entry.shotId;
       root.userData.shotId=entry.shotId;
@@ -133,13 +141,35 @@ export function createPrimitiveWorld(scene) {
       }
       for(const spec of entry.lights||[])root.add(light(spec));
       root.visible=false;
+      // Editor-only light markers stay OUTSIDE the model root, so GLB,
+      // Three.js flythrough and After Effects packages never contain gizmos.
+      const markerRoot=new THREE.Group();
+      markerRoot.name='Editor_light_markers_'+entry.shotId;
+      markerRoot.position.set(...anchor);
+      const markers=new Map();
+      (entry.lights||[]).forEach((spec,index)=>{
+        const id=spec.id||'light_'+(index+1);
+        const marker=new THREE.Mesh(
+          new THREE.OctahedronGeometry(.48,0),
+          new THREE.MeshBasicMaterial({color:spec.color,depthTest:false,depthWrite:false,
+            transparent:true,opacity:.88}));
+        marker.name='Editor light '+spec.name;
+        marker.position.set(...spec.position);
+        marker.userData.primitiveLightId=id;
+        marker.renderOrder=994;
+        markerRoot.add(marker);markers.set(id,marker);
+      });
+      markerRoot.visible=false;
+      lightMarkerGroups.set(entry.shotId,markerRoot);
+      lightMarkers.set(entry.shotId,markers);
       groups.set(entry.shotId,root);
       objectNodes.set(entry.shotId,nodes);
       scene.add(root);
+      scene.add(markerRoot); // keep the scene's primary root first for existing integrations
     }
     showShot(activeShotId);
   }
-  function hasObjects(shotId){return groups.has(shotId);}
+  function hasObjects(shotId){return document.scenes.some(s=>s.shotId===shotId&&s.objects.length>0);}
   function getBounds(shotId){
     const root=groups.get(shotId);
     if(!root)return null;
@@ -152,13 +182,21 @@ export function createPrimitiveWorld(scene) {
   function showShot(shotId){
     activeShotId=shotId;
     for(const [id,root] of groups)root.visible=id===shotId;
+    for(const [id,root] of lightMarkerGroups)
+      root.visible=markersEnabled&&id===shotId;
   }
+  function setLightMarkersVisible(visible){
+    markersEnabled=!!visible;
+    showShot(activeShotId);
+  }
+  function getLightMarker(shotId,id){return lightMarkers.get(shotId)?.get(id)||null;}
   function getObjectNode(shotId,objectId){
     return objectNodes.get(shotId)?.get(objectId)||null;
   }
   function getPickableMeshes(shotId){
     const root=groups.get(shotId),meshes=[];
     root?.traverse(node=>{if(node.isMesh&&node.userData.primitiveId)meshes.push(node);});
+    if(markersEnabled)meshes.push(...(lightMarkers.get(shotId)?.values()||[]));
     return meshes;
   }
   function getSceneForExport(shotId){
@@ -186,6 +224,6 @@ export function createPrimitiveWorld(scene) {
   }
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
-  return {setDocument,showShot,hasObjects,getBounds,getCamera,getObjectNode,getPickableMeshes,
+  return {setDocument,showShot,hasObjects,getBounds,getCamera,getObjectNode,getLightMarker,setLightMarkersVisible,getPickableMeshes,
     getSceneForExport,getDocument,dispose};
 }

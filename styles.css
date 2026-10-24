@@ -268,3 +268,66 @@ html,body{font-size:14px}
 .accepted-camera-sync .primitive-buttons button:disabled{opacity:.35;cursor:not-allowed}
 .accepted-camera-sync .primitive-buttons button[hidden]{display:none!important}
 .accepted-camera-sync #acceptedCameraSyncStatus{margin-bottom:0}
+
+/* Context-sensitive radial Create palette. Right-click tap repeats the last
+   selection, hold opens category wheel, category hover (500ms) opens submenu. */
+.scene-create-trigger{position:absolute;right:18px;top:54px;z-index:65;
+  border:1px solid #457e89;background:rgba(17,49,62,.86);color:#d1f9f6;
+  border-radius:8px;padding:8px 12px;font-weight:700;font-size:11px}
+.scene-create-trigger:hover{background:#235466}
+.scene-create-menu[hidden],.scene-create-submenu[hidden]{display:none!important}
+.scene-create-menu{--wheel-size:290px;position:absolute;width:var(--wheel-size);
+  height:var(--wheel-size);transform:translate(-50%,-50%);z-index:180;
+  pointer-events:none;isolation:isolate;filter:drop-shadow(0 14px 35px #000c)}
+.scene-create-wheel{position:absolute;inset:0;border:1px solid #3d7180;border-radius:50%;
+  pointer-events:auto;background:radial-gradient(circle,#1a3344 0 14%,#112a3abf 15% 31%,#102434e8 32% 100%);
+  box-shadow:inset 0 0 30px #58b5bf25}
+.scene-create-petal{position:absolute;transform:translate(-50%,-50%);
+  width:79px;min-height:44px;border:1px solid #487380;
+  border-radius:25px;background:#234354;color:#e4f8fa;font:650 11px/1.15 Inter,system-ui,sans-serif;
+  cursor:pointer;white-space:normal;padding:6px}
+.scene-create-petal:hover,.scene-create-petal:focus-visible{background:#417d80;
+  border-color:#a9ffed;color:#ffffff;outline:none}
+.scene-create-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:82px;font:750 9px/1.3 Inter,system-ui,sans-serif;color:#9de6dc;letter-spacing:.07em;
+  text-align:center;pointer-events:none}
+.scene-create-submenu{position:absolute;left:calc(100% - 6px);top:45px;
+  width:174px;max-height:330px;overflow:auto;pointer-events:auto;border:1px solid #487887;
+  border-radius:11px;background:#102433f5;padding:9px;display:flex;flex-direction:column;gap:3px;
+  box-shadow:0 12px 35px #000d;backdrop-filter:blur(9px)}
+.scene-create-submenu.left-side{left:auto;right:calc(100% - 6px)}
+.scene-create-submenu-title{font-size:10px;font-weight:800;letter-spacing:.06em;
+  padding:3px 6px 8px;color:#a8d6dd;text-transform:uppercase}
+.scene-create-option{background:#1b3848;color:#e7f8fb;border:1px solid transparent;
+  padding:10px 9px;text-align:left;font:600 11px/1.15 Inter,system-ui,sans-serif;
+  cursor:pointer;border-radius:5px}
+.scene-create-option:hover,.scene-create-option:focus-visible{background:#315a64;
+  border-color:#88cfcc}
+.primitive-light-editor{margin-top:9px;padding:15px 12px;border:1px solid #33566b;
+  background:#112332;border-radius:8px}
+.primitive-light-editor .section-label{color:#b0e6e4;margin-bottom:8px}
+.primitive-light-editor .field{font-size:11px}
+.primitive-light-editor #primitiveLightFields{display:flex;flex-direction:column;gap:4px;margin-top:11px}
+.primitive-light-editor #primitiveLightFields[hidden]{display:none}
+.primitive-light-editor #primitiveLightFields input[type=color]{height:39px}
+.primitive-light-editor #primitiveLightFields .triple-input{margin-bottom:9px}
+@media(max-width:740px){
+ .scene-create-trigger{top:48px;right:10px}
+ .scene-create-petal{width:68px;font-size:10px}
+ .scene-create-submenu{width:145px}
+}
+
+/* Chapter look controls — saved to scene JSON and shared with video renderer. */
+.scene-effects-panel{margin:12px 0 17px;padding:12px;border:1px solid #375e67;
+ background:#122533;border-radius:9px}
+.scene-effects-panel summary{cursor:pointer;color:#aaf3e8;font-size:11px;font-weight:800;
+ letter-spacing:.05em}
+.scene-effects-panel .field{margin:13px 0;color:#d2e7ee;font-size:11px}
+.scene-effects-panel .field input[type=range]{width:100%;accent-color:#74cbd0}
+.scene-effects-panel .checkbox-field{display:flex;align-items:center;gap:10px;font-size:12px}
+.scene-effects-panel .checkbox-field input{accent-color:#7ae0d7}
+.scene-effects-panel #sceneFogFields[hidden],.scene-effects-panel #sceneBloomFields[hidden]{display:none}
+.scene-effects-panel #sceneFogFields,.scene-effects-panel #sceneBloomFields{padding:3px 10px;
+ border-left:2px solid #4a8990;margin-top:7px}
+.scene-effects-panel #sceneFogFields input[type=color]{height:38px;width:100%}
+.scene-effects-panel #sceneEffectsStatus{margin:10px 0;line-height:1.5}

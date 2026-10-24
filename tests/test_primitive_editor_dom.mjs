@@ -46,6 +46,7 @@ test('primitive inspector initializes and adds editable scene geometry without c
     // external export adapter, which is not used in initialization tests.
     const raw=await readFile(new URL('../primitive-editor.js',import.meta.url),'utf8');
     const schemaUrl=new URL('../primitive-schema.js',import.meta.url).href;
+    const catalogUrl=new URL('../scene-asset-catalog.js',import.meta.url).href;
     assert.match(raw,/getPrimitiveDocument/);
     const executable=raw.replace(
       "import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';",
@@ -53,6 +54,9 @@ test('primitive inspector initializes and adds editable scene geometry without c
     ).replace(
       "from './primitive-schema.js';",
       "from '"+schemaUrl+"';"
+    ).replace(
+      "from './scene-asset-catalog.js';",
+      "from '"+catalogUrl+"';"
     );
     assert.ok(!executable.includes("from 'three/addons/exporters/GLTFExporter.js'"));
     const moduleUrl='data:text/javascript;base64,'+Buffer.from(executable).toString('base64');

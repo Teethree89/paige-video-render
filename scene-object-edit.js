@@ -52,7 +52,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onSelect,onStatus,getInitialObjectId
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onDeleteLight,onSelect,onStatus,getInitialObjectId
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -89,26 +89,37 @@ export function setupSceneObjectEditing({
     move?.setAttribute('aria-pressed',String(operation==='translate'));
     rotate?.setAttribute('aria-pressed',String(operation==='rotate'));
     if(erase)erase.disabled=!active||!selectedId;
-    if(name)name.textContent=selectedId?getDocument()?.scenes?.find(s=>s.shotId===selectedShot)
-      ?.objects?.find(o=>o.id===selectedId)?.name||selectedId:'No object selected';
+    if(rotate)rotate.disabled=!!selectedId?.startsWith('light::');
+    if(name)name.textContent=selectedId?(()=>{
+      const entry=getDocument()?.scenes?.find(s=>s.shotId===selectedShot);
+      return selectedId.startsWith('light::')?
+        entry?.lights?.find(l=>l.id===selectedId.slice(7))?.name||selectedId:
+        entry?.objects?.find(o=>o.id===selectedId)?.name||selectedId;
+    })():'No object selected';
     if(canvas)canvas.style.cursor=active?'crosshair':'';
   }
   function select(id,notify=true){
     if(!active)return false;
     const shotId=currentShot();
-    const node=id?world.getObjectNode(shotId,id):null;
+    const lightId=id?.startsWith('light::')?id.slice(7):null;
+    const node=lightId?world.getLightMarker(shotId,lightId):
+      id?world.getObjectNode(shotId,id):null;
     if(id&&!node)return false;
     selectedId=id||null;selectedShot=shotId;
     transform.detach();clearHighlight();
     if(node){
+      if(lightId)setMode('translate');
       transform.attach(node);showHighlight(node);
-      message('Drag X / Y / Z gizmo handles · Orbit on empty space · W move / E rotate · Delete removes');
+      message(lightId?
+        'Drag X/Y/Z to move this light. Adjust its color, type and beam in Scene Lights.':
+        'Drag X / Y / Z gizmo handles · Orbit on empty space · W move / E rotate · Delete removes');
     }else message('Click an editable shape to select it; drag to orbit and scroll to zoom.');
     updateButtons();if(notify)onSelect?.(selectedId);
     return true;
   }
   function setMode(value){
     if(!['translate','rotate'].includes(value))return;
+    if(value==='rotate'&&selectedId?.startsWith('light::'))return;
     operation=value;transform.setMode(value);
     // World axes for movement; local rings for rotation.
     transform.setSpace(value==='translate'?'world':'local');
@@ -119,12 +130,14 @@ export function setupSceneObjectEditing({
     if(next){
       if(onEnter?.()===false){updateButtons();return false;}
       active=true;transform.enabled=true;
+      world.setLightMarkersVisible?.(true);
       orbitControls.enabled=true;
       selectedShot=currentShot();
       setMode('translate');
       if(!select(getInitialObjectId?.()||null,false))select(null,false);
     }else{
       active=false;selectedId=null;selectedShot=null;frameStart=null;
+      world.setLightMarkersVisible?.(false);
       transform.detach();transform.enabled=false;clearHighlight();
       orbitControls.enabled=true; // onExit restores cinematic state
       updateButtons();
@@ -139,7 +152,7 @@ export function setupSceneObjectEditing({
     if(selectedShot!==currentShot()){setActive(false);return;}
     if(selectedId){
       const id=selectedId;
-      if(!world.getObjectNode(selectedShot,id)){select(null);return;}
+      if(!(id.startsWith('light::')?world.getLightMarker(selectedShot,id.slice(7)):world.getObjectNode(selectedShot,id))){select(null);return;}
       select(id,false); // reattach to rebuilt geometry after a committed edit
     }
   }
@@ -150,7 +163,10 @@ export function setupSceneObjectEditing({
     const vector=operation==='translate'?node.position.toArray():
       [node.rotation.x,node.rotation.y,node.rotation.z];
     try{
-      onTransform?.(selectedShot,objectId,operation,vector);
+      if(objectId.startsWith('light::')){
+        if(operation!=='translate')throw Error('Use light aim fields for orientation.');
+        onLightTransform?.(selectedShot,objectId.slice(7),vector);
+      }else onTransform?.(selectedShot,objectId,operation,vector);
       message((operation==='translate'?'Moved ':'Rotated ')+objectId+'. Saved to the editable timeline.');
     }catch(error){
       message('Transform rejected: '+error.message);
@@ -161,7 +177,8 @@ export function setupSceneObjectEditing({
     if(!active||!selectedId)return false;
     const id=selectedId,shot=selectedShot;
     try{
-      onDelete?.(shot,id);
+      if(id.startsWith('light::'))onDeleteLight?.(shot,id.slice(7));
+      else onDelete?.(shot,id);
       selectedId=null;
       transform.detach();clearHighlight();
       updateButtons();onSelect?.(null);
@@ -197,7 +214,8 @@ export function setupSceneObjectEditing({
        draggingHandle||transform.dragging||skipClick){skipClick=false;return;}
     ndc(event);raycaster.setFromCamera(pointer,camera);
     const hits=raycaster.intersectObjects(world.getPickableMeshes(currentShot()),false);
-    select(hits[0]?.object?.userData?.primitiveId||null);
+    const hit=hits[0]?.object?.userData;
+    select(hit?.primitiveLightId?'light::'+hit.primitiveLightId:hit?.primitiveId||null);
   });
   canvas.addEventListener('pointercancel',()=>{frameStart=null;skipClick=false;});
   view?.addEventListener('click',()=>setActive(false));

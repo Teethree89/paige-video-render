@@ -17,7 +17,10 @@ import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupSceneObjectEditing} from './scene-object-edit.js';
-import {editPrimitiveTransform,deletePrimitiveObject} from './scene-object-operations.js';
+import {setupRadialCreate} from './radial-create.js';
+import {setupSceneEffectsPanel} from './scene-effects-panel.js';
+import {createScenePostprocessor,applyShotEffects,effectsForShot,vignetteStyle} from './scene-effects.js';
+import {editPrimitiveTransform,deletePrimitiveObject,editLightTransform,deleteLightObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
@@ -70,7 +73,10 @@ reviewGrid.material.transparent=true;reviewGrid.material.opacity=.42;
 reviewStage.add(reviewGrid);reviewStage.visible=false;scene.add(reviewStage);
 const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene);
+const studioPost=createScenePostprocessor(renderer,scene,camera);
+studioPost.setSize(viewport.clientWidth,viewport.clientHeight);
 const cameraBoundsCache=new Map();
+let sceneEffectsPanel=null,lastEffectsShot=null;
 let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
@@ -180,7 +186,7 @@ async function boot(){
    scene,camera,canvas,orbitControls:controls,world:primitiveWorld,
    getActiveShot:()=>shotAt(playhead),
    getDocument:()=>sequence.primitiveScenes,
-   getInitialObjectId:()=>primitiveEditor?.getSelectedId?.()||null,
+   getInitialObjectId:()=>primitiveEditor?.getSelectedId?.()||(primitiveEditor?.getSelectedLightId?.()?'light::'+primitiveEditor.getSelectedLightId():null),
    onEnter:()=>{
      if(aiSceneEditor?.hasPending?.()){
        el('primitiveStatus').textContent='Accept or discard the AI proposal before editing saved objects.';
@@ -210,7 +216,18 @@ async function boot(){
        sequence.shots.map(s=>s.id),shotId,objectId);
      syncPrimitiveWorld();saveLocal();renderWorld();
    },
-   onSelect:id=>primitiveEditor?.selectObject(id),
+   onLightTransform:(shotId,lightId,position)=>{
+     sequence.primitiveScenes=editLightTransform(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,lightId,position);
+     syncPrimitiveWorld();saveLocal();renderWorld();
+   },
+   onDeleteLight:(shotId,lightId)=>{
+     sequence.primitiveScenes=deleteLightObject(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,lightId);
+     syncPrimitiveWorld();saveLocal();renderWorld();
+   },
+   onSelect:id=>id?.startsWith('light::')?
+     primitiveEditor?.selectLight(id.slice(7)):primitiveEditor?.selectObject(id),
    onStatus:message=>{el('primitiveStatus').textContent=message;}
  });
  const referenceSampler=(shot,at,detail)=>sampleReferenceMedia(
@@ -278,8 +295,11 @@ async function boot(){
      acceptedCameraSync?.reset();
      acceptedCameraPreview=null;
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
+     const previous=doc.scenes.find(s=>s.shotId===entry.shotId);
+     const replacement=previous?.effects&&!entry.effects?
+       {...entry,effects:structuredClone(previous.effects)}:entry;
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
-     doc.scenes.push(entry);
+     doc.scenes.push(replacement);
      const accepted=validatePrimitiveDocument(doc,sequence.shots.map(s=>s.id));
      if(syncCamera){
        if(cameraSyncSession?.shotId!==entry.shotId||!cameraSyncPreview)
@@ -297,6 +317,14 @@ async function boot(){
      refreshAll();seek(Math.min(playhead,sequence.duration));saveLocal();
    }
  });
+ sceneEffectsPanel=setupSceneEffectsPanel({
+    getSequence:()=>sequence,getActiveShot:()=>shotAt(playhead),
+    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
+    onDocumentChange:doc=>{
+      sequence.primitiveScenes=doc;
+      syncPrimitiveWorld();renderWorld();saveLocal();
+    }
+  });
  acceptedCameraSync=setupAcceptedCameraSync({
    getSequence:()=>sequence,
    getActiveShot:()=>shotAt(playhead),
@@ -328,6 +356,28 @@ async function boot(){
      if(ready){applyCamera();renderWorld();}
    }
  });
+ setupRadialCreate({
+    viewport,
+    canCreate:()=>ready&&sceneObjectEditor?.active&&
+      !aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
+    getCreateOrigin:(clientX,clientY)=>{
+      const id=shotAt(playhead)?.id;
+      const anchor=primitiveAnchors()[id]||[0,0,0];
+      let target=controls.target.clone();
+      if(Number.isFinite(clientX)&&Number.isFinite(clientY)){
+        const rect=canvas.getBoundingClientRect();
+        const nx=2*(clientX-rect.left)/rect.width-1,ny=1-2*(clientY-rect.top)/rect.height;
+        const ray=new THREE.Raycaster();
+        ray.setFromCamera(new THREE.Vector2(nx,ny),camera);
+        const hit=new THREE.Vector3();
+        if(ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),hit))
+          target=hit;
+      }
+      return target.toArray().map((v,i)=>Math.max(-9000,Math.min(9000,v-anchor[i])));
+    },
+    onCreate:(category,item,origin)=>primitiveEditor.createAsset(category,item,origin),
+    onStatus:message=>{el('primitiveStatus').textContent=message;el('sceneEditStatus').textContent=message;}
+  });
  el('primitiveCleanupSaved')?.addEventListener('click',()=>{
    const note=el('primitiveStatus');
    try{
@@ -442,7 +492,7 @@ function applyHistory(doc){
 function saveLocal(record=true){
  if(record){try{timelineHistory?.record(sequence);}catch(error){console.warn('Timeline history skipped invalid intermediate edit:',error.message);}}
  try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));}catch(e){}
- el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();acceptedCameraSync?.refresh?.();
+ el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();acceptedCameraSync?.refresh?.();sceneEffectsPanel?.refresh?.();
 }
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
 function cameraAt(t){
@@ -467,7 +517,12 @@ function applyCamera(){
 function seek(t,opts={}){if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
  (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();acceptedCameraSync?.refresh?.();}
 function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
- world.update(playhead,shot.id,custom);if(reviewShotId&&scene.fog)scene.fog.density=0;
+ world.update(playhead,shot.id,custom);
+ const profile=applyShotEffects(scene,renderer,effectsForShot(sequence,shot.id),{review:!!reviewShotId});
+ studioPost.configure(profile);
+ const vignette=viewport.querySelector('.vignette');
+ if(vignette){vignette.style.opacity='1';vignette.style.background=vignetteStyle(profile);}
+ if(lastEffectsShot!==shot.id){lastEffectsShot=shot.id;sceneEffectsPanel?.refresh?.();}
  primitiveWorld.showShot(shot.id);
  draftWorld.update(shot,custom);
  if(lastPrimitiveShotId!==shot.id){lastPrimitiveShotId=shot.id;primitiveEditor?.refresh();}
@@ -478,7 +533,7 @@ function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  // Keep the selected geometry's oriented outline current while dragging,
  // after scene rebuilds, and when orbiting; it is never an exported object.
  sceneObjectEditor?.updateHighlight();
- renderer.render(scene,camera);requestAnimationFrame(animate);
+ studioPost.render();requestAnimationFrame(animate);
 }
 function renderShotName(){let shot=shotAt(playhead),i=sequence.shots.indexOf(shot);el('shotTitle').textContent=String(i+1).padStart(2,'0')+' / '+shot.title;el('stageName').textContent=shot.name;el('shotIndex').textContent=String(i+1).padStart(2,'0');for(const node of document.querySelectorAll('.chapter-item'))node.classList.toggle('current',node.dataset.shot===shot.id);}
 function renderOverlays(){for(let item of sequence.text){let dom=overlayEls.get(item.id);if(!dom)continue;let active=playhead>=item.start&&playhead<item.end,fade=.58,fadeOut=.55;let opacity=active?Math.min(1,curveEasing((playhead-item.start)/fade,{mode:item.textFade||'linear'}),curveEasing((item.end-playhead)/fadeOut,{mode:item.textFade||'linear'})):0;dom.style.opacity=String(clamp(opacity,0,1));dom.style.display=opacity>0?'block':'none';dom.style.left=item.x+'%';dom.style.top=item.y+'%';dom.style.textAlign=item.align||'center';dom.className='scene-caption '+(item.size||'medium')+' '+(item.tone||'white');dom.querySelector('.main-copy').textContent=item.value;dom.querySelector('.sub-copy').textContent=item.subtitle||'';}
@@ -596,5 +651,5 @@ window.addEventListener('keydown',e=>{const target=e.target;if(target instanceof
    }
  }
  if(e.code==='Space'){e.preventDefault();if(ready)setPlaying(!playing);}if(e.code==='ArrowRight'){e.preventDefault();if(ready){setPlaying(false);seek(playhead+1/30);}}if(e.code==='ArrowLeft'){e.preventDefault();if(ready){setPlaying(false);seek(playhead-1/30);}}if(e.code==='Delete'||e.code==='Backspace'){e.preventDefault();if(ready)deleteSelected();}});
-new ResizeObserver(()=>{let w=viewport.clientWidth,h=viewport.clientHeight;if(w<=0||h<=0)return;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);}).observe(viewport);
+new ResizeObserver(()=>{let w=viewport.clientWidth,h=viewport.clientHeight;if(w<=0||h<=0)return;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);studioPost.setSize(w,h);}).observe(viewport);
 boot().catch(error=>{el('errorBanner').hidden=false;el('errorBanner').textContent='Project could not start: '+error.message;console.error(error);});

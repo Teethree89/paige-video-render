@@ -1,5 +1,6 @@
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {blankPrimitiveDocument,validatePrimitiveDocument,makePrimitive,makeExampleBlockout} from './primitive-schema.js';
+import {insertCreatedAsset} from './scene-asset-catalog.js';
 
 const el=id=>document.getElementById(id);
 function download(content,filename,mime='application/json'){
@@ -24,14 +25,28 @@ export function shapeSummary(item){
   return parts.join(' · ');
 }
 export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world,onSelectionChange=()=>{}}) {
-  let selectedId=null,previousShot=null;
+  let selectedId=null,selectedLightId=null,previousShot=null;
   const editor=el('primitiveEditor'),objectSelect=el('primitiveObjectSelect');
   const layerFilter=el('primitiveLayerFilter');
   const status=el('primitiveStatus');
   const editable=el('primitiveFields');
   const file=el('primitiveImportFile');
   const allowed=()=>getSequence().shots.map(s=>s.id);
-  const getPrimitiveDocument=()=>validatePrimitiveDocument(getSequence().primitiveScenes||blankPrimitiveDocument(),allowed());
+  const getPrimitiveDocument=()=>{
+    const doc=validatePrimitiveDocument(getSequence().primitiveScenes||blankPrimitiveDocument(),allowed());
+    // Legacy light entries predate stable IDs. Do not rewrite the stored file
+    // just by opening it; assign identifiers only in the editable working copy.
+    for(const scene of doc.scenes){
+      const taken=new Set((scene.lights||[]).map(l=>l.id).filter(Boolean));
+      (scene.lights||[]).forEach((light,index)=>{
+        if(light.id)return;
+        let id='light_'+(index+1),suffix=1;
+        while(taken.has(id))id='light_'+(index+1)+'_'+(++suffix);
+        light.id=id;taken.add(id);
+      });
+    }
+    return doc;
+  };
   const sceneFor=(doc,shotId,create=false)=>{
     let entry=doc.scenes.find(s=>s.shotId===shotId);
     if(!entry && create){entry={shotId,objects:[]};doc.scenes.push(entry);}
@@ -45,12 +60,12 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       edit(entry,doc,shot);
       onDocumentChange(validatePrimitiveDocument(doc,allowed()));
       status.textContent='Scene changes saved in your editable timeline.';
-      refresh();onSelectionChange(selectedId);
+      refresh();onSelectionChange(selectedId||(selectedLightId?'light::'+selectedLightId:null));
     }catch(err){status.textContent='Change rejected: '+err.message;console.error(err);}
   }
   function refresh(){
     const shot=getActiveShot();if(!shot)return;
-    if(previousShot!==shot.id){previousShot=shot.id;selectedId=null;}
+    if(previousShot!==shot.id){previousShot=shot.id;selectedId=null;selectedLightId=null;}
     let doc,loadError=false;
     try{doc=getPrimitiveDocument();}
     catch(error){
@@ -82,7 +97,11 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       objectSelect.value=selected.id;
       el('primitiveName').value=selected.name;
       el('primitiveLayer').value=selected.layer||'manual';
+      el('primitiveShapeEdit').value=selected.primitive;
       el('primitiveColor').value=selected.material.color;
+      el('primitiveEmissive').value=selected.material.emissive||'#000000';
+      el('primitiveEmissiveIntensity').value=selected.material.emissiveIntensity||0;
+      el('primitiveOpacity').value=selected.material.opacity??1;
       el('primitiveMetalness').value=selected.material.metalness;
       el('primitiveRoughness').value=selected.material.roughness;
       el('primitiveShapeReadOnly').textContent=shapeSummary(selected);
@@ -92,7 +111,39 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       }
     }else {selectedId=null;objectSelect.value='';}
     editable.hidden=!selected;
-    el('primitiveExportGLB').disabled=objects.length===0;
+    const lightSelect=el('primitiveLightSelect'),lightsList=entry?.lights||[];
+    lightSelect.replaceChildren();
+    const first=document.createElement('option');first.value='';
+    first.textContent=lightsList.length?'Select a light…':'No chapter lights yet';
+    lightSelect.append(first);
+    for(const light of lightsList){
+      const option=document.createElement('option');
+      option.value=light.id;option.textContent=light.name+' · '+light.type;
+      lightSelect.append(option);
+    }
+    const chosen=lightsList.find(x=>x.id===selectedLightId);
+    if(!chosen)selectedLightId=null;
+    lightSelect.value=selectedLightId||'';
+    el('primitiveLightFields').hidden=!chosen;
+    el('primitiveDeleteLight').disabled=!chosen;
+    if(chosen){
+      el('primitiveLightName').value=chosen.name;
+      el('primitiveLightType').value=chosen.type;
+      el('primitiveLightColor').value=chosen.color;
+      el('primitiveLightIntensity').value=chosen.intensity;
+      el('primitiveLightIntensity').max=chosen.type==='directional'?10:500;
+      el('primitiveLightTargetWrap').hidden=chosen.type==='point';
+      el('primitiveLightRangeWrap').hidden=chosen.type==='directional';
+      el('primitiveLightSpotWrap').hidden=chosen.type!=='spot';
+      el('primitiveLightDistance').value=chosen.distance??0;
+      el('primitiveLightAngle').value=chosen.angle??.6;
+      el('primitiveLightPenumbra').value=chosen.penumbra??.3;
+      for(const input of editor.querySelectorAll('[data-light]')){
+        const [key,index]=input.dataset.light.split('.');
+        input.value=chosen[key]?.[Number(index)]??0;
+      }
+    }
+    el('primitiveExportGLB').disabled=objects.length===0&&lightsList.length===0;
     el('primitiveDelete').disabled=!selected;
     el('primitiveDuplicate').disabled=!selected;
   }
@@ -119,6 +170,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     const entry=shot?sceneFor(getPrimitiveDocument(),shot.id):null;
     const valid=entry?.objects.some(item=>item.id===id);
     selectedId=valid?id:null;
+    if(valid||!id)selectedLightId=null;
     if(valid&&layerFilter.value!=='all'&&
        !entry.objects.find(item=>item.id===id&&
          (item.layer||'manual')===layerFilter.value))layerFilter.value='all';
@@ -126,7 +178,16 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     if(notify)onSelectionChange(selectedId);
     return valid||!id;
   }
-  layerFilter.addEventListener('change',()=>{selectedId=null;refresh();onSelectionChange(null);});
+  function selectLight(id,{notify=false}={}){
+    const shot=getActiveShot();
+    const entry=shot?sceneFor(getPrimitiveDocument(),shot.id):null;
+    const valid=entry?.lights?.some(light=>light.id===id);
+    selectedLightId=valid?id:null;selectedId=null;
+    refresh();
+    if(notify)onSelectionChange(valid?'light::'+id:null);
+    return !!valid||!id;
+  }
+  layerFilter.addEventListener('change',()=>{selectedId=null;selectedLightId=null;refresh();onSelectionChange(null);});
   objectSelect.addEventListener('change',()=>selectObject(objectSelect.value||null,{notify:true}));
   el('primitiveName').addEventListener('change',event=>apply(entry=>{
     const item=entry.objects.find(o=>o.id===selectedId);if(item)item.name=event.target.value;
@@ -136,6 +197,26 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     const item=entry.objects.find(o=>o.id===selectedId);if(!item)return;
     if(event.target.value==='manual')delete item.layer;else item.layer=event.target.value;
   }));
+  el('primitiveShapeEdit').addEventListener('change',event=>apply(entry=>{
+    const item=entry.objects.find(o=>o.id===selectedId);
+    if(!item||item.primitive===event.target.value)return;
+    const defaults=makePrimitive(event.target.value,'shape_template');
+    item.primitive=defaults.primitive;
+    if(defaults.points)item.points=defaults.points;
+    else delete item.points;
+  }));
+  for(const key of ['Emissive','EmissiveIntensity','Opacity']){
+    el('primitive'+key).addEventListener('change',event=>apply(entry=>{
+      const item=entry.objects.find(o=>o.id===selectedId);if(!item)return;
+      if(key==='Emissive'){
+        item.material.emissive=event.target.value;
+        item.material.emissiveIntensity??=0;
+      }else if(key==='EmissiveIntensity'){
+        item.material.emissiveIntensity=Number(event.target.value);
+        item.material.emissive??='#ffffff';
+      }else item.material.opacity=Number(event.target.value);
+    }));
+  }
   for(const key of ['Color','Metalness','Roughness']){
     el('primitive'+key).addEventListener('change',event=>apply(entry=>{
       const item=entry.objects.find(o=>o.id===selectedId);
@@ -161,6 +242,62 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       duplicate.position[0]+=1.5;
       entry.objects.push(duplicate);selectedId=duplicate.id;
     });
+  });
+  function createAsset(category,preset,origin=[0,0,0]){
+    try{
+      const shot=getActiveShot();if(!shot)throw Error('Select a scene first.');
+      const result=insertCreatedAsset(getPrimitiveDocument(),shot.id,category,preset,origin);
+      // The template is composed entirely of editable primitives or lights.
+      selectedId=result.selected.kind==='object'?result.selected.id:null;
+      selectedLightId=result.selected.kind==='light'?result.selected.id:null;
+      if(selectedId)layerFilter.value='all';
+      onDocumentChange(validatePrimitiveDocument(result.document,allowed()));
+      refresh();onSelectionChange(selectedId||(selectedLightId?'light::'+selectedLightId:null));
+      editor.open=true;
+      status.textContent='Created '+preset.replaceAll('-',' ')+' in '+shot.name+'.';
+      return true;
+    }catch(err){
+      status.textContent='Create failed: '+err.message;return false;
+    }
+  }
+  el('primitiveAddLight').addEventListener('click',()=>createAsset('lights','point-white'));
+  el('primitiveLightSelect').addEventListener('change',event=>
+    selectLight(event.target.value||null,{notify:true}));
+  function editLight(changer){
+    apply(entry=>{
+      const light=entry.lights?.find(l=>l.id===selectedLightId);
+      if(light)changer(light);
+    });
+  }
+  const lightFields={
+    primitiveLightName:(v,l)=>{l.name=v;},
+    primitiveLightColor:(v,l)=>{l.color=v;},
+    primitiveLightIntensity:(v,l)=>{l.intensity=Number(v);},
+    primitiveLightDistance:(v,l)=>{l.distance=Number(v);},
+    primitiveLightAngle:(v,l)=>{l.angle=Number(v);},
+    primitiveLightPenumbra:(v,l)=>{l.penumbra=Number(v);}
+  };
+  for(const [id,change] of Object.entries(lightFields)){
+    el(id).addEventListener('change',e=>editLight(l=>change(e.target.value,l)));
+  }
+  el('primitiveLightType').addEventListener('change',event=>editLight(light=>{
+    light.type=event.target.value;
+    if(light.type==='directional'){light.intensity=Math.min(10,light.intensity);delete light.distance;}
+    else light.distance??=28;
+    if(light.type==='point'){delete light.target;delete light.angle;delete light.penumbra;}
+    else{
+      light.target??=[light.position[0],light.position[1]-4,light.position[2]];
+      if(light.type==='spot'){light.angle??=.6;light.penumbra??=.3;}
+      else{delete light.angle;delete light.penumbra;}
+    }
+  }));
+  for(const input of editor.querySelectorAll('[data-light]'))
+    input.addEventListener('change',event=>{
+      const [key,index]=event.target.dataset.light.split('.');
+      editLight(light=>{light[key][Number(index)]=Number(event.target.value);});
+    });
+  el('primitiveDeleteLight').addEventListener('click',()=>{
+    apply(entry=>{entry.lights=(entry.lights||[]).filter(l=>l.id!==selectedLightId);selectedLightId=null;});
   });
   el('primitiveExportJSON').addEventListener('click',()=>{
     download(JSON.stringify(getPrimitiveDocument(),null,2),'editable-primitives.json');
@@ -192,5 +329,5 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     finally{button.disabled=false;refresh();}
   });
   refresh();
-  return {refresh,selectObject,getSelectedId:()=>selectedId};
+  return {refresh,selectObject,selectLight,createAsset,getSelectedId:()=>selectedId,getSelectedLightId:()=>selectedLightId};
 }
