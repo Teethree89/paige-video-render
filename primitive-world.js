@@ -86,7 +86,7 @@ export function createPrimitiveWorld(scene) {
     clear();document=next;
     for(const entry of next.scenes){
       // A shot with geometry replaces the original world; lights alone do not.
-      if(!entry.objects.length)continue;
+      if(!entry.objects.length&&!(entry.lights?.length))continue;
       const root=new THREE.Group();
       root.name='Primitives_'+entry.shotId;
       root.userData.shotId=entry.shotId;
@@ -139,7 +139,7 @@ export function createPrimitiveWorld(scene) {
     }
     showShot(activeShotId);
   }
-  function hasObjects(shotId){return groups.has(shotId);}
+  function hasObjects(shotId){return document.scenes.some(s=>s.shotId===shotId&&s.objects.length>0);}
   function getBounds(shotId){
     const root=groups.get(shotId);
     if(!root)return null;
