@@ -42,8 +42,8 @@ test('camera sync freezes geometry anchor and respects existing model-view frami
    modelCamera:{position:[22,10,5],target:[5,3,5],fov:50}
  });
  assert.equal(proposal.report.estimatedOrientationUsed,true);
- const originalAnchor=shotAnchorMap(original,t=>evaluateCamera(original.camera,t)).first;
- assert.deepEqual(shotAnchorMap(proposal.sequence,t=>evaluateCamera(proposal.sequence.camera,t)).first,originalAnchor);
+ assert.deepEqual(shotAnchorMap(proposal.sequence,t=>evaluateCamera(proposal.sequence.camera,t)).first,[0,0,0],
+   'Exact selected anchor must be frozen even when original interpolated camera target is slightly offset');
 });
 test('fit option and subsequent sync do not amplify a correctly fitted model repeatedly',()=>{
  const original=make(),bounds={center:[0,0,0],radius:8};
