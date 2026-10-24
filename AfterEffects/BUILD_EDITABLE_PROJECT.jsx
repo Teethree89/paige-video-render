@@ -370,12 +370,12 @@
       var fallbackOrigin=typeof offsets[sid]==="number"?[offsets[sid],0,0]:[startTarget[0],0,startTarget[2]];
       var origin=(shot.aeOrigin && shot.aeOrigin.length===3)?shot.aeOrigin:fallbackOrigin;
       try{addCameraKeys(workspace,seq,shot,origin);}
+      catch(e){reportWarning("Camera import warning for "+shot.name,e);}
       var sceneData=shotScene(seq,shot.id);
       try{addShotLights(workspace,shot,sceneData,origin);}
       catch(lightError){reportWarning("AE native lighting "+shot.name,lightError);}
       try{addShotEffects(workspace,shot,sceneData);}
       catch(fxError){reportWarning("AE shot look "+shot.name,fxError);}
-      catch(e){reportWarning("Camera import warning for "+shot.name,e);}
       // Keep this a flat precomp so AE renders the workspace's own camera.
       // Collapse transformations would expose its 3D layers to the master camera.
       var sceneLayer=comp.layers.add(workspace);
