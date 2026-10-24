@@ -73,9 +73,10 @@ test('Camera sampling cannot use the next shot cut as the previous shot endpoint
   assert.doesNotMatch(code,/var t=shot\.start\+\(shot\.end-shot\.start\)\*n\/samples/);
 
   // Execute the real script's pure interpolation function against the real timeline.
-  const match=jsx.match(/function interpCamera\(seq,t\) \{([\s\S]*?)\n  \}/);
-  assert.ok(match,'camera interpolation function found');
-  const interpolate=new Function('seq','t',match[1]);
+  const helpers=jsx.slice(jsx.indexOf('  function easeCamera('),
+    jsx.indexOf('  function addCameraKeys('));
+  assert.match(helpers,/function interpCamera\(seq,t\)/,'camera interpolation function found');
+  const interpolate=new Function('seq','t',helpers+'\nreturn interpCamera(seq,t);');
   const sequence=JSON.parse(readFileSync(new URL('../timeline.json',import.meta.url),'utf8'));
   const exterior=sequence.shots[0];
   const frameBeforeCut=interpolate(sequence,exterior.end-1/sequence.fps);
