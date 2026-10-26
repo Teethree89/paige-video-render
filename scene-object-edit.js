@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
+import {setupSceneSelectionPanel} from './scene-selection-panel.js';
 
 // Construct the bounds in the selected object's LOCAL coordinates. A world
 // BoxHelper is axis aligned and visually slips away from rotated primitives.
@@ -56,6 +57,8 @@ export function setupSceneObjectEditing({
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
+  const createButton=el('sceneCreateMenuButton');
+  const selectionPanel=setupSceneSelectionPanel();
   const move=el('sceneEditMove'),rotate=el('sceneEditRotate');
   const erase=el('sceneEditDelete'),name=el('sceneEditName'),hint=el('sceneEditStatus');
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
@@ -84,6 +87,8 @@ export function setupSceneObjectEditing({
     edit?.setAttribute('aria-pressed',String(active));
     view?.classList.toggle('active',!active);edit?.classList.toggle('active',active);
     if(tools)tools.hidden=!active;
+    if(createButton)createButton.hidden=!active;
+    selectionPanel.sync(active?selectedId:null);
     move?.classList.toggle('active',operation==='translate');
     rotate?.classList.toggle('active',operation==='rotate');
     move?.setAttribute('aria-pressed',String(operation==='translate'));
@@ -152,6 +157,21 @@ export function setupSceneObjectEditing({
       onSelect?.(null);
     }
     updateButtons();return true;
+  }
+  function focusSelectionIfOffscreen(){
+    if(!active||!selectedId)return;
+    const id=selectedId.startsWith('light-target::')?selectedId.slice(14):
+      selectedId.startsWith('light::')?selectedId.slice(7):null;
+    const node=id?world.getLightMarker(currentShot(),id):null;
+    if(!node)return;
+    node.updateWorldMatrix(true,false);
+    const position=node.getWorldPosition(new THREE.Vector3());
+    const projected=position.clone().project(camera);
+    if(projected.z>1||projected.z< -1||Math.abs(projected.x)>.76||Math.abs(projected.y)>.76){
+      const offset=position.clone().sub(orbitControls.target);
+      camera.position.add(offset);orbitControls.target.copy(position);
+      camera.lookAt(position);orbitControls.update();
+    }
   }
   function refresh(){
     if(!active)return;
@@ -240,7 +260,8 @@ export function setupSceneObjectEditing({
   return {
     get active(){return active;},
     get selectedId(){return selectedId;},
-    setActive,refresh,select,setMode,deleteSelected,updateHighlight,
-    dispose(){setActive(false,{skipExit:true});transform.dispose?.();scene.remove(helper);clearHighlight();}
+    setActive,refresh,select,setMode,deleteSelected,updateHighlight,focusSelectionIfOffscreen,
+    dispose(){setActive(false,{skipExit:true});selectionPanel.restore();
+      transform.dispose?.();scene.remove(helper);clearHighlight();}
   };
 }
