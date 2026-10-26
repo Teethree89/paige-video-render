@@ -8,7 +8,7 @@ import {repeatOffsets} from './primitive-schema.js';
 const sampleShot='arrayPreview';
 const finite=value=>Number.isFinite(Number(value))?Number(value):null;
 
-export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave}){
+export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose=()=>{}}){
  const byId=id=>document.getElementById(id);
  const modal=byId('arrayEditModal');
  const canvas=byId('arrayEditCanvas');
@@ -222,13 +222,14 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave}){
  function close(){
    stop();draft=null;source=null;shotId=null;objectId=null;linked=[];
    modal.hidden=true;world.setDocument({schemaVersion:1,scenes:[]},[]);
+   onClose();
  }
  byId('arrayEditCancel')?.addEventListener('click',close);
  byId('arrayEditSave')?.addEventListener('click',()=>{
    if(!draft)return;
    try{
      const document=saveArrayPrototype(source,getShotIds(),shotId,objectId,{
-       material:draft.base.material,scale:draft.base.scale,parts:draft.parts
+       name:draft.base.name,material:draft.base.material,scale:draft.base.scale,parts:draft.parts
      },linked);
      onSave(document);
      close();
