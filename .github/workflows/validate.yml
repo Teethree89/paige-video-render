@@ -45,7 +45,7 @@ jobs:
       - name: Build and export every primitive with real Three.js
         run: |
           npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/three" three@0.166.1
-          THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" node --test tests/three_primitive_world.mjs
+          THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" node --test tests/three_primitive_world.mjs tests/test_array_prototype.mjs
       - name: Validate timeline and model assets
         run: |
           python tests/test_workspace.py

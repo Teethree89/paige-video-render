@@ -647,6 +647,47 @@ test('Replace Assembly always resolves a real template when available, never bla
    'replacement failure must be displayed beside the action');
  assert.match(editor,/if\(!rerender\(\{refit:true\}\)\)/,
    'preview failure must block staging rather than showing fake success');
- assert.match(editor,/draft=previousDraft;candidates=previousCandidates/,
+ assert.match(editor,/draft=backup\.draft;candidates=backup\.candidates/,
    'failed preview restores the previous draft');
+});
+
+
+test('mesh-free scene-graph assembly emits exactly its ordered children and punctual lights in GLB',async()=>{
+ const group=unit('street_parent','group',{
+   name:'South Edge',position:[12,0,20],rotation:[0,Math.PI/3,0],
+   repeat:{count:[3,1,1],spacing:[8,0,0]},
+   arrayParts:{objects:[
+     unit('post','cylinder',{name:'South Edge Post',position:[0,3,0],scale:[.3,6,.3]}),
+     unit('head','box',{name:'South Edge Lamp Housing',position:[0,6.6,0],
+       scale:[1.5,.5,1.2]})
+   ],lights:[{
+     id:'warm',name:'South Edge Warm Light',type:'spot',color:'#ffedcc',
+     intensity:170,position:[0,6.2,0],target:[0,0,0],angle:.7,
+     penumbra:.3,distance:30
+   }],order:['object:head','light:warm','object:post']}
+ });
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+ try{
+   world.setDocument({schemaVersion:1,scenes:[{shotId:'street',objects:[group]}]},['street']);
+   world.showShot('street');
+   const holder=world.getObjectNode('street','street_parent');
+   assert.equal(holder.type,'Group','parent is a movable Three group, not a dummy mesh');
+   const instances=world.getArrayInstances('street','street_parent');
+   assert.equal(instances.length,3);
+   for(const instance of instances){
+     assert.deepEqual(instance.children.map(node=>node.name.replace(/ \d+$/,'')),
+       ['South Edge Lamp Housing','South Edge Warm Light','South Edge Post'],
+       'Outliner order controls physical child-node order');
+     const meshes=instance.children.filter(n=>n.isMesh);
+     assert.equal(meshes.length,2,'no invisible root mesh consumes mesh budget');
+     assert.ok(instance.children[1].isSpotLight);
+     assert.equal(instance.children[0].userData.primitiveArrayPartId,'head');
+   }
+   const gltf=await new GLTFExporter().parseAsync(world.getSceneForExport('street'),
+     {binary:false,onlyVisible:false});
+   assert.equal(gltf.nodes.filter(n=>n.name?.startsWith('South Edge Post')).length,3);
+   assert.equal(gltf.nodes.filter(n=>n.name?.startsWith('South Edge Lamp Housing')).length,3);
+   assert.equal(gltf.nodes.filter(n=>n.name==='South Edge Warm Light').length,3);
+   assert.equal(gltf.extensions.KHR_lights_punctual.lights.length,3);
+ }finally{world.dispose();}
 });
