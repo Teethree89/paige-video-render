@@ -4,7 +4,7 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
 import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from './array-prototype.js';
-import {repeatOffsets,radiansToDegrees,degreesToRadians} from './primitive-schema.js';
+import {repeatOffsets,radiansToDegrees,degreesToRadians,lightCastsShadow} from './primitive-schema.js';
 import {listAssemblyTemplates,replaceAssemblyContents,saveAssemblyHierarchy,editableAssembly}
   from './array-assembly-templates.js';
 
@@ -79,6 +79,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    renderer=new THREE.WebGLRenderer({canvas,antialias:true});
    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
    renderer.outputColorSpace=THREE.SRGBColorSpace;
+   renderer.shadowMap.enabled=true;
+   renderer.shadowMap.type=THREE.PCFSoftShadowMap;
  }
  const orbit=new OrbitControls(camera,canvas);
  orbit.enableDamping=true;orbit.minDistance=.5;orbit.maxDistance=300;
@@ -264,6 +266,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    input.type=degrees?'number':type;
    if(type==='color')input.value=value;
    else if(type==='text')input.value=String(value??'');
+   else if(type==='checkbox')input.checked=!!value;
    else{
      input.step=degrees?'1':step;
      input.value=String(degrees?radiansToDegrees(value??0):(value??0));
@@ -271,7 +274,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      if(max!=null)input.max=degrees?radiansToDegrees(max):max;
    }
    input.addEventListener('change',()=>{
-     let v=number?finite(input.value):input.value;
+     let v=type==='checkbox'?input.checked:number?finite(input.value):input.value;
      if(v===null){setStatus('Enter a finite number.');return;}
      if(degrees)v=degreesToRadians(v);
      if(number&&((min!=null&&v<min-1e-10)||(max!=null&&v>max+1e-10))){
@@ -349,6 +352,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      typeField.append(select);fields.append(typeField);
      property('Light color',item.color,v=>item.color=v,{type:'color'});
      property('Intensity',item.intensity,v=>item.intensity=v,{min:0,max:item.type==='directional'?10:500});
+     property('Cast shadows',lightCastsShadow(item),v=>item.castShadow=v,{type:'checkbox'});
+     fields.append(makeEl('p','Turning shadows off keeps the light on. This setting applies to all copies; up to 4 lights cast shadows per chapter.'));
      xyz('Source XYZ',item.position,v=>item.position=v);
      if(item.type!=='point')xyz('Aim XYZ',item.target,v=>item.target=v);
      if(item.type!=='directional')property('Range',item.distance||0,v=>item.distance=v,{min:0,max:1000});
@@ -578,7 +583,10 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    if(dragging){dragging=false;commitGizmo();}
  });
  transform.addEventListener('objectChange',()=>{
-   if(draft)world.updateLightVisuals(camera,canvas.clientHeight||320);
+   if(draft){
+     world.updateLightVisuals(camera,canvas.clientHeight||320);
+     world.invalidateShadows(sampleShot);
+   }
  });
  byId('arrayEditAdd')?.addEventListener('click',()=>{
    if(!draft)return;

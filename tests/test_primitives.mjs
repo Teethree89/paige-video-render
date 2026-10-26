@@ -2,12 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PRIMITIVE_TYPES,LIMITS,blankPrimitiveDocument,
-  validatePrimitiveDocument,makePrimitive,makeExampleBlockout,repeatOffsets
+  validatePrimitiveDocument,makePrimitive,makeExampleBlockout,repeatOffsets,lightCastsShadow
 } from '../primitive-schema.js';
 
 const doc=(shotId='draft_001')=>({schemaVersion:1,scenes:[{
   shotId,objects:[makePrimitive('box','rack_1')]
 }]});
+test('per-light shadow choice is optional, strict, and survives JSON for every light type',()=>{
+ for(const type of ['point','spot','directional']){
+   const light={id:'lamp',type,color:'#ffffff',intensity:2,position:[0,5,0]};
+   const source={schemaVersion:1,scenes:[{shotId:'shot',objects:[],lights:[light]}]};
+   const legacy=validatePrimitiveDocument(source).scenes[0].lights[0];
+   assert.equal('castShadow' in legacy,false,'older scenes are not rewritten');
+   assert.equal(lightCastsShadow(legacy),type!=='point');
+   for(const enabled of [false,true]){
+     light.castShadow=enabled;
+     const result=validatePrimitiveDocument(JSON.parse(JSON.stringify(source))).scenes[0].lights[0];
+     assert.equal(result.castShadow,enabled);
+     assert.equal(lightCastsShadow(result),enabled);
+     assert.equal(result.intensity,legacy.intensity,'shadow toggle does not dim the light');
+   }
+   for(const invalid of [null,'false',0,1]){
+     light.castShadow=invalid;
+     assert.throws(()=>validatePrimitiveDocument(source),/castShadow must be boolean/);
+   }
+ }
+});
 test('an empty scene document is valid and backward compatible',()=>{
   assert.deepEqual(validatePrimitiveDocument(undefined),blankPrimitiveDocument());
   assert.deepEqual(validatePrimitiveDocument(null),blankPrimitiveDocument());

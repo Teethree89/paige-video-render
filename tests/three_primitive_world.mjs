@@ -53,6 +53,104 @@ const vertices=mesh=>{
 const near=(a,b)=>Math.abs(a-b)<1e-6;
 const round=n=>Math.round(n*1e4)/1e4+0; // +0 turns -0 into 0 for deepEqual
 
+test('shadow toggles preserve illumination, support opt-in point shadows and free shadow slots',async()=>{
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+ const specs=Array.from({length:5},(_,i)=>({...lights[2],id:'spot_'+i,
+   castShadow:i!==0}));
+ const source={schemaVersion:1,scenes:[{shotId:'test',objects:[unit('box','box')],lights:specs}]};
+ try{
+   world.setDocument(source);world.showShot('test');
+   assert.equal(world.getLightNode('test','spot_0').castShadow,false);
+   assert.equal(world.getLightNode('test','spot_0').intensity,120);
+   assert.equal(world.getLightNode('test','spot_4').castShadow,true,
+     'the disabled first light leaves a slot for the fifth');
+   source.scenes[0].lights=[{...lights[1],id:'point',castShadow:true},
+     {...lights[0],id:'sun',castShadow:false}];
+   world.setDocument(source);
+   const point=world.getLightNode('test','point'),sun=world.getLightNode('test','sun');
+   assert.equal(point.castShadow,true);
+   assert.equal(point.shadow.getViewportCount(),6);
+   assert.equal(sun.castShadow,false);assert.equal(sun.intensity,1.2);
+   const exported=await new GLTFExporter().parseAsync(world.getSceneForExport('test'),
+     {binary:false,onlyVisible:false,trs:true});
+   assert.equal(exported.nodes.find(n=>n.name==='Lamp').extras.castShadow,true);
+   assert.equal(exported.nodes.find(n=>n.name==='Moonlight').extras.castShadow,false);
+ }finally{world.dispose();}
+});
+
+test('assembly copies share prototype GPU resources and dispose each resource exactly once',()=>{
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+ const part=unit('head','sphere',{position:[0,3,0]});
+ const assembly=unit('row','group',{repeat:{count:[20,1,1],spacing:[3,0,0]},
+   arrayParts:{objects:[part],lights:[{...lights[2],id:'beam',castShadow:false}]}});
+ world.setDocument({schemaVersion:1,scenes:[{shotId:'street',objects:[assembly]}]});
+ world.showShot('street');
+ const copies=world.getArrayInstances('street','row');
+ assert.equal(copies.length,20);
+ const heads=copies.map(copy=>copy.children.find(n=>n.isMesh));
+ assert.ok(heads.every(n=>n.geometry===heads[0].geometry&&n.material===heads[0].material));
+ assert.equal(new Set(heads.map(n=>n.id)).size,20,'copies remain individually pickable meshes');
+ for(const copy of copies){
+   const beam=copy.children.find(n=>n.isLight);
+   assert.equal(beam.castShadow,false);assert.equal(beam.intensity,120);
+ }
+ const resources=[heads[0].geometry,heads[0].material];
+ const disposals=[0,0];
+ resources.forEach((resource,index)=>resource.addEventListener('dispose',()=>disposals[index]++));
+ world.dispose();assert.deepEqual(disposals,[1,1]);
+});
+
+test('real Three.js shadow pass reuses static maps, refreshes edits, and preserves animated-world updates',async()=>{
+ // Run the pinned renderer's real shadow traversal/dirty-flag algorithm.
+ // Only the final GPU submission is replaced by counters; no FPS is inferred.
+ const {WebGLShadowMap}=await import('three/src/renderers/webgl/WebGLShadowMap.js');
+ const {world,root}=build(),scene=root.parent;
+ const camera=new THREE.PerspectiveCamera(50,1,.1,1000);
+ const casters=[];root.traverse(node=>{if(node.isLight&&node.castShadow)casters.push(node);});
+ let passes=0,draws=0;
+ const backend={
+   getRenderTarget:()=>null,getActiveCubeFace:()=>0,getActiveMipmapLevel:()=>0,
+   setRenderTarget:target=>{if(target)passes++;},clear(){},
+   renderBufferDirect(){draws++;},properties:{get:()=>({})},
+   state:{setBlending(){},setScissorTest(){},viewport(){},
+     buffers:{color:{setClear(){}},depth:{setTest(){}}}}
+ };
+ const shadows=new WebGLShadowMap(backend,{update:object=>object.geometry},{maxTextureSize:8192});
+ shadows.enabled=true;shadows.type=THREE.PCFSoftShadowMap;
+ const frame=()=>{
+   passes=draws=0;scene.updateMatrixWorld(true);camera.updateMatrixWorld();
+   shadows.render(casters,scene,camera);return {passes,draws};
+ };
+ try{
+   assert.equal(casters.length,2);
+   assert.ok(casters.every(node=>!node.shadow.autoUpdate));
+   const initial=frame();assert.equal(initial.passes,2);assert.ok(initial.draws>0);
+   camera.position.x+=5;
+   assert.deepEqual(frame(),{passes:0,draws:0},'orbiting reuses both cached maps');
+   // Compare the previous continuous update behavior on the same scene.
+   for(const node of casters)node.shadow.autoUpdate=true;
+   assert.equal(frame().passes,2);assert.equal(frame().passes,2);
+   for(const node of casters)node.shadow.autoUpdate=false;
+   assert.equal(frame().passes,0);
+   world.getObjectNode('s1','box').position.x+=2;world.invalidateShadows('s1');
+   assert.equal(frame().passes,2,'moving geometry refreshes every affected shadow');
+   assert.equal(frame().passes,0);
+   world.setLightMarkersVisible(true);
+   world.getLightMarker('s1','light_1').position.x+=3;
+   world.updateLightVisuals(camera,720);
+   assert.equal(frame().passes,2,'live light movement refreshes shadows');
+   world.updateLightVisuals(camera,720);
+   assert.equal(frame().passes,0,'unchanged light markers do not invalidate the cache');
+   world.getLightTargetMarker('s1','light_1').position.z+=3;
+   world.updateLightVisuals(camera,720);
+   assert.equal(frame().passes,2,'aim target movement refreshes shadows');
+   world.showShot('other');world.showShot('s1');assert.equal(frame().passes,2);
+   world.setDocument({schemaVersion:1,scenes:[{shotId:'s1',objects:[],lights:[lights[0]]}]});
+   assert.equal(world.getLightNode('s1','light_1').shadow.autoUpdate,true,
+     'lights over the original animated world must keep updating');
+ }finally{world.dispose();}
+});
+
 test('every primitive fills the unit cube, so scale means size', () => {
   const {of}=build();
   for(const id of ['box','cone','wedge','gable','ell','clockwise']){
@@ -210,6 +308,11 @@ test('pinned Three.js TransformControls attach to saved primitives and toggle or
     assert.equal(editor.active,true);assert.equal(orbit.enabled,true);
     assert.equal(editor.select('windows'),true);
     assert.equal(editor.selectedId,'windows');assert.equal(selection,'windows');
+    const gizmo=scene.children.find(node=>node.isTransformControls);
+    const sun=world.getLightNode('s1','light_1');
+    sun.shadow.needsUpdate=false;
+    gizmo.dispatchEvent({type:'objectChange'});
+    assert.equal(sun.shadow.needsUpdate,true,'live transform invalidates cached shadows');
     assert.equal(editor.setMode('rotate'),undefined);
     assert.equal(editor.select('unknown'),false);
     assert.equal(editor.deleteSelected(),true);assert.equal(deletes,1);

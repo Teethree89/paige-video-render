@@ -29,6 +29,22 @@ const lamp=()=>({id:'lamp_head',name:'Emissive lamp head',primitive:'box',
 const light=()=>({id:'beam',name:'Streetlight beam',type:'spot',
  position:[0,3,.4],target:[0,-2,.4],color:'#fff5d4',intensity:240,
  distance:35,angle:.6,penumbra:.4});
+test('prototype shadow toggle applies to every linked array and survives validated save',()=>{
+ const before=fixtures(),base=before.scenes[0].objects[0];
+ for(const castShadow of [false,true]){
+   const result=saveArrayPrototype(before,['street'],'street',base.id,{
+     name:base.name,scale:base.scale,material:base.material,
+     parts:{objects:[lamp()],lights:[{...light(),castShadow}]}
+   });
+   for(const row of result.scenes[0].objects.slice(0,2)){
+     assert.equal(row.arrayParts.lights[0].castShadow,castShadow);
+     assert.equal(row.arrayParts.lights[0].intensity,240);
+   }
+   assert.deepEqual(result.scenes[0].objects[2],before.scenes[0].objects[2]);
+   assert.deepEqual(validatePrimitiveDocument(JSON.parse(JSON.stringify(result))),result);
+ }
+ assert.equal(before.scenes[0].objects[0].arrayParts,undefined);
+});
 
 test('matching streetlight arrays update together while unrelated repeats are untouched',()=>{
  const before=fixtures(),snapshot=structuredClone(before);

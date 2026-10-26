@@ -1,6 +1,6 @@
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {blankPrimitiveDocument,validatePrimitiveDocument,makePrimitive,makeExampleBlockout,
-  radiansToDegrees,degreesToRadians} from './primitive-schema.js';
+  radiansToDegrees,degreesToRadians,lightCastsShadow} from './primitive-schema.js';
 import {insertCreatedAsset} from './scene-asset-catalog.js';
 
 const el=id=>document.getElementById(id);
@@ -144,6 +144,12 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveLightColor').value=chosen.color;
       el('primitiveLightIntensity').value=chosen.intensity;
       el('primitiveLightIntensity').max=chosen.type==='directional'?10:500;
+      el('primitiveLightCastShadow').checked=lightCastsShadow(chosen);
+      const shadowStatus=el('primitiveLightShadowStatus');
+      if(shadowStatus)shadowStatus.textContent=lightCastsShadow(chosen)&&
+        world.getLightNode?.(shot.id,chosen.id)?.castShadow===false?
+        'Shadow slots are in use. Turn off shadows on another light to use this one.':
+        'Turn off shadows to keep illumination with faster rendering. Up to 4 lights cast shadows per chapter.';
       el('primitiveLightTargetWrap').hidden=chosen.type==='point';
       el('primitiveLightRangeWrap').hidden=chosen.type==='directional';
       el('primitiveLightSpotWrap').hidden=chosen.type!=='spot';
@@ -298,6 +304,8 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   for(const [id,change] of Object.entries(lightFields)){
     el(id).addEventListener('change',e=>editLight(l=>change(e.target.value,l)));
   }
+  el('primitiveLightCastShadow').addEventListener('change',event=>
+    editLight(light=>{light.castShadow=event.target.checked;}));
   el('primitiveLightType').addEventListener('change',event=>editLight(light=>{
     light.type=event.target.value;
     if(light.type==='directional'){light.intensity=Math.min(10,light.intensity);delete light.distance;}

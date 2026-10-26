@@ -7,6 +7,9 @@ export const PRIMITIVE_TYPES = Object.freeze(['box','sphere','cylinder','plane',
 export const ENVIRONMENT_LAYERS = Object.freeze(['structures','ground','vegetation','details']);
 // glTF's KHR_lights_punctual types, so every light also exports to GLB.
 export const LIGHT_TYPES = Object.freeze(['directional','point','spot']);
+// Preserve the legacy look when loading older files: aimed lights request
+// shadows, point lights do not. An explicit choice works for every light type.
+export const lightCastsShadow = light => light.castShadow ?? (light.type !== 'point');
 // A repeat array renders every copy as its own mesh, so copies are capped per
 // object and per scene to keep mobile WebGL, GLB and After Effects responsive.
 export const LIMITS = Object.freeze({scenes:120, objectsPerScene:240, totalObjects:2000,
@@ -90,6 +93,10 @@ const sceneLights=(value,shotId)=>{
       color:hexColor(light.color,label+' color'),
       intensity:finite(light.intensity,label+' intensity',0,light.type==='directional'?10:500),
       position:vec(light.position,label+' position',-10000,10000)};
+    if(light.castShadow!==undefined){
+      if(typeof light.castShadow!=='boolean')fail(label+' castShadow must be boolean');
+      out.castShadow=light.castShadow;
+    }
     if(light.type!=='point'){
       out.target=light.target==null?[0,0,0]:vec(light.target,label+' target',-10000,10000);
       if(Math.hypot(...out.position.map((n,k)=>n-out.target[k]))<.01)fail(label+' must aim at a distinct target');
