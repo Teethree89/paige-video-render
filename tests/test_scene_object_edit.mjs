@@ -105,3 +105,21 @@ test('Make Array uses centered XYZ repetition and keeps previously authored chil
  assert.throws(()=>setSceneObjectRepeat(original,['exterior'],'exterior','tree',
    [100,100,100],[1,1,1]),/more than|too many/);
 });
+
+
+test('rotate-array changes copy orientation only, never its layout direction or count',()=>{
+ const input=original(),snapshot=structuredClone(input);
+ const out=editPrimitiveTransform(input,['exterior','second'],'exterior','windows',
+   'rotate',[0,Math.PI/2,0]);
+ const result=out.scenes[0].objects.find(x=>x.id==='windows');
+ assert.deepEqual(result.instanceRotation,[0,Math.PI/2,0]);
+ assert.deepEqual(result.rotation,[0,.4,0],
+   'row layout orientation must not move the copies');
+ assert.deepEqual(result.position,[8,4,2]);
+ assert.deepEqual(result.repeat,snapshot.scenes[0].objects[1].repeat);
+ assert.deepEqual(input,snapshot);
+ const moved=editPrimitiveTransform(out,['exterior','second'],'exterior','windows',
+   'translate',[10,4,3]).scenes[0].objects.find(x=>x.id==='windows');
+ assert.deepEqual(moved.instanceRotation,result.instanceRotation);
+ assert.deepEqual(moved.rotation,result.rotation);
+});
