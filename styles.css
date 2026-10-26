@@ -448,3 +448,16 @@ html,body{font-size:14px}
 #arrayTemplateRoles{max-width:min(480px,calc(100vw - 26px))}
 #arrayTemplateRoles select{width:100%;margin:8px 0 18px}
 #arrayEditTemplate{width:100%}
+
+/* All template meshes remain visible while the non-modal role labeling panel
+   is open. Hovering a row or the mini canvas outlines the exact preview mesh. */
+.array-template-label-panel{margin:10px 0 12px;padding:12px;border:1px solid #416879;border-radius:7px;background:#102432}
+.array-template-label-panel[hidden]{display:none}
+#arrayTemplateLabelRows{display:flex;flex-direction:column;gap:10px;margin:12px 0;max-height:320px;overflow-y:auto}
+.array-template-label-row{display:flex;flex-direction:column;gap:5px;padding:9px;border:1px solid #30495c;border-radius:5px;background:#142c3b}
+.array-template-label-row:hover,.array-template-label-row:focus-within{border-color:#ffcf71;background:#213548}
+.array-template-label-row strong{font-size:12px;color:#e4f4fc}
+.array-template-label-row span{font-size:10px;color:#adc1ca}
+.array-template-label-row select,.array-template-label-row input{min-height:30px;width:100%;padding:5px;background:#0d2030;border:1px solid #526678;border-radius:4px;color:#eff7fb}
+.array-template-label-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.array-template-label-actions button{padding:9px 12px;border-radius:5px}
