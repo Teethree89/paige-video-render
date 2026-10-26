@@ -94,3 +94,64 @@ test('light gizmo move/delete preserves unrelated accepted shapes and never expo
  assert.match(editor,/primitiveLightId/);
  assert.throws(()=>editLightTransform(deleted,['a'],'a',light.id,[0,0,0]),/no longer exists/);
 });
+
+
+test('new editor lights visibly illuminate shot geometry, with non-cube edit-only handles',async()=>{
+ const THREE=await import('three');
+ const {createPrimitiveWorld}=await import('../primitive-world.js');
+ let doc=insertCreatedAsset(empty(),'a','primitives','box',[0,0,0]).document;
+ doc=insertCreatedAsset(doc,'a','lights','point-red',[0,0,0]).document;
+ doc=insertCreatedAsset(doc,'a','lights','spot-cool',[0,0,0]).document;
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+ try{
+   world.setDocument(doc,['a','b']);
+   world.showShot('a');
+   const exported=world.getSceneForExport('a');
+   const point=[],spot=[],meshes=[];
+   exported.traverse(node=>{
+     if(node.isPointLight)point.push(node);
+     if(node.isSpotLight)spot.push(node);
+     if(node.isMesh)meshes.push(node);
+     assert.equal(node.userData.primitiveLightId,undefined,'no editor gizmos in GLB');
+   });
+   assert.equal(point.length,1);
+   assert.equal(spot.length,1);
+   assert.equal(point[0].intensity,180,'point illumination must compete with global fill');
+   assert.equal(spot[0].intensity,240,'spot illumination must compete with global fill');
+   assert.equal(spot[0].castShadow,true);
+   assert.equal(spot[0].shadow.mapSize.x,512);
+   assert.equal(point[0].castShadow,false,'avoid six shadow passes per point light');
+   assert.ok(meshes.length>0);
+   assert.ok(meshes.every(mesh=>mesh.isMesh&&mesh.castShadow&&mesh.receiveShadow));
+   const lightId=doc.scenes[0].lights[0].id;
+   const marker=world.getLightMarker('a',lightId);
+   assert.ok(marker.isMesh);
+   assert.equal(marker.geometry.type,'SphereGeometry','bulb gizmo, not a cube or octahedron');
+   assert.ok(marker.children.some(child=>child.isLineSegments),'light-ray icon spokes');
+   assert.equal(marker.visible,true,'hidden parent controls edit-only visibility');
+   assert.equal(marker.parent.visible,false);
+   world.setLightMarkersVisible(true);
+   assert.equal(marker.parent.visible,true);
+   world.showShot('b');
+   assert.equal(marker.parent.visible,false,'lights and their gizmos are shot-scoped');
+   world.showShot('a');
+   assert.equal(marker.parent.visible,true);
+   const saved=world.getDocument();
+   assert.equal(saved.scenes[0].objects.length,doc.scenes[0].objects.length);
+   assert.equal(saved.scenes[0].lights[0].intensity,180);
+ }finally{world.dispose();}
+});
+
+test('editor and video agree on shadow rendering; editing suppresses temporary studio fill',async()=>{
+ const root=new URL('../',import.meta.url);
+ const [app,render,world,assets]=await Promise.all(
+  ['app.js','render.js','primitive-world.js','scene-asset-catalog.js']
+    .map(path=>readFile(new URL(path,root),'utf8')));
+ assert.match(app,/renderer\.shadowMap\.enabled=true/);
+ assert.match(render,/renderer\.shadowMap\.enabled=true/);
+ assert.match(app,/reviewLights\.visible=!editMode/);
+ assert.match(app,/showGeneratedGeometry\(shot\.id,false,\{editMode:true\}\)/);
+ assert.match(world,/node\.castShadow=spec\.type!=='point'/);
+ assert.match(world,/mesh\.receiveShadow=true/);
+ assert.match(assets,/id\.startsWith\('spot'\)\?240:180/);
+});
