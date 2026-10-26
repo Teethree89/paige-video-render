@@ -4,7 +4,7 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
 import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from './array-prototype.js';
-import {repeatOffsets} from './primitive-schema.js';
+import {repeatOffsets,radiansToDegrees,degreesToRadians} from './primitive-schema.js';
 import {listAssemblyTemplates,replaceAssemblyContents,saveAssemblyHierarchy,editableAssembly}
   from './array-assembly-templates.js';
 
@@ -133,7 +133,9 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  function attachSelected(){
    transform.detach();
    if(!draft)return;
-   const node=partNode(selected);
+   const node=selected==='root'&&operation==='rotate'?
+     partNode('root')?.children.find(child=>child.userData.primitiveId===objectId):
+     partNode(selected);
    if(!node)return;
    if(selected.startsWith('light:')&&operation==='rotate')setMode('translate');
    transform.attach(node);
@@ -143,6 +145,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    if(mode==='rotate'&&selected.startsWith('light:'))return;
    operation=mode;transform.setMode(mode);
    transform.setSpace(mode==='translate'?'world':'local');
+   if(draft)attachSelected();
    for(const [id,value] of [['arrayEditMove','translate'],['arrayEditRotate','rotate']]){
      const button=byId(id);if(!button)continue;
      button.setAttribute('aria-pressed',String(mode===value));
@@ -256,15 +259,22 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  }
  function property(label,value,onChange,{type='number',step='0.1',min=null,max=null}={}){
    const wrap=makeEl('label',label,{class:'array-property'});
-   const input=makeEl('input');input.type=type;
+   const input=makeEl('input');
+   const degrees=type==='degrees',number=type==='number'||degrees;
+   input.type=degrees?'number':type;
    if(type==='color')input.value=value;
    else if(type==='text')input.value=String(value??'');
-   else {input.step=step;input.value=String(value??0);
-     if(min!=null)input.min=min;if(max!=null)input.max=max;}
+   else{
+     input.step=degrees?'1':step;
+     input.value=String(degrees?radiansToDegrees(value??0):(value??0));
+     if(min!=null)input.min=degrees?radiansToDegrees(min):min;
+     if(max!=null)input.max=degrees?radiansToDegrees(max):max;
+   }
    input.addEventListener('change',()=>{
-     let v=type==='number'?finite(input.value):input.value;
+     let v=number?finite(input.value):input.value;
      if(v===null){setStatus('Enter a finite number.');return;}
-     if(type==='number'&&min!=null&&v<min||type==='number'&&max!=null&&v>max){
+     if(degrees)v=degreesToRadians(v);
+     if(number&&((min!=null&&v<min-1e-10)||(max!=null&&v>max+1e-10))){
        setStatus('Value outside the allowed range.');return;
      }
      try{onChange(v);rerender();}
@@ -272,16 +282,16 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    });
    wrap.append(input);fields.append(wrap);
  }
- function xyz(label,vector,onChange){
+ function xyz(label,vector,onChange,{degrees=false}={}){
    const line=makeEl('div',label,{class:'array-xyz'});
    for(let i=0;i<3;i++){
      const field=makeEl('label',['X','Y','Z'][i]);
-     const input=makeEl('input');input.type='number';input.step='.1';
-     input.value=String(vector[i]);
+     const input=makeEl('input');input.type='number';input.step=degrees?'1':'.1';
+     input.value=String(degrees?radiansToDegrees(vector[i]):vector[i]);
      input.addEventListener('change',()=>{
        const v=finite(input.value);
        if(v===null){setStatus('Enter a finite XYZ value.');return;}
-       const result=[...vector];result[i]=v;
+       const result=[...vector];result[i]=degrees?degreesToRadians(v):v;
        onChange(result);refreshFields();rerender();
      });
      field.append(input);line.append(field);
@@ -297,14 +307,17 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    property('Name',item.name,v=>{item.name=v;refreshList();},{type:'text'});
    if(!isLight){
      if(root){
-       fields.append(makeEl('p','The mini viewport stays centered on the array. XYZ and rotation change its saved placement in the scene while retaining the other matching rows.'));
+       fields.append(makeEl('p','Rotation of each copy turns the objects in place; it does not change their array positions or spacing. Layout direction is a separate advanced adjustment.'));
        xyz('Array center XYZ (scene)',item.position,v=>item.position=v);
-       xyz('Array rotation radians',item.rotation,v=>item.rotation=v);
+       xyz('Rotation of each copy (°)',item.instanceRotation||[0,0,0],
+         v=>item.instanceRotation=v,{degrees:true});
+       if(item.repeat)xyz('Array layout direction (°) · changes row positions',
+         item.rotation,v=>item.rotation=v,{degrees:true});
      }
      if(!root)xyz('Dimensions',item.scale,v=>item.scale=v);
      if(!root){
        xyz('Local XYZ',item.position,v=>item.position=v);
-       xyz('Rotation radians',item.rotation,v=>item.rotation=v);
+       xyz('Local rotation (°)',item.rotation,v=>item.rotation=v,{degrees:true});
      }
      if(!root){
        property('Material color',item.material.color,v=>item.material.color=v,{type:'color'});
@@ -340,7 +353,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      if(item.type!=='point')xyz('Aim XYZ',item.target,v=>item.target=v);
      if(item.type!=='directional')property('Range',item.distance||0,v=>item.distance=v,{min:0,max:1000});
      if(item.type==='spot'){
-       property('Cone radians',item.angle,v=>item.angle=v,{min:.05,max:1.5});
+       property('Cone angle (°)',item.angle,v=>item.angle=v,
+         {type:'degrees',min:.05,max:1.5});
        property('Penumbra',item.penumbra,v=>item.penumbra=v,{min:0,max:1});
      }
    }
@@ -540,8 +554,12 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    const original=originalRoot(),item=current.value;
    if(current.kind==='base'){
      draft.base.position=node.position.toArray().map((n,i)=>n+original.position[i]);
-     draft.base.rotation=[node.rotation.x,node.rotation.y,node.rotation.z]
-       .map((n,i)=>n+original.rotation[i]);
+     if(operation==='rotate'){
+       draft.base.instanceRotation=[node.rotation.x,node.rotation.y,node.rotation.z];
+     }else{
+       draft.base.rotation=[node.rotation.x,node.rotation.y,node.rotation.z]
+         .map((n,i)=>n+original.rotation[i]);
+     }
    }else if(current.kind==='light'){
      // Child nodes already live in the assembly's local coordinate frame.
      item.position=node.position.toArray();
