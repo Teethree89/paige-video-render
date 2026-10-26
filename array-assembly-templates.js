@@ -142,26 +142,37 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
 export function saveAssemblyTemplateDraft(staged,allowedShots,shotId,rootId,base,parts,mappings){
  const doc=validatePrimitiveDocument(staged,allowedShots);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
- const root=entry?.objects.find(o=>o.id===rootId&&o.repeat);
- if(!root)throw Error('Template destination no longer exists');
- const q=quat(base.rotation);
+ const initial=entry?.objects.find(o=>o.id===rootId&&o.repeat);
+ if(!initial)throw Error('Template destination no longer exists');
+ const movement=xyz(base.position).sub(xyz(initial.position));
+ const turn=quat(base.rotation).multiply(quat(initial.rotation).invert());
  const mapped=new Set(mappings.map(x=>x.partId));
+ const extras=parts.objects.filter(part=>!mapped.has(part.id));
+ const rows=new Set([rootId,...mappings.map(m=>m.rootId)]);
+ for(const id of rows){
+   const row=entry.objects.find(o=>o.id===id&&o.repeat);
+   if(!row)throw Error('Linked template array row no longer exists');
+   row.position=xyz(row.position).add(movement).toArray();
+   row.rotation=euler(turn.clone().multiply(quat(row.rotation)));
+   row.name=base.name;row.primitive=base.primitive;
+   row.scale=[...base.scale];row.material=structuredClone(base.material);
+   if(base.points)row.points=structuredClone(base.points);else delete row.points;
+   if(extras.length||parts.lights.length)
+     row.arrayParts={objects:structuredClone(extras),lights:structuredClone(parts.lights)};
+   else delete row.arrayParts;
+ }
  for(const map of mappings){
    const row=entry.objects.find(o=>o.id===map.targetId);
+   const owner=entry.objects.find(o=>o.id===map.rootId);
    const edit=parts.objects.find(o=>o.id===map.partId);
-   if(!row)throw Error('Template sibling array is missing');
+   if(!row||!owner)throw Error('Template sibling array is missing');
    if(!edit){entry.objects=entry.objects.filter(x=>x.id!==map.targetId);continue;}
    row.name=edit.name;row.primitive=edit.primitive;
-   row.position=xyz(edit.position).applyQuaternion(q).add(xyz(base.position)).toArray();
-   row.rotation=euler(q.clone().multiply(quat(edit.rotation)));
+   row.position=xyz(edit.position).applyQuaternion(quat(owner.rotation))
+     .add(xyz(owner.position)).toArray();
+   row.rotation=euler(quat(owner.rotation).multiply(quat(edit.rotation)));
    row.material=structuredClone(edit.material);row.scale=[...edit.scale];
    if(edit.points)row.points=structuredClone(edit.points);else delete row.points;
  }
- const extra=parts.objects.filter(part=>!mapped.has(part.id));
- Object.assign(root,{name:base.name,primitive:base.primitive,position:[...base.position],
-   rotation:[...base.rotation],scale:[...base.scale],material:structuredClone(base.material)});
- if(base.points)root.points=structuredClone(base.points);else delete root.points;
- if(extra.length||parts.lights.length)root.arrayParts={objects:extra,lights:parts.lights};
- else delete root.arrayParts;
  return validatePrimitiveDocument(doc,allowedShots);
 }
