@@ -120,6 +120,8 @@ export function validateSceneEffects(value){
  const bloom=value.bloom||{enabled:false,strength:.45,threshold:.8,radius:.35};
  if(typeof bloom.enabled!=='boolean')fail('bloom enabled must be boolean');
  const shadows=value.shadows||{enabled:true};
+ const lights=value.lights||{enabled:true};
+ if(!lights||typeof lights!=='object'||Array.isArray(lights)||typeof lights.enabled!=='boolean')fail('lights enabled must be boolean');
  if(!shadows||typeof shadows!=='object'||Array.isArray(shadows)||typeof shadows.enabled!=='boolean')
    fail('shadows enabled must be boolean');
  return {
@@ -129,6 +131,7 @@ export function validateSceneEffects(value){
      threshold:finite(bloom.threshold??.8,'bloom threshold',0,1),
      radius:finite(bloom.radius??.35,'bloom radius',0,1)},
    shadows:{enabled:shadows.enabled},
+   lights:{enabled:lights.enabled},
    exposure:finite(value.exposure??1.35,'scene exposure',.2,5),
    vignette:finite(value.vignette??.45,'vignette strength',0,1)
  };

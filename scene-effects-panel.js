@@ -7,6 +7,7 @@ const fields={
  fogDensity:['sceneFogDensity',Number],
  bloomEnabled:['sceneBloomEnabled',Boolean],
  shadowsEnabled:['sceneShadowsEnabled',Boolean],
+ lightsEnabled:['sceneLightsEnabled',Boolean],
  bloomStrength:['sceneBloomStrength',Number],
  bloomThreshold:['sceneBloomThreshold',Number],
  bloomRadius:['sceneBloomRadius',Number],
@@ -31,6 +32,7 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
    $('sceneFogDensity').value=profile.fog.density;
    $('sceneBloomEnabled').checked=profile.bloom.enabled;
    $('sceneShadowsEnabled').checked=profile.shadows.enabled;
+   $('sceneLightsEnabled').checked=profile.lights.enabled;
    $('sceneBloomStrength').value=profile.bloom.strength;
    $('sceneBloomThreshold').value=profile.bloom.threshold;
    $('sceneBloomRadius').value=profile.bloom.radius;
@@ -69,6 +71,7 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
       case 'fogDensity':profile.fog.density=value;break;
       case 'bloomEnabled':profile.bloom.enabled=value;break;
       case 'shadowsEnabled':profile.shadows.enabled=value;break;
+      case 'lightsEnabled':profile.lights.enabled=value;break;
       case 'bloomStrength':profile.bloom.strength=value;break;
       case 'bloomThreshold':profile.bloom.threshold=value;break;
       case 'bloomRadius':profile.bloom.radius=value;break;
