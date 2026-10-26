@@ -24,6 +24,15 @@ const component=(root,child=null)=>{
    ...(item.points?{points:structuredClone(item.points)}:{}),
    layer:item.layer||root.layer};
 };
+// Descriptors are the COMPLETE text after the two-word assembly prefix,
+// not the last token and not hard-coded "Crown", "Trunk", "Post", etc.
+export function assemblyDescriptor(name,prefix=''){
+ const words=String(name||'').trim().split(/\s+/);
+ const head=String(prefix||'').trim().split(/\s+/);
+ if(head.length>=2&&words.slice(0,head.length).join(' ').toLowerCase()===head.join(' ').toLowerCase())
+   return words.slice(head.length).join(' ')||'Component';
+ return String(name||'').trim()||'Component';
+}
 const partsFor=root=>[component(root),
  ...(root.arrayParts?.objects||[]).map(part=>component(root,part))];
 const lightsFor=root=>(root.arrayParts?.lights||[]).map(light=>{
@@ -49,7 +58,8 @@ export function listAssemblyTemplates(source,shotId){
    if(roots.length<2&&!roots.some(x=>x.arrayParts?.objects?.length))continue;
    // Match once per named family, not once per repeated object in the scene.
    for(const base of roots.slice(0,1)){
-   const others=findArrayCompanions(doc,shotId,base.id).filter(x=>x.nameMatch);
+   const others=findArrayCompanions(doc,shotId,base.id,{includeComposites:true})
+     .filter(x=>x.nameMatch);
    const ids=[base.id,...others.map(c=>c.id)];
    const assembled=ids.map(id=>entry.objects.find(x=>x.id===id));
    const components=assembled.flatMap(partsFor);
@@ -58,8 +68,8 @@ export function listAssemblyTemplates(source,shotId){
    if(seen.has(signature))continue;
    seen.add(signature);
    const prefix=base.name.trim().split(/\s+/).slice(0,2).join(' ');
-   const labels=components.map(c=>c.name.split(/\s+/).at(-1)).join(' + ');
-   out.push({id:base.id,key,label:prefix+' — '+labels,
+   const labels=components.map(c=>assemblyDescriptor(c.name,prefix)).join(' + ');
+   out.push({id:base.id,key,prefix,label:prefix+' — '+labels,
      parts:components,lights:assembled.flatMap(lightsFor),rootIds:ids});
    }
  }
@@ -69,7 +79,8 @@ export function listAssemblyTemplates(source,shotId){
 // distribution: XYZ center, rotation, count, spacing and per-scene layer.
 // New components are real sibling arrays named after the destination prefix,
 // not a mutation of the source's prototypes or locations.
-export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,templateId,primaryId,secondaryId){
+export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,templateId,primaryId,secondaryId,
+ {replaceLights=false}={}){
  const doc=validatePrimitiveDocument(source,allowedShots);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
  const dest=entry?.objects.find(o=>o.id===destinationId&&o.repeat);
@@ -78,14 +89,15 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
  if(!sourceTemplate)throw Error('Source assembly has changed; reopen the template list');
  const primary=sourceTemplate.parts.find(p=>p.id===primaryId);
  const secondary=sourceTemplate.parts.find(p=>p.id===secondaryId);
- if(!primary||!secondary||primary.id===secondary.id)
+ if(!primary||secondaryId&&(!secondary||primary.id===secondary.id))
    throw Error('Choose distinct primary and supporting components');
  const naming=dest.name.trim().split(/\s+/).slice(0,2).join(' ');
  if(!arrayGroupKey(dest.name))throw Error('Destination needs a two-word group name');
  const roots=findMatchingArrays(doc,shotId,dest.id);
  // Do not absorb unrelated array definitions just because their names match.
- const oldCompanions=findArrayCompanions(doc,shotId,dest.id)
-   .filter(c=>c.nameMatch).flatMap(c=>c.ids);
+ const companionGroups=findArrayCompanions(doc,shotId,dest.id,
+   {includeComposites:true}).filter(c=>c.nameMatch);
+ const oldCompanions=companionGroups.flatMap(c=>c.ids);
  const removed=new Set(oldCompanions.filter(id=>!roots.includes(id)));
  const used=new Set(entry.objects.map(o=>o.id));
  const members=[primary,...sourceTemplate.parts.filter(p=>p.id!==primary.id)];
@@ -94,7 +106,7 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
    const local=xyz(part.position).sub(xyz(primary.position))
      .applyQuaternion(primaryQuat.clone().invert());
    const relative=primaryQuat.clone().invert().multiply(quat(part.rotation));
-   const role=part.name.trim().split(/\s+/).at(-1);
+   const role=assemblyDescriptor(part.name,sourceTemplate.prefix);
    const label=naming+' '+role;
    return {part,index,local,relative,label};
  });
@@ -106,15 +118,37 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
      ...(spec.target?{target:relative(spec.target)}:{})};
  });
  const created=[];
- for(const rootId of roots){
+ for(const [rootIndex,rootId] of roots.entries()){
    const target=entry.objects.find(o=>o.id===rootId);
    const savedPosition=[...target.position],savedRotation=[...target.rotation],savedRepeat=structuredClone(target.repeat);
    const aim=quat(savedRotation);
+   // Existing destination lights win by default. Transfer any lights attached
+   // to displaced companion rows into this owner's local frame. Source lights
+   // are used when there are no destination lights, or after explicit opt-in.
+   const existingLights=[...(target.arrayParts?.lights||[])].map(l=>structuredClone(l));
+   for(const companion of companionGroups){
+     const id=companion.ids[rootIndex],other=entry.objects.find(o=>o.id===id);
+     if(!other)continue;
+     for(const originalLight of lightsFor(other)){
+       const toLocal=p=>xyz(p).sub(xyz(savedPosition))
+         .applyQuaternion(aim.clone().invert()).toArray();
+       existingLights.push({...originalLight,position:toLocal(originalLight.position),
+         ...(originalLight.target?{target:toLocal(originalLight.target)}:{})});
+     }
+   }
+   const preferredLights=replaceLights||!existingLights.length?sourceLights:existingLights;
+   const seenLights=new Set();
+   const finalLights=preferredLights.filter(l=>{
+     const key=[l.type,...l.position.map(n=>n.toFixed(3)),
+       ...(l.target||[]).map(n=>n.toFixed(3))].join('|');
+     if(seenLights.has(key))return false;
+     seenLights.add(key);return true;
+   }).map((l,index)=>({...l,id:'assembly_light_'+index}));
    for(const spec of copies){
      const position=xyz(savedPosition).add(spec.local.clone().applyQuaternion(aim)).toArray();
      const rotation=euler(aim.clone().multiply(spec.relative));
      const shape={
-       id:spec.index===0?target.id:unique(naming+'_'+spec.label.split(' ').at(-1),used),
+       id:spec.index===0?target.id:unique(naming+'_'+idPart(spec.label)+'_'+spec.index,used),
        name:spec.label,primitive:spec.part.primitive,position,rotation,
        scale:[...spec.part.scale],material:structuredClone(spec.part.material),
        ...(spec.part.points?{points:structuredClone(spec.part.points)}:{}),
@@ -125,7 +159,7 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
        Object.assign(target,shape);
        delete target.arrayParts;delete target.points;
        if(shape.points)target.points=shape.points;
-       if(sourceLights.length)target.arrayParts={objects:[],lights:structuredClone(sourceLights)};
+       if(finalLights.length)target.arrayParts={objects:[],lights:structuredClone(finalLights)};
      }else{
        entry.objects.push(shape);created.push({rootId,targetId:shape.id,partId:spec.part.id});
      }
