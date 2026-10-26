@@ -49,6 +49,13 @@
         <div id="cutFlash" class="cut-flash"></div>
         <div class="stage-footer"><div><span class="eyebrow">SHOT <span id="shotIndex">01</span></span><span id="stageName" class="stage-name">Night campus exterior</span></div><div class="stage-footer-right"><span>1920 × 1080</span><span>16:9</span><span>30 FPS REF</span></div></div>
         <div id="errorBanner" class="error-banner" hidden>Unable to load Three.js. An internet connection is needed for the CDN modules.</div>
+        <button id="argonParticleReopen" class="argon-particle-reopen" type="button" hidden aria-label="Expand generation status">
+          <span class="argon-mini-top"><span class="argon-mini-brand">✧ PAIGE / AI <span class="argon-mini-live">● LIVE</span></span><span class="argon-mini-expand">Expand ↗</span></span>
+          <span id="argonMiniStage" class="argon-mini-stage">Generating base scene</span>
+          <span id="argonMiniDetail" class="argon-mini-detail">Waiting for Cloudflare job</span>
+          <span class="argon-mini-track" aria-hidden="true"><span></span></span>
+          <span id="argonMiniElapsed" class="argon-mini-elapsed">0:00 elapsed · finish time unknown</span>
+        </button>
       </section>
       <section class="transport">
         <div class="transport-left"><button id="backBtn" disabled class="icon-button" title="Previous shot">⏮</button><button id="playBtn" disabled class="play-button" title="Play / Pause (Space)">▶</button><button id="nextBtn" disabled class="icon-button" title="Next shot">⏭</button><span id="clock" class="timecode">00:00.00 <span>/</span> 00:56.47</span></div>
@@ -442,7 +449,6 @@
       <p class="argon-particle-tip">Move your cursor through the particle cloud · generation continues while you view the editor</p>
     </div>
   </section>
-  <button id="argonParticleReopen" class="argon-particle-reopen" type="button" hidden>Generation running · Show overlay</button>
   <script type="module" src="workspace-controls.js"></script>
   <script type="module" src="app.js"></script>
 </body>
