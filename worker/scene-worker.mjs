@@ -403,7 +403,7 @@ function validateArgonOutput(value,shotId,{truncated=false}={}) {
   }
   const lights=[];
   for(const light of scenes.flatMap(scene=>Array.isArray(scene.lights)?scene.lights:[])){
-    if(lights.length===LIMITS.lightsPerScene){note('light_cap');continue;}
+    if(lights.length>=LIMITS.aiLightsPerScene){note('light_cap');continue;}
     // Validated one at a time, so default names keep their scene position.
     const named=light&&typeof light==='object'&&light.name==null?{...light,name:light.type+' light '+(lights.length+1)}:light;
     try{lights.push(one([],{lights:[named]}).lights[0]);}catch{note('light');}
@@ -839,7 +839,7 @@ OPTIONAL FIELDS, omitted when not needed:
 - scene "camera":{"position":[x,y,z],"target":[x,y,z],"fov":deg}: your
   estimate of the FIRST frame's camera in the same coordinates (vertical
   field of view, 10 to 120). It frames the preview and moves nothing else.
-- scene "lights": up to 8 lights for the lighting visible in the frames; the
+- scene "lights": up to 32 lights for the lighting visible in the frames; the
   editor already has soft base light. Each is {"type","name","color",
   "intensity","position"}, plus "target" for directional and spot,
   "distance" for point and spot, and "angle" (radians) and "penumbra" for
@@ -855,7 +855,7 @@ WORLD: Y up, ground at Y=0, meters where size can be judged (a door is about
 camera is usually on the +Z side looking toward -Z.
 
 HARD LIMITS (a part outside them is dropped, so stay inside):
-- at most OBJECT_CAP objects, 8 lights and 2000 rendered copies after repeat;
+- at most OBJECT_CAP objects, 32 lights and 2000 rendered copies after repeat;
 - scale 0.01 to 2000 on every axis; position within +-10000;
 - repeat counts 1 to 100 per axis and at most 400 copies per object;
 - extrude points: 3 to 32, each within -1..1;

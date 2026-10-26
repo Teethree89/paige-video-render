@@ -78,7 +78,7 @@ export async function inspectArgonPrompt(variant='standard',mode='full_scene'){
   if(variant==='words-only'||variant==='combined')
     prompt=replaceOnce(prompt,`\nTarget ${base} objects`,detail+`\nTarget ${base} objects`);
   if(variant==='counts-only'||variant==='combined'){
-    prompt=replaceOnce(prompt,'- at most 120 objects, 8 lights','- at most 150 objects, 8 lights');
+    prompt=replaceOnce(prompt,'- at most 120 objects, 32 lights','- at most 150 objects, 32 lights');
     prompt=replaceOnce(prompt,`Target ${base} objects`,`Target ${raised} objects`);
   }
   return prompt;
