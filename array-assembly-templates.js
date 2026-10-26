@@ -48,7 +48,8 @@ export function listAssemblyTemplates(source,shotId){
  const out=[],seen=new Set(),byName=new Map();
  // The exterior contains hundreds of unrelated repeated arrays. Avoid
  // geometry comparisons for names that cannot possibly form an assembly.
- for(const item of entry.objects.filter(x=>x.repeat)){
+ for(const item of entry.objects.filter(x=>
+   x.repeat||x.arrayParts?.objects?.length||x.arrayParts?.lights?.length)){
    const key=arrayGroupKey(item.name)||
      (item.primitive==='group'?item.name.trim().toLowerCase():null);
    if(!key)continue;
@@ -261,7 +262,9 @@ export function replaceAssemblyContents(source,allowedShots,shotId,destinationId
  if(!roots.length)throw Error('No matching destination array roots remain');
  const owned=destination.repeat?findArrayCompanions(doc,shotId,destinationId,
    {includeComposites:true}).filter(c=>c.nameMatch):[];
- const removed=new Set(owned.flatMap(c=>c.ids).filter(id=>!roots.includes(id)));
+ const sourceIds=new Set(template.rootIds);
+ const removed=new Set(owned.flatMap(c=>c.ids).filter(id=>
+   !roots.includes(id)&&!sourceIds.has(id)));
  const prefix=parentPrefix(destination.name);
  const inverse=quat(sourceRoot.rotation).invert();
  const local=p=>xyz(p).sub(xyz(sourceRoot.position))
