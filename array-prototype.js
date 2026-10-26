@@ -32,7 +32,13 @@ export function saveArrayPrototype(source,allowedShots,shotId,objectId,
    throw Error('Array rotation must have finite XYZ coordinates');
  const move=position?position.map((n,i)=>n-base.position[i]):[0,0,0];
  const turn=rotation?rotation.map((n,i)=>n-base.rotation[i]):[0,0,0];
+ const candidateGroups=findArrayCompanions(doc,shotId,objectId).map(c=>c.ids);
+ const allowedAbsorbed=new Set(candidateGroups.flat());
  const absorbed=new Set(absorbedIds);
+ if([...absorbed].some(id=>!allowedAbsorbed.has(id))||
+   candidateGroups.some(group=>group.some(id=>absorbed.has(id))&&
+     group.some(id=>!absorbed.has(id))))
+   throw Error('Only complete spatially aligned companion arrays can be grouped');
  if(absorbed.size!==absorbedIds.length||[...absorbed].some(id=>
    ids.includes(id)||!entry.objects.some(o=>o.id===id&&o.repeat)))
    throw Error('Companion arrays changed; reopen the prototype editor');
