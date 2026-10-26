@@ -5,7 +5,7 @@ import {createPrimitiveWorld} from './primitive-world.js';
 import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
 import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from './array-prototype.js';
 import {repeatOffsets} from './primitive-schema.js';
-import {listAssemblyTemplates,replaceArrayAssembly,saveAssemblyTemplateDraft,assemblyDescriptor}
+import {listAssemblyTemplates,replaceAssemblyContents,saveAssemblyHierarchy,editableAssembly}
   from './array-assembly-templates.js';
 
 const sampleShot='arrayPreview';
@@ -57,10 +57,10 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  const modal=byId('arrayEditModal');
  const canvas=byId('arrayEditCanvas');
  const category=byId('arrayEditCategory'),preset=byId('arrayEditPreset');
- const partsSelect=byId('arrayEditPartSelect');
+ const outliner=byId('arrayEditOutliner');
  const fields=byId('arrayEditProperties');
  const info=byId('arrayEditInfo'),status=byId('arrayEditStatus');
- if(!modal||!canvas||!fields||!category||!preset||!partsSelect)
+ if(!modal||!canvas||!fields||!category||!preset||!outliner)
    return {open(){return false;},close(){}};
 
  const scene=new THREE.Scene();
@@ -89,7 +89,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  let operation='translate',dragging=false;
  const world=createPrimitiveWorld(scene);
  let draft=null,source=null,shotId=null,objectId=null,linked=[],candidates=[],selected='root',frame=0;
- let sourceTemplates=[],templateChoice=null,labelRows=[],beforeTemplate=null,hoverOutline=null;
+ let sourceTemplates=[],beforeTemplate=null,hoverOutlines=[];
  const originalRoot=()=>source?.scenes?.find(s=>s.shotId===shotId)?.objects.find(o=>o.id===objectId);
  const pose=()=>{
    const old=originalRoot();
@@ -118,12 +118,22 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    else if(item.target)copy.target=asWorldPosition(item.target,t);
    return copy;
  }
+ function partNode(key){
+   const parent=world.getObjectNode(sampleShot,objectId);
+   if(!parent)return null;
+   if(key==='root')return parent;
+   const id=key.slice(key.indexOf(':')+1);
+   let found=null;
+   parent.traverse(node=>{
+     if(!found&&node.userData.primitiveArrayPartId===id&&
+       (key.startsWith('object:')?node.isMesh:node.isLight))found=node;
+   });
+   return found;
+ }
  function attachSelected(){
    transform.detach();
    if(!draft)return;
-   const node=selected==='root'?world.getObjectNode(sampleShot,objectId):
-     selected.startsWith('object:')?world.getObjectNode(sampleShot,selected.slice(7)):
-       world.getLightMarker(sampleShot,selected.slice(6));
+   const node=partNode(selected);
    if(!node)return;
    if(selected.startsWith('light:')&&operation==='rotate')setMode('translate');
    transform.attach(node);
@@ -153,19 +163,31 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  }
  function previewDocument(){
    if(!draft)return null;
-   const base=rootItem(),t=pose();
-   delete base.repeat;delete base.arrayParts;
-   return {schemaVersion:1,scenes:[{shotId:sampleShot,
-     objects:[base,...draft.parts.objects.map(o=>previewItem(o,'object',t))],
-     lights:draft.parts.lights.map(l=>previewItem(l,'light',t))}]};
+   // Preview and export the exact same group hierarchy.
+   const base=rootItem();
+   delete base.repeat;
+   base.arrayParts=structuredClone(draft.parts);
+   return {schemaVersion:1,scenes:[{shotId:sampleShot,objects:[base]}]};
+ }
+ function addPreviewLightHandles(){
+   const node=partNode('root');
+   node?.traverse(item=>{
+     if(!item.isLight||!item.userData.primitiveArrayPartId)return;
+     const bulb=new THREE.Mesh(new THREE.SphereGeometry(.13,10,8),
+       new THREE.MeshBasicMaterial({color:item.color,depthTest:false,depthWrite:false}));
+     bulb.name='Outliner light handle';
+     bulb.userData.primitiveArrayPartId=item.userData.primitiveArrayPartId;
+     bulb.userData.primitiveId=objectId;
+     item.add(bulb);
+   });
  }
  function rerender({refit=false}={}){
    if(!draft)return;
    try{
      const doc=previewDocument();
-     clearLabelHighlight();transform.detach();
+     clearOutlinerHighlight();transform.detach();
      world.setDocument(doc,[sampleShot]);world.showShot(sampleShot);
-     world.setLightMarkersVisible(true);
+     addPreviewLightHandles();
      if(refit){
        const bounds=world.getBounds(sampleShot);
        const radius=framePrototypeCamera(camera,orbit,bounds);
@@ -271,7 +293,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    const current=itemRef(),item=current?.value;
    if(!item)return;
    const root=current.kind==='base',isLight=current.kind==='light';
-   fields.append(makeEl('h3',isLight?'Light settings':root?'Prototype source':'Component settings'));
+   fields.append(makeEl('h3',isLight?'Light settings':root?'Assembly parent':'Component settings'));
    property('Name',item.name,v=>{item.name=v;refreshList();},{type:'text'});
    if(!isLight){
      if(root){
@@ -279,20 +301,22 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        xyz('Array center XYZ (scene)',item.position,v=>item.position=v);
        xyz('Array rotation radians',item.rotation,v=>item.rotation=v);
      }
-     xyz('Dimensions',item.scale,v=>item.scale=v);
+     if(!root)xyz('Dimensions',item.scale,v=>item.scale=v);
      if(!root){
        xyz('Local XYZ',item.position,v=>item.position=v);
        xyz('Rotation radians',item.rotation,v=>item.rotation=v);
      }
-     property('Material color',item.material.color,v=>item.material.color=v,{type:'color'});
-     property('Metalness',item.material.metalness,v=>item.material.metalness=v,{min:0,max:1});
-     property('Roughness',item.material.roughness,v=>item.material.roughness=v,{min:0,max:1});
-     property('Glow color',item.material.emissive||'#000000',v=>{
-       item.material.emissive=v;item.material.emissiveIntensity??=1;
-     },{type:'color'});
-     property('Glow strength',item.material.emissiveIntensity||0,v=>{
-       item.material.emissiveIntensity=v;item.material.emissive??='#000000';
-     },{min:0,max:10});
+     if(!root){
+       property('Material color',item.material.color,v=>item.material.color=v,{type:'color'});
+       property('Metalness',item.material.metalness,v=>item.material.metalness=v,{min:0,max:1});
+       property('Roughness',item.material.roughness,v=>item.material.roughness=v,{min:0,max:1});
+       property('Glow color',item.material.emissive||'#000000',v=>{
+         item.material.emissive=v;item.material.emissiveIntensity??=1;
+       },{type:'color'});
+       property('Glow strength',item.material.emissiveIntensity||0,v=>{
+         item.material.emissiveIntensity=v;item.material.emissive??='#000000';
+       },{min:0,max:10});
+     }
    }else{
      const lightTypes=['point','spot','directional'];
      const select=makeEl('select');
