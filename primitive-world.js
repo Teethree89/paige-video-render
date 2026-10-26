@@ -84,7 +84,7 @@ const light = spec => {
 export function createPrimitiveWorld(scene) {
   const groups=new Map();
   // Saved primitive ID -> top-level transform node (repeat arrays share one holder).
-  const objectNodes=new Map(),lightMarkers=new Map(),lightMarkerGroups=new Map();
+  const objectNodes=new Map(),lightMarkers=new Map(),lightTargets=new Map(),lightGuides=new Map(),lightMarkerGroups=new Map();
   let markersEnabled=false;
   let document={schemaVersion:1,scenes:[]};
   let activeShotId=null;
@@ -105,7 +105,7 @@ export function createPrimitiveWorld(scene) {
         if(node.material)node.material.dispose();
       });
     }
-    lightMarkerGroups.clear();lightMarkers.clear();
+    lightMarkerGroups.clear();lightMarkers.clear();lightTargets.clear();lightGuides.clear();
   }
   function setDocument(value,allowedShotIds=null,anchors={}) {
     const next=validatePrimitiveDocument(value,allowedShotIds);
@@ -166,7 +166,7 @@ export function createPrimitiveWorld(scene) {
       const markerRoot=new THREE.Group();
       markerRoot.name='Editor_light_markers_'+entry.shotId;
       markerRoot.position.set(...anchor);
-      const markers=new Map();
+      const markers=new Map(),targets=new Map(),guides=new Map();
       (entry.lights||[]).forEach((spec,index)=>{
         const id=spec.id||'light_'+(index+1);
         // Light markers are editor-only, unlit/pickable bulb icons; do not
@@ -193,10 +193,43 @@ export function createPrimitiveWorld(scene) {
         marker.userData.primitiveLightId=id;
         marker.renderOrder=994;
         markerRoot.add(marker);markers.set(id,marker);
+        if(spec.type!=='point'){
+          // Actual light direction: the ray and its endpoint use the exact same
+          // shot-local source/target coordinates as the serialized light.
+          // Unlike light glyphs these helpers have no dynamic world scaling.
+          const endpoint=new THREE.Mesh(
+            new THREE.SphereGeometry(.15,12,8),
+            new THREE.MeshBasicMaterial({color:0xf3fffd,depthTest:false,
+              depthWrite:false,transparent:true,opacity:.95}));
+          endpoint.position.set(...spec.target);
+          endpoint.name='Aim target '+spec.name;
+          endpoint.userData.primitiveLightTargetId=id;
+          endpoint.renderOrder=995;
+          markerRoot.add(endpoint);
+          targets.set(id,endpoint);
+          const path=new THREE.BufferGeometry().setFromPoints([
+            new THREE.Vector3(...spec.position),new THREE.Vector3(...spec.target)]);
+          const line=new THREE.Line(path,new THREE.LineBasicMaterial({
+            color:spec.color,transparent:true,opacity:.76,depthTest:false,
+            depthWrite:false}));
+          line.name='Aim direction '+spec.name;
+          line.renderOrder=992;
+          line.frustumCulled=false;
+          markerRoot.add(line);
+          const arrow=new THREE.Mesh(
+            new THREE.ConeGeometry(1,2.3,8),
+            new THREE.MeshBasicMaterial({color:spec.color,depthTest:false,
+              depthWrite:false}));
+          arrow.name='Aim arrow '+spec.name;arrow.renderOrder=993;
+          markerRoot.add(arrow);
+          guides.set(id,{line,arrow,source:marker,target:endpoint});
+        }
       });
       markerRoot.visible=false;
       lightMarkerGroups.set(entry.shotId,markerRoot);
       lightMarkers.set(entry.shotId,markers);
+      lightTargets.set(entry.shotId,targets);
+      lightGuides.set(entry.shotId,guides);
       groups.set(entry.shotId,root);
       objectNodes.set(entry.shotId,nodes);
       scene.add(root);
@@ -236,13 +269,52 @@ export function createPrimitiveWorld(scene) {
     showShot(activeShotId);
   }
   function getLightMarker(shotId,id){return lightMarkers.get(shotId)?.get(id)||null;}
+  function getLightTargetMarker(shotId,id){return lightTargets.get(shotId)?.get(id)||null;}
+  function updateLightVisuals(camera,viewportHeight=720){
+    if(!markersEnabled||!camera)return;
+    const shot=activeShotId;
+    const sources=lightMarkers.get(shot),targets=lightTargets.get(shot),guides=lightGuides.get(shot);
+    if(!sources)return;
+    const height=Math.max(1,viewportHeight);
+    const worldPerPixel=node=>{
+      node.getWorldPosition(_source);
+      const distance=camera.isOrthographicCamera?1:camera.position.distanceTo(_source);
+      return camera.isOrthographicCamera?
+        Math.abs(camera.top-camera.bottom)/height:
+        2*Math.tan(THREE.MathUtils.degToRad(camera.fov)*.5)*distance/height;
+    };
+    const _source=new THREE.Vector3(),_target=new THREE.Vector3(),_delta=new THREE.Vector3();
+    const up=new THREE.Vector3(0,1,0);
+    for(const source of sources.values())
+      source.scale.setScalar(Math.max(.0001,worldPerPixel(source)*10/.2));
+    for(const target of targets?.values()||[])
+      target.scale.setScalar(Math.max(.0001,worldPerPixel(target)*7/.15));
+    for(const guide of guides?.values()||[]){
+      const {source,target,line,arrow}=guide;
+      _delta.subVectors(target.position,source.position);
+      const length=_delta.length();
+      const positions=line.geometry.attributes.position;
+      positions.setXYZ(0,source.position.x,source.position.y,source.position.z);
+      positions.setXYZ(1,target.position.x,target.position.y,target.position.z);
+      positions.needsUpdate=true;
+      if(length<.01){arrow.visible=false;continue;}
+      arrow.visible=true;
+      arrow.position.copy(source.position).addScaledVector(_delta,.82);
+      arrow.quaternion.setFromUnitVectors(up,_delta.normalize());
+      const arrowSize=Math.min(length*.09,worldPerPixel(arrow)*5);
+      arrow.scale.setScalar(Math.max(.001,arrowSize));
+    }
+  }
   function getObjectNode(shotId,objectId){
     return objectNodes.get(shotId)?.get(objectId)||null;
   }
   function getPickableMeshes(shotId){
     const root=groups.get(shotId),meshes=[];
     root?.traverse(node=>{if(node.isMesh&&node.userData.primitiveId)meshes.push(node);});
-    if(markersEnabled)meshes.push(...(lightMarkers.get(shotId)?.values()||[]));
+    if(markersEnabled){
+      meshes.push(...(lightMarkers.get(shotId)?.values()||[]));
+      meshes.push(...(lightTargets.get(shotId)?.values()||[]));
+    }
     return meshes;
   }
   function getSceneForExport(shotId){
@@ -270,6 +342,6 @@ export function createPrimitiveWorld(scene) {
   }
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
-  return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,setLightMarkersVisible,getPickableMeshes,
+  return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,getLightTargetMarker,updateLightVisuals,setLightMarkersVisible,getPickableMeshes,
     getSceneForExport,getDocument,dispose};
 }
