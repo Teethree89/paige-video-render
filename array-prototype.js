@@ -63,7 +63,7 @@ export function saveArrayPrototype(source,allowedShots,shotId,objectId,
 // still line up before the arrays can be combined. Single-word names do not
 // assert an implicit group.
 export function arrayGroupKey(name){
- const words=String(name||'').trim().toLowerCase().match(/[\\p{L}\\p{N}]+/gu)||[];
+ const words=String(name||'').trim().toLowerCase().match(/[a-z0-9]+/g)||[];
  return words.length>=3?words.slice(0,2).join(' '):null;
 }
 
