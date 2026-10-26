@@ -456,6 +456,13 @@
           <p>Drag to orbit · Scroll to zoom · Preview changes are not saved</p>
         </div>
         <div class="array-editor-controls">
+          <div class="section-label">REUSE ARRAY ASSEMBLY</div>
+          <label class="field">Choose an existing assembly to copy
+            <select id="arrayEditTemplate"></select>
+          </label>
+          <button id="arrayEditUseTemplate" class="wide secondary" type="button">↳ Replace with selected assembly…</button>
+          <p class="field-help">Keep this array's positions, copies and spacing. Choose the crown/main piece and trunk/support in the confirmation prompts. Preview before Save.</p>
+          <div class="divider"></div>
           <div class="section-label">GROUP RELATED ARRAYS</div>
           <div id="arrayEditCompanions" class="array-companions"></div>
           <p class="field-help">Arrays sharing the first two name words AND a compatible repeat layout open together automatically. Uncheck any component to keep its array separate. Nothing changes until Save.</p>
@@ -478,6 +485,15 @@
       </footer>
     </div>
   </section>
+  <dialog id="arrayTemplateRoles" class="confirm-dialog" aria-labelledby="arrayTemplateRoleTitle">
+    <h3 id="arrayTemplateRoleTitle" class="section-label">WHICH OBJECT IS THE CROWN?</h3>
+    <p id="arrayTemplateRoleHelp">Choose the primary component to place at the destination array centers.</p>
+    <label class="field">Assembly component<select id="arrayTemplateRoleSelect"></select></label>
+    <div class="confirm-actions">
+      <button id="arrayTemplateRoleCancel" class="ghost" type="button">Cancel</button>
+      <button id="arrayTemplateRoleConfirm" class="primary" type="button">Yes, use this component</button>
+    </div>
+  </dialog>
   <dialog id="aiConfirm" class="confirm-dialog" aria-labelledby="aiConfirmTitle">
     <form method="dialog">
       <div id="aiConfirmTitle" class="section-label">CONFIRM PAID REQUEST</div>
