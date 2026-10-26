@@ -431,6 +431,44 @@
   </section>
   <script>setTimeout(() => { if (!window.__atomsEditorStarted) { const b=document.getElementById("errorBanner"); if (!b.hidden) return; b.hidden=false; b.textContent="Three.js could not initialize. Start this folder with an HTTP server and ensure your browser can access the jsDelivr CDN."; } }, 9000);</script>
   <script>document.getElementById("renderVideoBtn").addEventListener("click",()=>window.open("render.html","_blank","noopener"));</script>
+  <dialog id="arrayEditConfirm" class="confirm-dialog array-confirm" aria-labelledby="arrayEditConfirmTitle">
+    <div class="section-label" id="arrayEditConfirmTitle">EDIT ARRAY OBJECT?</div>
+    <p id="arrayEditConfirmText">Edit this source and every matching repeated instance?</p>
+    <div class="confirm-actions">
+      <button id="arrayEditNo" class="ghost" type="button">No</button>
+      <button id="arrayEditYes" class="primary" type="button">Yes · Edit array</button>
+    </div>
+  </dialog>
+  <section id="arrayEditModal" class="array-editor-backdrop" role="dialog" aria-modal="true" aria-labelledby="arrayEditTitle" hidden>
+    <div class="array-editor-shell">
+      <header class="array-editor-header">
+        <div><span class="tiny-eyebrow">PROTOTYPE · REPEATED OBJECT</span>
+          <h2 id="arrayEditTitle">Edit one object, update the array</h2>
+          <p id="arrayEditInfo"></p></div>
+        <button id="arrayEditCancel" type="button" class="ghost">Cancel</button>
+      </header>
+      <div class="array-editor-layout">
+        <div class="array-editor-viewport"><canvas id="arrayEditCanvas" aria-label="Orbitable 3D prototype preview"></canvas>
+          <p>Drag to orbit · Scroll to zoom · Preview changes are not saved</p>
+        </div>
+        <div class="array-editor-controls">
+          <div class="section-label">ADD TO EVERY COPY</div>
+          <div class="two-input"><label class="field">Category<select id="arrayEditCategory"></select></label>
+            <label class="field">Object / light<select id="arrayEditPreset"></select></label></div>
+          <button id="arrayEditAdd" class="wide secondary" type="button">＋ Add to prototype</button>
+          <div class="divider"></div>
+          <label class="field">Edit component<select id="arrayEditPartSelect"></select></label>
+          <div id="arrayEditProperties"></div>
+          <button id="arrayEditDeletePart" class="wide ghost" type="button" disabled>Remove selected component</button>
+          <p id="arrayEditStatus" class="field-help" role="status"></p>
+        </div>
+      </div>
+      <footer class="array-editor-footer">
+        <span>Changes propagate to all linked instances only after Save.</span>
+        <button id="arrayEditSave" class="primary" type="button">Save to all copies</button>
+      </footer>
+    </div>
+  </section>
   <dialog id="aiConfirm" class="confirm-dialog" aria-labelledby="aiConfirmTitle">
     <form method="dialog">
       <div id="aiConfirmTitle" class="section-label">CONFIRM PAID REQUEST</div>
