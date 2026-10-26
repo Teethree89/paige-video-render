@@ -153,7 +153,7 @@ test('richer vocabulary is still strictly bounded data',()=>{
   bad(arrays(5).concat([base('one_more','box')]),undefined,/more than 2000 rendered copies/);
 });
 
-test('scene lights are bounded data with defaults, and only shine for their shot',()=>{
+test('scene light types and values remain bounded but light count is unlimited',()=>{
   const lit=lights=>validatePrimitiveDocument({schemaVersion:1,scenes:[{shotId:'draft_001',
     objects:[makePrimitive('box','rack_1')],lights}]}).scenes[0].lights;
   assert.deepEqual(lit([
@@ -169,8 +169,9 @@ test('scene lights are bounded data with defaults, and only shine for their shot
   // An empty list is dropped, so v1 documents keep their exact output.
   assert.equal(lit([]),undefined);
   const point={type:'point',color:'#ffffff',intensity:10,position:[0,3,0]};
+  assert.equal(lit(Array(40).fill(point)).length,40,
+    'the shared validator must allow any number of human-authored lights');
   for(const [lights,pattern] of [
-    [Array(LIMITS.lightsPerScene+1).fill(point),/at most 8/],
     [[{...point,type:'ambient'}],/unsupported light type/],
     [[{...point,color:'white'}],/#RRGGBB/],
     [[{...point,intensity:501}],/intensity/],
