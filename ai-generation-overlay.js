@@ -20,11 +20,14 @@ export function createArgonOverlay(root=globalThis.document){
   const meter=root?.getElementById?.('argonParticleMeter');
   const minimize=root?.getElementById?.('argonParticleMinimize');
   const reopen=root?.getElementById?.('argonParticleReopen');
+  const miniStage=root?.getElementById?.('argonMiniStage');
+  const miniDetail=root?.getElementById?.('argonMiniDetail');
+  const miniElapsed=root?.getElementById?.('argonMiniElapsed');
   if(!overlay||!canvas||typeof canvas.getContext!=='function')
     return {show(){},step(){},phase(){},hide(){}};
   const ctx=canvas.getContext('2d',{alpha:true});
   if(!ctx)return {show(){},step(){},phase(){},hide(){}};
-  let active=false,frame=0,start=0,operation=0,stepNumber=1,steps=1,phaseName='queued';
+  let active=false,frame=0,ticker=null,start=0,operation=0,stepNumber=1,steps=1,phaseName='queued';
   let particles=[],mouse={x:-99999,y:-99999},size={w:0,h:0};
   const raf=globalThis.requestAnimationFrame?.bind(globalThis);
   const cancel=globalThis.cancelAnimationFrame?.bind(globalThis);
@@ -32,16 +35,36 @@ export function createArgonOverlay(root=globalThis.document){
   const phases={queued:'Waiting for Cloudflare job',waiting:'Waiting for Argon response',
     reasoning:'Argon reasoning',geometry:'Receiving editable geometry',
     validating:'Validating returned geometry',reconnecting:'Reconnecting to existing job'};
-  const tickTime=()=>{const seconds=Math.max(0,Math.floor((Date.now()-start)/1000));
-    if(elapsed)elapsed.textContent=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+
+  const tickTime=()=>{
+    const seconds=Math.max(0,Math.floor((Date.now()-start)/1000));
+    const value=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+
       ' elapsed · finish time unknown';
+    if(elapsed)elapsed.textContent=value;
+    if(miniElapsed)miniElapsed.textContent=value;
   };
-  const label=()=>{if(stage)stage.textContent=stepNumber===1?'Generating base scene':
-    'Adding detail · pass '+(stepNumber-1)+' of 2';
-    if(detail)detail.textContent=phases[phaseName]||phases.waiting;
-    if(meter){meter.setAttribute?.('aria-label',
-      'Step '+stepNumber+' of '+steps+', progress unknown');}
-    if(reopen)reopen.textContent='Generation running · '+stepNumber+'/'+steps+' · Show overlay';
+  const label=()=>{
+    const currentStage=stepNumber===1?'Generating base scene':
+      'Adding detail · pass '+(stepNumber-1)+' of 2';
+    const currentPhase=phases[phaseName]||phases.waiting;
+    if(stage)stage.textContent=currentStage;
+    if(miniStage)miniStage.textContent=currentStage;
+    if(detail)detail.textContent=currentPhase;
+    if(miniDetail)miniDetail.textContent=currentPhase;
+    if(meter)meter.setAttribute?.('aria-label',
+      'Step '+stepNumber+' of '+steps+', progress unknown');
+    if(reopen)reopen.setAttribute?.('aria-label',
+      'Expand generation status: '+currentStage+', '+currentPhase+
+      ', step '+stepNumber+' of '+steps);
+  };
+  const stopTicker=()=>{
+    if(ticker!==null)globalThis.clearInterval?.(ticker);
+    ticker=null;
+  };
+  const startTicker=()=>{
+    stopTicker();
+    // Particle RAF stops when minimized; the small status card still needs
+    // an independently ticking elapsed clock.
+    ticker=globalThis.setInterval?.(tickTime,1000)??null;
   };
   function prepare(){
     const w=globalThis.innerWidth||overlay.clientWidth||1000;
@@ -120,22 +143,25 @@ export function createArgonOverlay(root=globalThis.document){
   });
   canvas.addEventListener?.('pointerleave',()=>{mouse={x:-99999,y:-99999};});
   minimize?.addEventListener?.('click',()=>{
+    if(!active)return;
     overlay.hidden=true;if(reopen)reopen.hidden=false;
+    tickTime();
     if(frame&&cancel)cancel(frame);frame=0;
   });
   reopen?.addEventListener?.('click',()=>{
+    if(!active)return;
     overlay.hidden=false;reopen.hidden=true;prepare();animate();
   });
   return {
     show({totalStages=1}={}){
       active=true;start=Date.now();operation=globalThis.performance?.now?.()||0;
       stepNumber=1;steps=Math.max(1,Math.min(3,totalStages));phaseName='queued';
-      overlay.hidden=false;if(reopen)reopen.hidden=true;prepare();label();tickTime();animate();
+      overlay.hidden=false;if(reopen)reopen.hidden=true;prepare();label();tickTime();startTicker();animate();
     },
     step(n){if(!active)return;stepNumber=Math.min(steps,Math.max(1,n));
       operation=globalThis.performance?.now?.()||0;phaseName='queued';label();},
     phase(value){if(!active)return;if(Object.hasOwn(phases,value))phaseName=value;label();},
     hide(){active=false;overlay.hidden=true;if(reopen)reopen.hidden=true;
-      if(frame&&cancel)cancel(frame);frame=0;mouse={x:-99999,y:-99999};}
+      stopTicker();if(frame&&cancel)cancel(frame);frame=0;mouse={x:-99999,y:-99999};}
   };
 }
