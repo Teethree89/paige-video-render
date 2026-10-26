@@ -17,7 +17,7 @@ export function findMatchingArrays(source,shotId,objectId){
 // saves the prototype. Each linked group's center, orientation, count and
 // spacing are retained, while its mesh appearance and attached parts match.
 export function saveArrayPrototype(source,allowedShots,shotId,objectId,
-  {name,material,scale,parts},linkedIds=null,absorbedIds=[]){
+  {name,material,scale,parts,position,rotation},linkedIds=null,absorbedIds=[]){
  const doc=validatePrimitiveDocument(source,allowedShots);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
  const base=entry?.objects.find(o=>o.id===objectId&&o.repeat);
@@ -26,12 +26,20 @@ export function saveArrayPrototype(source,allowedShots,shotId,objectId,
  const ids=linkedIds||eligible;
  if(!Array.isArray(ids)||!ids.includes(objectId)||ids.some(id=>!eligible.includes(id)))
    throw Error('Linked arrays changed; reopen the prototype editor');
+ if(position&&(!Array.isArray(position)||position.length!==3||position.some(n=>!Number.isFinite(n))))
+   throw Error('Array center must have finite XYZ coordinates');
+ if(rotation&&(!Array.isArray(rotation)||rotation.length!==3||rotation.some(n=>!Number.isFinite(n))))
+   throw Error('Array rotation must have finite XYZ coordinates');
+ const move=position?position.map((n,i)=>n-base.position[i]):[0,0,0];
+ const turn=rotation?rotation.map((n,i)=>n-base.rotation[i]):[0,0,0];
  const absorbed=new Set(absorbedIds);
  if(absorbed.size!==absorbedIds.length||[...absorbed].some(id=>
    ids.includes(id)||!entry.objects.some(o=>o.id===id&&o.repeat)))
    throw Error('Companion arrays changed; reopen the prototype editor');
  for(const id of ids){
    const target=entry.objects.find(o=>o.id===id);
+   target.position=target.position.map((n,i)=>n+move[i]);
+   target.rotation=target.rotation.map((n,i)=>n+turn[i]);
    target.name=name;
    target.material=structuredClone(material);
    target.scale=[...scale];
