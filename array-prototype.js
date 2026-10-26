@@ -120,7 +120,7 @@ const sameRelative=(a,b)=>distance(a.position,b.position)<.08&&
 
 // Return only companions with a one-to-one, compatible array beside EVERY
 // matching source row. Candidate selection is explicit in the mini editor.
-export function findArrayCompanions(source,shotId,objectId){
+export function findArrayCompanions(source,shotId,objectId,{includeComposites=false}={}){
  const doc=validatePrimitiveDocument(source);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
  const base=entry?.objects.find(o=>o.id===objectId&&o.repeat);
@@ -136,8 +136,8 @@ export function findArrayCompanions(source,shotId,objectId){
    Number(!(rootKey&&arrayGroupKey(b.name)===rootKey)));
  const result=[],used=new Set(roots);
  for(const other of ranked){
-   if(!other.repeat||used.has(other.id)||other.arrayParts?.objects.length||
-     other.arrayParts?.lights.length)continue;
+   if(!other.repeat||used.has(other.id)||(!includeComposites&&
+     (other.arrayParts?.objects.length||other.arrayParts?.lights.length)))continue;
    const origin=relative(base,other);
    if(!origin)continue;
    const typeMatches=findMatchingArrays(doc,shotId,other.id);
