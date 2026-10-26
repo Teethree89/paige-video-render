@@ -8,6 +8,25 @@ import {repeatOffsets} from './primitive-schema.js';
 const sampleShot='arrayPreview';
 const finite=value=>Number.isFinite(Number(value))?Number(value):null;
 
+// getBounds().center is a plain [x,y,z] tuple, NOT a THREE.Vector3.
+// Vector3.copy(array) silently writes undefined X/Y/Z, then the WebGL
+// camera matrix becomes NaN and the viewport draws only its clear color.
+export function framePrototypeCamera(camera,orbit,bounds){
+ const center=bounds?.center;
+ if(!Array.isArray(center)||center.length!==3||
+   !center.every(Number.isFinite)||!Number.isFinite(bounds?.radius))
+   throw Error('Prototype bounds are not valid XYZ coordinates.');
+ const radius=Math.max(3,bounds.radius);
+ orbit.target.fromArray(center);
+ camera.position.fromArray(center).add(new THREE.Vector3(
+   radius*1.9,radius*1.4,radius*2.7));
+ camera.near=.05;
+ camera.far=Math.max(1500,radius*100);
+ camera.updateProjectionMatrix();
+ orbit.update();
+ return radius;
+}
+
 export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose=()=>{}}){
  const byId=id=>document.getElementById(id);
  const modal=byId('arrayEditModal');
@@ -22,6 +41,17 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  const scene=new THREE.Scene();
  scene.background=new THREE.Color(0x10212c);
  scene.add(new THREE.HemisphereLight(0xcdeaff,0x344047,2));
+ // World-space ground reference and origin axes belong to the mini preview
+ // only; neither is stored with the scene or included in GLB/AE exports.
+ const grid=new THREE.GridHelper(20,20,0x6795a7,0x35556b);
+ grid.name='Prototype ground grid (editor only)';
+ grid.material.transparent=true;
+ grid.material.opacity=.48;
+ grid.material.depthWrite=false;
+ scene.add(grid);
+ const axes=new THREE.AxesHelper(2);
+ axes.name='Prototype XYZ axes (editor only)';
+ scene.add(axes);
  const key=new THREE.DirectionalLight(0xffffff,2.6);
  key.position.set(8,14,12);scene.add(key);
  const camera=new THREE.PerspectiveCamera(46,1,.1,2000);
@@ -59,12 +89,18 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      world.setLightMarkersVisible(true);
      if(refit){
        const bounds=world.getBounds(sampleShot);
-       const center=bounds?.center||new THREE.Vector3();
-       const radius=Math.max(3,bounds?.radius||3);
-       orbit.target.fromArray(center);
-       camera.position.copy(center).add(new THREE.Vector3(radius*1.9,radius*1.4,radius*2.7));
-       camera.near=.05;camera.far=Math.max(1500,radius*100);camera.updateProjectionMatrix();
-       orbit.update();
+       const radius=framePrototypeCamera(camera,orbit,bounds);
+       const body=world.getObjectNode(sampleShot,objectId);
+       const box=body?new THREE.Box3().setFromObject(body):null;
+       const at=box&&!box.isEmpty()?box.getCenter(new THREE.Vector3()):
+         new THREE.Vector3().fromArray(bounds.center);
+       grid.position.set(at.x,
+         box&&!box.isEmpty()?box.min.y-.035:at.y-radius,
+         at.z);
+       // Grid divisions track the object's dimensions without obstructing it.
+       grid.scale.setScalar(Math.max(.5,Math.min(50,radius*4/20)));
+       axes.position.copy(grid.position);
+       axes.scale.setScalar(Math.max(.3,Math.min(12,radius*.27)));
      }
      setStatus('Changes are temporary until Save. Orbit to inspect the prototype.');
    }catch(error){setStatus('Preview: '+error.message);}
@@ -240,7 +276,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      draft.parts.objects=created.document.scenes[0].objects.filter(o=>o.id!==objectId);
      draft.parts.lights=created.document.scenes[0].lights||[];
      selected=(created.selected.kind==='light'?'light:':'object:')+created.selected.id;
-     refreshList();rerender();
+     refreshList();rerender({refit:true});
    }catch(error){setStatus('Cannot add component: '+error.message);}
  });
  byId('arrayEditDeletePart')?.addEventListener('click',()=>{
