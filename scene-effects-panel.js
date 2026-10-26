@@ -63,7 +63,7 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
  }
  for(const [key,[id,cast]] of Object.entries(fields)){
    $(id).addEventListener('change',event=>{
-     const value=id==='sceneBloomEnabled'||id==='sceneShadowsEnabled'?event.target.checked:cast(event.target.value);
+     const value=['sceneBloomEnabled','sceneShadowsEnabled','sceneLightsEnabled'].includes(id)?event.target.checked:cast(event.target.value);
      const profile=structuredClone(current());
      switch(key){
       case 'fogMode':profile.fog.mode=value;break;
