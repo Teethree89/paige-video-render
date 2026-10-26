@@ -647,7 +647,7 @@ test('Replace Assembly always resolves a real template when available, never bla
    'replacement failure must be displayed beside the action');
  assert.match(editor,/if\(!rerender\(\{refit:true\}\)\)/,
    'preview failure must block staging rather than showing fake success');
- assert.match(editor,/draft=previousDraft;candidates=previousCandidates/,
+ assert.match(editor,/draft=backup\.draft;candidates=backup\.candidates/,
    'failed preview restores the previous draft');
 });
 
