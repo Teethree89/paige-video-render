@@ -177,6 +177,10 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       if(!PRIMITIVE_TYPES.includes(item.primitive))fail(id+' has unsupported primitive type');
       const position=vec(item.position,'position',-10000,10000);
       const rotation=vec(item.rotation,'rotation',-1000,1000);
+      // Orientation of each repeated prototype independently of row spacing/layout.
+      // Stored in radians for backward compatibility; the inspector shows degrees.
+      const instanceRotation=item.instanceRotation==null?undefined:
+        vec(item.instanceRotation,'instanceRotation',-1000,1000);
       // Up to 2 km: a full scene's ground or road can exceed 500 m.
       const scale=vec(item.scale,'scale',.01,2000);
       const m=item.material;
@@ -236,7 +240,8 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
         arrayParts={objects,lights,...(order?{order}:{})};
       }
       return {id,name:displayName(item.name,item.primitive+' '+id),
-        primitive:item.primitive,position,rotation,scale,
+        primitive:item.primitive,position,rotation,
+        ...(instanceRotation?{instanceRotation}:{}),scale,
         ...(points?{points}:{}),
         ...(repeat?{repeat}:{}),
         ...(arrayParts?{arrayParts}:{}),
@@ -280,3 +285,8 @@ export function makeExampleBlockout(shotId) {
   }
   return {shotId,objects};
 }
+
+// User-facing rotation controls use degrees; the on-disk scene schema and
+// Three.js continue using radians so existing project files remain valid.
+export const radiansToDegrees=value=>Math.round(value*180/Math.PI*1000)/1000;
+export const degreesToRadians=value=>value*Math.PI/180;
