@@ -465,32 +465,21 @@
           <label class="field">Choose an existing assembly to copy
             <select id="arrayEditTemplate"></select>
           </label>
-          <label class="checkbox-field"><input id="arrayEditReplaceLights" type="checkbox" />
-            Replace existing destination lights with template lights (otherwise keep destination lights)
-          </label>
-          <button id="arrayEditUseTemplate" class="wide secondary" type="button">↳ Load all assembly meshes and label…</button>
-          <p id="arrayEditTemplateStatus" class="field-help array-template-status" role="status" aria-live="polite">Select an assembly to preview its pieces.</p>
-          <p class="field-help">Keep the destination's XYZ and repeat spacing. Every mesh is loaded into the 3D preview first; name its role by hovering before confirming. Cancel makes no changes.</p>
-          <section id="arrayTemplateLabelPanel" class="array-template-label-panel" aria-label="Identify template components" hidden>
-            <div class="section-label">IDENTIFY EACH OBJECT</div>
-            <p class="field-help">Hover a row or a 3D mesh to highlight it. Match each descriptor to the correct mesh, then confirm the labels. All meshes are already in the preview.</p>
-            <div id="arrayTemplateLabelRows"></div>
-            <div class="array-template-label-actions">
-              <button id="arrayTemplateLabelCancel" class="ghost" type="button">Discard template</button>
-              <button id="arrayTemplateLabelConfirm" class="primary" type="button">Confirm all labels</button>
-            </div>
-          </section>
+          <button id="arrayEditUseTemplate" class="wide secondary" type="button">↳ Replace entire assembly contents</button>
+          <p id="arrayEditTemplateStatus" class="field-help array-template-status" role="status" aria-live="polite">Choose an assembly to preview its contents.</p>
+          <p class="field-help">Swaps every mesh and light, preserving this parent's XYZ position, rotation, array count and spacing. Nothing changes in the live scene until Save.</p>
+          <button id="arrayEditUndoTemplate" type="button" class="wide ghost" hidden>Undo replacement preview</button>
           <div class="divider"></div>
-          <div class="section-label">GROUP RELATED ARRAYS</div>
-          <div id="arrayEditCompanions" class="array-companions"></div>
-          <p class="field-help">Arrays sharing the first two name words AND a compatible repeat layout open together automatically. Uncheck any component to keep its array separate. Nothing changes until Save.</p>
+          <div class="section-label">SCENE OUTLINER</div>
+          <p class="field-help">Select a parent or child to edit. Rename inline, reorder with arrows or drag the rows, and hover to highlight geometry. Children move individually with the 3D gizmo.</p>
+          <div id="arrayEditOutliner" class="array-outliner" role="tree" aria-label="Editable assembly hierarchy"></div>
           <div class="divider"></div>
           <div class="section-label">ADD TO EVERY COPY</div>
           <div class="two-input"><label class="field">Category<select id="arrayEditCategory"></select></label>
             <label class="field">Object / light<select id="arrayEditPreset"></select></label></div>
           <button id="arrayEditAdd" class="wide secondary" type="button">＋ Add to prototype</button>
           <div class="divider"></div>
-          <label class="field">Edit component<select id="arrayEditPartSelect"></select></label>
+          <div class="section-label">SELECTED NODE PROPERTIES</div>
           <div id="arrayEditProperties"></div>
           <button id="arrayEditDuplicatePart" class="wide secondary" type="button">⧉ Duplicate selected component</button>
           <button id="arrayEditDeletePart" class="wide ghost" type="button" disabled>Remove selected component</button>
