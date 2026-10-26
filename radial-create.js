@@ -15,7 +15,11 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
  const perCategory={...CREATE_DEFAULTS};
  try{
    const saved=JSON.parse(localStorage.getItem('paige-create-recents-v1')||'null');
-   if(saved&&validateCreateChoice(saved.category,saved.item))last=saved;
+   if(saved?.category&&saved?.item){
+     try{validateCreateChoice(saved.category,saved.item);
+       last={category:saved.category,item:saved.item};
+     }catch{}
+   }
    for(const category of CREATE_CATEGORIES){
      const remembered=saved?.perCategory?.[category.id];
      if(remembered)try{validateCreateChoice(category.id,remembered);perCategory[category.id]=remembered;}catch{}
