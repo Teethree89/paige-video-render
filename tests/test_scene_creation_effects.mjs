@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {CREATE_CATEGORIES,CREATE_DEFAULTS,insertCreatedAsset,validateCreateChoice} from '../scene-asset-catalog.js';
 import {validatePrimitiveDocument,validateSceneEffects,LIMITS} from '../primitive-schema.js';
-import {editLightTransform,deleteLightObject} from '../scene-object-operations.js';
+import {editLightTransform,editLightTarget,deleteLightObject} from '../scene-object-operations.js';
 const empty=()=>({schemaVersion:1,scenes:[]});
 test('every radial Create submenu item creates validated scene geometry or a punctual light',()=>{
  for(const category of CREATE_CATEGORIES)for(const [preset] of category.items){
@@ -114,7 +114,8 @@ test('new light presets produce shot-local punctual lights and recognizable edit
  assert.deepEqual(entry.lights[1].target,[0,0,0]);
  assert.match(world,/new THREE\.PointLight\(color,spec\.intensity,spec\.distance\)/);
  assert.match(world,/new THREE\.SpotLight\(color,spec\.intensity,spec\.distance,spec\.angle,spec\.penumbra\)/);
- assert.match(world,/for\(const spec of entry\.lights\|\|\[\]\)root\.add\(light\(spec\)\)/);
+ assert.match(world,/const source=light\(spec\)/);
+ assert.match(world,/root\.add\(source\);actualLights\.set\(id,source\)/);
  assert.match(world,/mesh\.castShadow=true/);
  assert.match(world,/mesh\.receiveShadow=true/);
  assert.match(world,/node\.shadow\.mapSize\.set\(512,512\)/);
@@ -185,4 +186,49 @@ test('undo and redo preserve Edit mode and do not strand a removed light gizmo',
  assert.match(editor,/select\(null\);return;/);
  assert.match(timeline,/if\(key==='z'\)/);
  assert.match(timeline,/if\(key==='y'\)/);
+});
+
+
+test('aim target editing changes only the intended light and preserves physical xyz positions',()=>{
+ const origin=[17,9,-4];
+ let doc=insertCreatedAsset(empty(),'chapter','lights','spot-cool',origin).document;
+ doc=insertCreatedAsset(doc,'chapter','lights','point-red',origin).document;
+ const original=structuredClone(doc);
+ const spotId=doc.scenes[0].lights[0].id;
+ const changed=editLightTarget(doc,['chapter'],'chapter',spotId,[20,3,-10]);
+ assert.deepEqual(changed.scenes[0].lights[0].target,[20,3,-10]);
+ assert.deepEqual(changed.scenes[0].lights[0].position,original.scenes[0].lights[0].position);
+ assert.deepEqual(changed.scenes[0].lights[1],original.scenes[0].lights[1]);
+ assert.deepEqual(doc,original,'editing the target never mutates history snapshots');
+ assert.throws(()=>editLightTarget(doc,['chapter'],'chapter',spotId,
+   original.scenes[0].lights[0].position),/distinct target/);
+ assert.throws(()=>editLightTarget(doc,['chapter'],'chapter',spotId,[NaN,2,3]),/finite/);
+ assert.throws(()=>editLightTarget(doc,['chapter'],'chapter',doc.scenes[0].lights[1].id,
+   [2,0,0]),/aimed light/);
+});
+test('light gizmos are camera-pixel-sized and rays connect saved XYZ without export geometry',async()=>{
+ const world=await readFile(new URL('../primitive-world.js',import.meta.url),'utf8');
+ const editor=await readFile(new URL('../scene-object-edit.js',import.meta.url),'utf8');
+ const app=await readFile(new URL('../app.js',import.meta.url),'utf8');
+ assert.match(world,/getLightTargetMarker\(shotId,id\)/);
+ assert.match(world,/function updateLightVisuals\(camera,viewportHeight=720\)/);
+ assert.match(world,/worldPerPixel\(source\)\*10\/\.2/);
+ assert.match(world,/worldPerPixel\(target\)\*7\/\.15/);
+ assert.match(world,/new THREE\.BufferGeometry\(\)\.setFromPoints\(\[/);
+ assert.match(world,/new THREE\.Vector3\(\.\.\.spec\.position\),new THREE\.Vector3\(\.\.\.spec\.target\)/);
+ assert.match(world,/line\.geometry\.attributes\.position/);
+ assert.match(world,/node\.position\.copy\(source\.position\)/);
+ assert.match(world,/node\.lookAt\(node\.parent\.localToWorld\(target\.position\.clone\(\)\)\)/);
+ assert.match(world,/lightMarkerGroups\.clear\(\);lightMarkers\.clear\(\);lightTargets\.clear\(\);lightGuides\.clear\(\)/);
+ assert.match(world,/markerRoot\.visible=false/);
+ assert.match(world,/getPickableMeshes\(shotId\)/);
+ assert.match(world,/lightTargets\.get\(shotId\)/);
+ assert.match(world,/const copy=root\.clone\(true\)/);
+ assert.doesNotMatch(world,/root\.add\(markerRoot\)/,'editor markers are never in exported scene');
+ assert.match(editor,/primitiveLightTargetId/);
+ assert.match(editor,/onLightTargetTransform/);
+ assert.match(editor,/light-target::/);
+ assert.match(app,/primitiveWorld\.updateLightVisuals\(camera,viewport\.clientHeight\)/);
+ assert.match(app,/onLightTargetTransform:/);
+ assert.match(app,/editLightTarget\(/);
 });

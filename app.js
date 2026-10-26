@@ -20,7 +20,7 @@ import {setupSceneObjectEditing} from './scene-object-edit.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
 import {createScenePostprocessor,applyShotEffects,effectsForShot,vignetteStyle} from './scene-effects.js';
-import {editPrimitiveTransform,deletePrimitiveObject,editLightTransform,deleteLightObject} from './scene-object-operations.js';
+import {editPrimitiveTransform,deletePrimitiveObject,editLightTransform,editLightTarget,deleteLightObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
@@ -224,12 +224,19 @@ async function boot(){
        sequence.shots.map(s=>s.id),shotId,lightId,position);
      syncPrimitiveWorld();saveLocal();renderWorld();
    },
+   onLightTargetTransform:(shotId,lightId,target)=>{
+     sequence.primitiveScenes=editLightTarget(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,lightId,target);
+     syncPrimitiveWorld();saveLocal();renderWorld();
+   },
    onDeleteLight:(shotId,lightId)=>{
      sequence.primitiveScenes=deleteLightObject(sequence.primitiveScenes,
        sequence.shots.map(s=>s.id),shotId,lightId);
      syncPrimitiveWorld();saveLocal();renderWorld();
    },
-   onSelect:id=>id?.startsWith('light::')?
+   onSelect:id=>id?.startsWith('light-target::')?
+     primitiveEditor?.selectLight(id.slice(14)):
+     id?.startsWith('light::')?
      primitiveEditor?.selectLight(id.slice(7)):primitiveEditor?.selectObject(id),
    onStatus:message=>{el('primitiveStatus').textContent=message;}
  });
@@ -553,6 +560,9 @@ function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.h
 function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  if(playing){let next=playhead+dt*speed;if(next>=sequence.duration){next=sequence.duration;setPlaying(false);}seek(next,{fromFrame:true});if(!sequence.referenceSequence&&referenceVideo.readyState>=2&&Math.abs(referenceVideo.currentTime-playhead)>.15){try{referenceVideo.currentTime=playhead;}catch(e){}}}
  if(controls.enabled)controls.update();
+ // Keep light source/aim markers large enough to see at ANY shot scale;
+ // their physical coordinates and directional rays remain untouched.
+ if(sceneObjectEditor?.active)primitiveWorld.updateLightVisuals(camera,viewport.clientHeight);
  // Keep the selected geometry's oriented outline current while dragging,
  // after scene rebuilds, and when orbiting; it is never an exported object.
  sceneObjectEditor?.updateHighlight();

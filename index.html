@@ -206,7 +206,7 @@
           <div class="divider"></div>
           <section id="primitiveLightEditor" class="primitive-light-editor" aria-label="Lights in current chapter">
             <div class="section-label">SCENE LIGHTS</div>
-            <p class="field-help">Directional, point and spot lights affect this chapter. Select a light to edit its color, intensity, position and beam.</p>
+            <p class="field-help">In Edit mode, the colored bulb marks the source. Spot and directional lights show an arrow to a white aim target; drag either end with X/Y/Z or edit the coordinates below. Point lights shine in every direction. Directional lights illuminate the entire chapter along the arrow regardless of the source's distance.</p>
             <label class="field">Light
               <select id="primitiveLightSelect"><option value="">No lights yet</option></select>
             </label>
@@ -226,7 +226,7 @@
                 <label>Y<input data-light="position.1" type="number" step="0.1"></label>
                 <label>Z<input data-light="position.2" type="number" step="0.1"></label>
               </div>
-              <div id="primitiveLightTargetWrap"><div class="input-group-title">Beam target (x, y, z)</div>
+              <div id="primitiveLightTargetWrap"><div class="input-group-title">Aim target (x, y, z) · white handle</div>
                 <div class="triple-input">
                   <label>X<input data-light="target.0" type="number" step="0.1"></label>
                   <label>Y<input data-light="target.1" type="number" step="0.1"></label>

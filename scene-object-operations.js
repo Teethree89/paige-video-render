@@ -32,6 +32,16 @@ export function editLightTransform(source,allowedShots,shotId,lightId,position){
  light.position=[...position];
  return validatePrimitiveDocument(doc,allowedShots);
 }
+export function editLightTarget(source,allowedShots,shotId,lightId,target){
+ if(!Array.isArray(target)||target.length!==3||
+   target.some(v=>typeof v!=='number'||!Number.isFinite(v)))
+   throw Error('Light target must contain three finite coordinates');
+ const doc=validatePrimitiveDocument(source,allowedShots);
+ const light=doc.scenes.find(s=>s.shotId===shotId)?.lights?.find(l=>l.id===lightId);
+ if(!light||light.type==='point')throw Error('Selected aimed light no longer exists in this chapter');
+ light.target=[...target];
+ return validatePrimitiveDocument(doc,allowedShots);
+}
 export function deleteLightObject(source,allowedShots,shotId,lightId){
  const doc=validatePrimitiveDocument(source,allowedShots);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
