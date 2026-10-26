@@ -101,3 +101,76 @@ test('reject crossing chapter captions before destructive rearrangements',()=>{
  assert.throws(()=>moveChapter(base,'b',0),/spans chapter boundaries/);
  assert.throws(()=>deleteChapter(base,'b'),/spans chapter boundaries/);
 });
+
+
+test('timeline single-click capture, chapter selection and blank-space deselection',async()=>{
+ const {setupTimelineEditing}=await import('../timeline-tools.js');
+ const previousDocument=globalThis.document;
+ class MockNode{
+   constructor(kind,parent=null){
+     this.kind=kind;this.parent=parent;this.dataset={};this.children=[];this.events={};
+     this.attributes={};this.style={};this.textContent='';this.selectedClasses=new Set();
+     this.classList={
+       toggle:(name,value)=>value?this.selectedClasses.add(name):this.selectedClasses.delete(name),
+       contains:name=>this.selectedClasses.has(name)
+     };
+   }
+   setAttribute(name,value){this.attributes[name]=String(value);}
+   append(...nodes){for(const node of nodes){node.parent=this;this.children.push(node);}}
+   prepend(node){node.parent=this;this.children.unshift(node);}
+   insertAdjacentElement(_position,node){this.append(node);}
+   addEventListener(type,listener){(this.events[type]??=[]).push(listener);}
+   dispatch(type,event){for(const listener of this.events[type]||[])listener(event);}
+   closest(selectors){
+     for(let node=this;node;node=node.parent)
+       if(selectors.split(',').some(s=>s.trim()==='.'+node.kind))return node;
+     return null;
+   }
+   matches(selector){return selector==='.'+this.kind;}
+   getBoundingClientRect(){return {left:0,width:1000};}
+   setPointerCapture(pointerId){this.capturedPointer=pointerId;}
+ }
+ const tracks=new MockNode('tracks'),scene=new MockNode('shot-item',tracks),
+   key=new MockNode('key-marker',tracks),empty=new MockNode('track',tracks),
+   header=new MockNode('timeline-header'),toolbar=new MockNode('timeline-toolset',header),
+   projectPanel=new MockNode('projectPanel');
+ scene.dataset.shotId='a';key.dataset.editId='ca';
+ globalThis.document={
+   createElement:kind=>new MockNode(kind),
+   getElementById:id=>({tracks,projectPanel})[id]||null,
+   querySelector:selector=>selector==='.timeline-toolset'?toolbar:null,
+   querySelectorAll:selector=>selector==='.shot-item'?[scene]:[],
+   addEventListener:()=>{},
+   activeElement:null
+ };
+ try{
+   const sequence={duration:12,fps:30,shots:[{id:'a',start:0,end:12}],
+     camera:[{id:'ca',at:3}],text:[]};
+   setupTimelineEditing({
+     getSequence:()=>sequence,getSelectedKey:()=>null,
+     canUndo:()=>false,canRedo:()=>false,
+     onCommit:()=>{},onUndo:()=>{},onRedo:()=>{}
+   });
+   const bar=header.children[0],
+     copy=bar.children.find(node=>node.attributes.id==='timelineCopy');
+   const down=target=>tracks.dispatch('pointerdown',
+     {target,button:0,clientX:250,pointerId:2});
+   const up=()=>tracks.dispatch('pointerup',{clientX:250,pointerId:2});
+   assert.equal(copy.disabled,true,'no chapter is selected initially');
+   down(scene);
+   assert.equal(scene.capturedPointer,2,'scene captures its pointer instead of the whole timeline');
+   assert.equal(scene.classList.contains('selected'),true);
+   assert.equal(copy.disabled,false);
+   up();
+   down(key);
+   assert.equal(key.capturedPointer,2,'camera key captures its own pointer so click is not retargeted');
+   assert.equal(scene.classList.contains('selected'),false);
+   assert.equal(copy.disabled,true,'selecting a key deselects the chapter');
+   up();
+   down(scene);up();
+   down(empty);
+   assert.equal(scene.classList.contains('selected'),false);
+   assert.equal(copy.disabled,true,'empty timeline clears the chapter selection');
+   assert.equal(tracks.capturedPointer,undefined,'editing does not capture on the tracks parent');
+ }finally{globalThis.document=previousDocument;}
+});
