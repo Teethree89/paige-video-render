@@ -601,225 +601,74 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  const templateSelect=byId('arrayEditTemplate');
  const useTemplate=byId('arrayEditUseTemplate');
  const templateStatus=byId('arrayEditTemplateStatus');
- const updateTemplateStatus=(message,{error=false}={})=>{
+ const undoTemplate=byId('arrayEditUndoTemplate');
+ const updateTemplateStatus=(message,error=false)=>{
    if(templateStatus){
      templateStatus.textContent=message;
-     templateStatus.classList.toggle('error',!!error);
+     templateStatus.classList.toggle('error',error);
    }
    if(error)setStatus(message);
  };
- const labelPanel=byId('arrayTemplateLabelPanel');
- const labelRowsRoot=byId('arrayTemplateLabelRows');
- const replaceLights=byId('arrayEditReplaceLights');
- function clearLabelHighlight(){
-   if(!hoverOutline)return;
-   hoverOutline.removeFromParent();hoverOutline.geometry.dispose();
-   hoverOutline.material.dispose();hoverOutline=null;
+ function undoReplacement(){
+   if(!beforeTemplate)return;
+   draft=beforeTemplate.draft;candidates=beforeTemplate.candidates;
+   beforeTemplate=null;
+   if(undoTemplate)undoTemplate.hidden=true;
+   renderCompanions();refreshList();updateAssemblySummary();rerender({refit:true});
+   updateTemplateStatus('Replacement preview discarded; original assembly restored.');
  }
- function highlightLabelPart(key){
-   clearLabelHighlight();
-   if(!draft||!labelPanel||labelPanel.hidden||!key)return;
-   let node=key==='root'?world.getObjectNode(sampleShot,objectId):
-     key.startsWith('light:')?world.getLightMarker(sampleShot,key.slice(6)):
-       world.getObjectNode(sampleShot,key.slice(7));
-   if(!node)return;
-   const mesh=node.isMesh?node:(()=>{
-     let found=null;node.traverse(part=>{if(!found&&part.isMesh)found=part;});return found;
-   })();
-   if(!mesh?.geometry)return;
-   hoverOutline=new THREE.LineSegments(
-     new THREE.EdgesGeometry(mesh.geometry),
-     new THREE.LineBasicMaterial({color:0xffd276,depthTest:false,depthWrite:false}));
-   hoverOutline.name='Hovered component outline (editor only)';
-   hoverOutline.renderOrder=1005;
-   hoverOutline.frustumCulled=false;
-   mesh.add(hoverOutline);
- }
- function resetTemplateDialog(){
-   clearLabelHighlight();
-   if(labelPanel)labelPanel.hidden=true;
-   templateChoice=null;labelRows=[];beforeTemplate=null;
- }
- function previewChoices(kind){
-   if(kind==='light')return draft.parts.lights.map(l=>({
-     key:'light:'+l.id,label:'Light · '+l.name}));
-   return [{key:'root',label:'Source · '+draft.base.name},
-     ...draft.parts.objects.map(o=>({key:'object:'+o.id,label:'Mesh · '+o.name}))];
- }
- function renderTemplateLabels(){
-   if(!labelPanel||!labelRowsRoot||!draft)return;
-   labelPanel.hidden=false;
-   labelRowsRoot.replaceChildren();
-   for(const row of labelRows){
-     const outer=makeEl('div','',{class:'array-template-label-row'});
-     const question=makeEl('strong','Which '+(row.kind==='light'?'light':'mesh')+
-       ' is "'+row.role+'"?');
-     const select=makeEl('select');
-     selectOptions(select,previewChoices(row.kind).map(x=>[x.key,x.label]));
-     select.value=row.assigned;
-     const labelInput=makeEl('input');labelInput.type='text';
-     labelInput.maxLength=65;labelInput.value=row.role;
-     labelInput.setAttribute('aria-label','New object descriptor for '+row.role);
-     labelInput.addEventListener('change',()=>{row.role=labelInput.value.trim();});
-     select.addEventListener('change',()=>{
-       row.assigned=select.value;
-       highlightLabelPart(row.assigned);
-     });
-     outer.addEventListener('mouseenter',()=>highlightLabelPart(row.assigned));
-     outer.addEventListener('mouseleave',clearLabelHighlight);
-     outer.append(question,select,makeEl('span','Descriptor after group name:'),labelInput);
-     labelRowsRoot.append(outer);
-   }
- }
- function discardTemplate(){
-   if(!beforeTemplate||!draft)return;
-   draft=beforeTemplate;beforeTemplate=null;
-   candidates=draft.base.repeat?findArrayCompanions(source,shotId,objectId):[];
-   resetTemplateDialog();renderCompanions();refreshList();
-   updateAssemblySummary();rerender({refit:true});
-   updateTemplateStatus('Template discarded. Select an assembly to try again.');
-   setStatus('Template changes discarded. Original destination still untouched.');
- }
- byId('arrayTemplateLabelCancel')?.addEventListener('click',discardTemplate);
- byId('arrayTemplateLabelConfirm')?.addEventListener('click',()=>{
-   if(!draft?.templatePlan||!labelRows.length)return;
-   const ids=new Set();
-   const prefix=originalRoot()?.name.trim().split(/\s+/).slice(0,2).join(' ')||'Group';
-   for(const row of labelRows){
-     const name=row.role.trim();
-     if(!name||name.length>65){setStatus('Enter a descriptor for every component.');return;}
-     if(ids.has(row.assigned)){setStatus('Each descriptor needs a different mesh or light.');return;}
-     ids.add(row.assigned);
-   }
-   for(const row of labelRows){
-     const target=row.assigned==='root'?draft.base:
-       row.assigned.startsWith('light:')?draft.parts.lights.find(l=>l.id===row.assigned.slice(6)):
-         draft.parts.objects.find(o=>o.id===row.assigned.slice(7));
-     if(!target){setStatus('A component is missing; please choose it again.');return;}
-     target.name=(prefix+' '+row.role.trim()).slice(0,100);
-   }
-   draft.templatePlan.labelsConfirmed=true;
-   clearLabelHighlight();labelPanel.hidden=true;
-   templateChoice=null;labelRows=[];beforeTemplate=null;
-   refreshList();rerender({refit:true});
-   setStatus('All component labels confirmed. Save to apply the assembly to every copy.');
- });
- function stageTemplate(){
-   // The first option used to be an empty placeholder while the button was
-   // enabled: clicking it silently returned here with no user feedback.
-   if(!draft?.base.repeat){
-     updateTemplateStatus('Select a repeated array before replacing its assembly.',
-       {error:true});return;
-   }
+ undoTemplate?.addEventListener('click',undoReplacement);
+ function replaceContents(){
+   if(!draft)return;
    const template=resolveAssemblyTemplateSelection(sourceTemplates,templateSelect?.value);
-   if(template&&templateSelect)templateSelect.value=template.id;
-   if(!template){
-     updateTemplateStatus(sourceTemplates.length?
-       'Choose an available assembly from the dropdown first.':
-       'No source assemblies are available in this chapter.',{error:true});
-     return;
-   }
-   updateTemplateStatus('Loading '+template.label+' into the prototype preview…');
-   const previousDraft=structuredClone(draft);
-   const previousCandidates=[...candidates];
+   if(!template){updateTemplateStatus('Choose a source assembly first.',true);return;}
+   const backup={draft:structuredClone(draft),candidates:[...candidates]};
    try{
-     const rootOriginal=originalRoot();
-     const destPrefix=rootOriginal.name.trim().split(/\s+/).slice(0,2).join(' ');
-     const destRole=assemblyDescriptor(rootOriginal.name,destPrefix).toLowerCase();
-     const primary=template.parts.find(p=>
-       assemblyDescriptor(p.name,template.prefix).toLowerCase()===destRole)||
-       template.parts[0];
-     const swapped=replaceArrayAssembly(source,getShotIds(),shotId,objectId,
-       template.id,primary.id,undefined,{replaceLights:!!replaceLights?.checked});
-     const sceneData=swapped.document.scenes.find(sc=>sc.shotId===shotId);
-     const root=sceneData.objects.find(o=>o.id===objectId);
-     const rootQuat=new THREE.Quaternion().setFromEuler(new THREE.Euler(...root.rotation));
-     const children=[],localIds=new Map();
-     // Transfer every mesh to the mini preview before asking ANY labels.
-     // Persist them as named sibling arrays when Save is finally confirmed.
-     for(const mapping of swapped.created.filter(c=>c.rootId===objectId)){
-       const sibling=sceneData.objects.find(o=>o.id===mapping.targetId);
-       const part=structuredClone(sibling);
-       delete part.repeat;delete part.arrayParts;delete part.layer;
-       part.id=uniquePartId(mapping.targetId);
-       part.position=new THREE.Vector3(...sibling.position)
-         .sub(new THREE.Vector3(...root.position))
-         .applyQuaternion(rootQuat.clone().invert()).toArray();
-       part.rotation=new THREE.Euler().setFromQuaternion(
-         rootQuat.clone().invert().multiply(
-           new THREE.Quaternion().setFromEuler(new THREE.Euler(...sibling.rotation))))
-         .toArray().slice(0,3);
-       children.push(part);localIds.set(mapping.partId,part.id);
-     }
-     const allMappings=swapped.created.map(m=>({...m,partId:localIds.get(m.partId)}));
-     if(allMappings.some(m=>!m.partId))
-       throw Error('Template meshes did not align across matching destination rows');
-     // Selecting another template while labeling must still allow Discard
-     // to restore the destination exactly as it looked before the FIRST try.
-     beforeTemplate=beforeTemplate||structuredClone(draft);
-     draft.base=structuredClone(root);
-     draft.parts={objects:children,
-       lights:structuredClone(root.arrayParts?.lights||[])};
-     draft.absorbed.clear();
-     draft.templatePlan={document:swapped.document,mappings:allMappings,labelsConfirmed:false};
-     candidates=[];
-     templateChoice=template;
-     labelRows=template.parts.map(part=>({
-       kind:'object',role:assemblyDescriptor(part.name,template.prefix),
-       assigned:part.id===primary.id?'root':'object:'+localIds.get(part.id)
-     }));
-     // Lights also appear, whether preserved from the destination or copied.
-     for(const item of draft.parts.lights){
-       // Retained destination lights already have destination-prefixed names;
-       // strip that prefix instead of prepending it a second time.
-       const destinationRole=assemblyDescriptor(item.name,destPrefix);
-       const descriptor=destinationRole===item.name?
-         assemblyDescriptor(item.name,template.prefix):destinationRole;
-       labelRows.push({kind:'light',role:descriptor,assigned:'light:'+item.id});
-     }
-     selected='root';
+     const change=replaceAssemblyContents(source,getShotIds(),shotId,objectId,template.id);
+     const staged=change.document;
+     const root=staged.scenes.find(sc=>sc.shotId===shotId)
+       ?.objects.find(obj=>obj.id===objectId);
+     if(!root||root.primitive!=='group')throw Error('Replacement did not produce a group parent');
+     const preview={base:structuredClone(root),
+       parts:structuredClone(root.arrayParts),absorbed:new Map(),
+       templatePlan:{document:staged}};
+     draft=preview;candidates=[];selected='root';
+     if(!rerender({refit:true}))throw Error('The new assembly could not be drawn');
+     if(!beforeTemplate)beforeTemplate=backup;
+     if(undoTemplate)undoTemplate.hidden=false;
      renderCompanions();refreshList();updateAssemblySummary();
-     if(!rerender({refit:true}))
-       throw Error('The replacement geometry could not be drawn in the preview.');
-     renderTemplateLabels();
-     if(!labelPanel||labelPanel.hidden)
-       throw Error('The component identification panel could not be opened.');
-     updateTemplateStatus(labelRows.length+' component(s) loaded. Identify and confirm each piece below.');
-     setStatus('All '+labelRows.length+' components are visible. Hover each row or mesh, confirm labels, then Save.');
-     labelPanel.scrollIntoView?.({block:'nearest',behavior:'smooth'});
+     updateTemplateStatus('Previewing '+change.componentCount+' copied mesh/light nodes from '+
+       template.label+'. Parent XYZ, rotation and copy spacing unchanged. Save or Undo.');
+     setStatus('Replacement is staged locally; Save commits or Cancel discards everything.');
+     outliner.scrollIntoView?.({block:'nearest'});
    }catch(error){
-     // Preparation is transactional. A failed preview MUST NOT leave a staged
-     // document that can accidentally be committed by the ordinary Save.
-     draft=previousDraft;candidates=previousCandidates;
-     resetTemplateDialog();renderCompanions();refreshList();
-     updateAssemblySummary();rerender({refit:true});
-     updateTemplateStatus('Could not load '+template.label+': '+error.message,
-       {error:true});
+     draft=backup.draft;candidates=backup.candidates;
+     renderCompanions();refreshList();updateAssemblySummary();rerender({refit:true});
+     updateTemplateStatus('Cannot replace assembly: '+error.message,true);
    }
  }
- useTemplate?.addEventListener('click',stageTemplate);
+ useTemplate?.addEventListener('click',replaceContents);
  templateSelect?.addEventListener('change',()=>{
-   if(!sourceTemplates.length)return;
-   const selection=sourceTemplates.find(t=>t.id===templateSelect.value);
-   if(useTemplate)useTemplate.disabled=!selection;
-   updateTemplateStatus(selection?
-     'Ready to load '+selection.label+' ('+selection.parts.length+' meshes; '+
-       selection.lights.length+' light(s)).':
-     'Choose an assembly to preview its pieces.');
+   const template=sourceTemplates.find(x=>x.id===templateSelect.value);
+   if(useTemplate)useTemplate.disabled=!template;
+   updateTemplateStatus(template?
+     'Ready to copy '+template.parts.length+' mesh(es) and '+template.lights.length+
+       ' light(s) from '+template.label+'.':'Choose a source assembly.');
  });
  canvas.addEventListener('pointermove',event=>{
-   if(!draft||!labelPanel||labelPanel.hidden||transform.dragging)return;
+   if(!draft||transform.dragging)return;
    const rect=canvas.getBoundingClientRect();
    mouse.set(2*(event.clientX-rect.left)/rect.width-1,
      1-2*(event.clientY-rect.top)/rect.height);
    picker.setFromCamera(mouse,camera);
    const hit=picker.intersectObjects(world.getPickableMeshes(sampleShot),false)[0]?.object;
-   const id=hit?.userData?.primitiveLightId?'light:'+hit.userData.primitiveLightId:
-     hit?.userData?.primitiveId===objectId?'root':
-       hit?.userData?.primitiveId?'object:'+hit.userData.primitiveId:null;
-   if(id)highlightLabelPart(id);else clearLabelHighlight();
+   const childId=hit?.userData?.primitiveArrayPartId;
+   const key=childId?
+     (hit.name==='Outliner light handle'?'light:':'object:')+childId:null;
+   if(key)highlightOutliner(key);
+   else clearOutlinerHighlight();
  });
- canvas.addEventListener('pointerleave',clearLabelHighlight);
+ canvas.addEventListener('pointerleave',clearOutlinerHighlight);
  byId('arrayEditDeletePart')?.addEventListener('click',()=>{
    if(!draft||selected==='root')return;
    const [kind,id]=selected.split(':');
@@ -835,10 +684,12 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const index=list.findIndex(x=>x.id===id);
      if(index!==-1)list.splice(index,1);
    }
+   draft.parts.order=orderedKeys().filter(key=>!!itemForKey(key));
    selected='root';refreshList();rerender();
  });
  function close(){
-   resetTemplateDialog();
+   clearOutlinerHighlight();beforeTemplate=null;
+   if(undoTemplate)undoTemplate.hidden=true;
    stop();transform.detach();transform.enabled=false;dragging=false;
    orbit.enabled=true;
    draft=null;source=null;shotId=null;objectId=null;linked=[];candidates=[];
@@ -849,15 +700,11 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  byId('arrayEditSave')?.addEventListener('click',()=>{
    if(!draft)return;
    try{
-     if(draft.templatePlan&&!draft.templatePlan.labelsConfirmed)
-       throw Error('Identify and confirm all template components before saving');
-     const document=draft.templatePlan?
-       saveAssemblyTemplateDraft(draft.templatePlan.document,getShotIds(),shotId,objectId,
-         draft.base,draft.parts,draft.templatePlan.mappings):
-       saveArrayPrototype(source,getShotIds(),shotId,objectId,{
-         name:draft.base.name,material:draft.base.material,scale:draft.base.scale,
-         position:draft.base.position,rotation:draft.base.rotation,parts:draft.parts
-       },linked,[...draft.absorbed.values()].flatMap(x=>x.ids));
+     draft.parts.order=orderedKeys().filter(key=>!!itemForKey(key));
+     const document=saveAssemblyHierarchy(
+       draft.templatePlan?.document||source,getShotIds(),shotId,objectId,
+       {base:draft.base,parts:draft.parts},linked,
+       draft.templatePlan?[]:[...draft.absorbed.values()].flatMap(x=>x.ids));
      onSave(document);
      close();
    }catch(error){setStatus('Save blocked: '+error.message);}
@@ -884,27 +731,21 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const base=scene?.objects?.find(o=>o.id===partId&&(o.repeat||o.arrayParts));
      if(!base)return false;
      const matches=base.repeat?findMatchingArrays(doc,id,partId):[partId];
-     draft={base:structuredClone(base),
-       parts:structuredClone(base.arrayParts||{objects:[],lights:[]}),absorbed:new Map()};
+     const converted=editableAssembly(base);
+     draft={...converted,absorbed:new Map()};
      source=structuredClone(doc);shotId=id;objectId=partId;linked=matches;
      candidates=base.repeat?findArrayCompanions(doc,id,partId):[];
-     sourceTemplates=base.repeat?listAssemblyTemplates(doc,id)
-       .filter(t=>t.id!==partId):[];
+     sourceTemplates=listAssemblyTemplates(doc,id).filter(t=>t.id!==partId);
      selectOptions(templateSelect||makeEl('select'),
-       [['','Choose an array assembly…'],...sourceTemplates.map(t=>[t.id,t.label])]);
-     // Do not have an enabled action whose input is the empty placeholder.
-     // Preselect the first valid source: immediately usable with one click.
+       [['','Choose an assembly…'],...sourceTemplates.map(t=>[t.id,t.label])]);
      if(templateSelect)templateSelect.value=sourceTemplates[0]?.id||'';
-     if(useTemplate)useTemplate.disabled=!base.repeat||!sourceTemplates.length;
-     updateTemplateStatus(!base.repeat?'Assembly replacement is available for arrays only.':
-       sourceTemplates.length?
-         'Ready to load '+sourceTemplates[0].label+' ('+
-           sourceTemplates[0].parts.length+' meshes; '+
-           sourceTemplates[0].lights.length+' light(s)).':
-         'No compatible assembly templates found in this chapter.');
+     if(useTemplate)useTemplate.disabled=!sourceTemplates.length;
+     updateTemplateStatus(sourceTemplates.length?
+       'Ready to copy '+sourceTemplates[0].parts.length+' mesh(es) and '+
+       sourceTemplates[0].lights.length+' light(s) from '+sourceTemplates[0].label+'.':
+       'No source assembly available in this chapter.');
+     beforeTemplate=null;if(undoTemplate)undoTemplate.hidden=true;
      selected='root';dragging=false;transform.enabled=true;setMode('translate');
-     // Make recognized named assemblies visible immediately. The checkboxes
-     // let the editor opt out, and Cancel remains completely non-destructive.
      for(const candidate of candidates.filter(candidate=>candidate.nameMatch))
        includeCompanion(candidate);
      const group=arrayGroupKey(base.name);
