@@ -538,10 +538,16 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        children.push(part);
        mappings.push({...mapping,partId:part.id});
      }
+     const selectedSource=new Map(swapped.created.filter(c=>c.rootId===objectId)
+       .map((m,i)=>[m.partId,children[i].id]));
+     const allMappings=swapped.created.map(m=>({...m,
+       partId:selectedSource.get(m.partId)}));
+     if(allMappings.some(m=>!m.partId))
+       throw Error('Template components did not align across matching arrays');
      draft.base=structuredClone(root);
      draft.parts={objects:children,lights:structuredClone(root.arrayParts?.lights||[])};
      draft.absorbed.clear();
-     draft.templatePlan={document:swapped.document,mappings};
+     draft.templatePlan={document:swapped.document,mappings:allMappings};
      candidates=[];
      selected='root';
      resetTemplateDialog();renderCompanions();refreshList();
