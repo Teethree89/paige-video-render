@@ -25,17 +25,23 @@ export const CREATE_CATEGORIES=Object.freeze([
 export const CREATE_DEFAULTS=Object.freeze(Object.fromEntries(CREATE_CATEGORIES.map(c=>[c.id,c.items[0][0]])));
 const simple=new Set(['box','sphere','cylinder','cone','plane','torus','wedge','gable','extrude']);
 const layerFor={vegetation:'vegetation',vehicles:'details',structures:'structures',props:'details',terrain:'ground'};
-const lightSpec=(id,p,origin)=>({
- id,type:id==='sun'?'directional':id.startsWith('spot')?'spot':'point',
- name:id.replaceAll('-',' ')+' light',
- color:id.includes('warm')?'#ffd2a0':id.includes('blue')?'#80bcff':id.includes('red')?'#ff655c':
-  id.includes('cool')?'#c9e9ff':'#ffffff',
- // Candela values must be high enough to compete with the base hemisphere/sun fill.
- intensity:id==='sun'?2.1:id.startsWith('spot')?240:180,
- position:[origin[0],origin[1]+4,origin[2]+3],
- target:[origin[0],origin[1],origin[2]],
- distance:28,angle:.53,penumbra:.35
-});
+const lightSpec=(id,origin)=>{
+ const directional=id==='sun',spot=id.startsWith('spot');
+ return {
+  id,type:directional?'directional':spot?'spot':'point',
+  name:id.replaceAll('-',' ')+' light',
+  color:id.includes('warm')?'#ffd2a0':id.includes('blue')?'#80bcff':id.includes('red')?'#ff655c':
+    id.includes('cool')?'#c9e9ff':'#ffffff',
+  // Inverse-square falloff means nearby illumination matters more than
+  // high intensity from a light offset behind the clicked geometry.
+  intensity:directional?2.1:spot?320:180,
+  position:directional?[origin[0]+8,origin[1]+12,origin[2]+8]:
+    spot?[origin[0],origin[1]+5,origin[2]+1.5]:
+      [origin[0],origin[1]+2,origin[2]],
+  target:[...origin],
+  distance:32,angle:.7,penumbra:.35
+ };
+};
 const specs={
  pine:[['cylinder',[.8,3,.8],[0,1.5,0],'#725438'],['cone',[3.5,6,3.5],[0,5,0],'#28563b']],
  deciduous:[['cylinder',[.85,4,.85],[0,2,0],'#674a31'],['sphere',[5,4.6,5],[0,5.3,0],'#467449']],
@@ -78,7 +84,7 @@ export function insertCreatedAsset(source,shotId,category,id,origin=[0,0,0]){
  const used=new Set(entry.objects.map(x=>x.id));
  if(category==='lights'){
    entry.lights??=[];
-   const spec=lightSpec(id,id,origin),ids=new Set(entry.lights.map(x=>x.id));
+   const spec=lightSpec(id,origin),ids=new Set(entry.lights.map(x=>x.id));
    spec.id=unique('light',ids);
    if(spec.type==='point')delete spec.target;
    if(spec.type==='directional'){delete spec.distance;delete spec.angle;delete spec.penumbra;}
