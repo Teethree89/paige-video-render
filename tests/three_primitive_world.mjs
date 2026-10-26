@@ -308,3 +308,35 @@ test('lights-only chapters export a valid punctual-light GLTF without mesh geome
     assert.equal(gltf.extensions.KHR_lights_punctual.lights[0].name,'Light only');
   }finally{world.dispose();}
 });
+
+
+test('L-style created light survives validation and becomes a real Three.js light plus edit gizmo',async()=>{
+ const {insertCreatedAsset}=await import('../scene-asset-catalog.js');
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+ try{
+   const base={schemaVersion:1,scenes:[]},click=[5,2,-3];
+   const created=insertCreatedAsset(base,'chapter','lights','point-white',click);
+   const saved=created.document.scenes[0].lights[0];
+   assert.equal(saved.id,created.selected.id);
+   assert.equal(saved.type,'point');
+   assert.deepEqual(saved.position,[5,4,-3]);
+   world.setDocument(created.document,['chapter'],{chapter:[100,0,-30]});
+   world.showShot('chapter');
+   world.setLightMarkersVisible(true);
+   const actual=world.getLightNode('chapter',saved.id);
+   const marker=world.getLightMarker('chapter',saved.id);
+   assert.ok(actual?.isPointLight,'a real shaded point light exists, not only saved JSON');
+   assert.ok(marker?.isMesh,'a Three.js editor gizmo was constructed');
+   assert.equal(world.isLightMarkerVisible('chapter',saved.id),true);
+   assert.deepEqual(actual.position.toArray(),marker.position.toArray());
+   assert.deepEqual(actual.getWorldPosition(new THREE.Vector3()).toArray(),[105,4,-33]);
+   assert.equal(world.getSceneForExport('chapter').children.some(x=>x.isPointLight),true);
+   world.showShot('other');
+   assert.equal(world.isLightMarkerVisible('chapter',saved.id),false);
+   world.showShot('chapter');
+   world.setLightMarkersVisible(false);
+   assert.equal(world.isLightMarkerVisible('chapter',saved.id),false);
+   assert.equal(world.getLightNode('chapter',saved.id)?.isPointLight,true,
+     'hiding edit widgets must not delete the authored light');
+ }finally{world.dispose();}
+});
