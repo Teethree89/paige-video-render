@@ -348,9 +348,11 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    if(deleteButton)deleteButton.disabled=root;
  }
  function orderedKeys(){
-   return draft.parts.order||[
-     ...draft.parts.objects.map(x=>'object:'+x.id),
+   const actual=[...draft.parts.objects.map(x=>'object:'+x.id),
      ...draft.parts.lights.map(x=>'light:'+x.id)];
+   const valid=new Set(actual);
+   return [...new Set([...(draft.parts.order||[]).filter(key=>valid.has(key)),
+     ...actual])];
  }
  function itemForKey(key){
    if(key==='root')return draft.base;
@@ -383,9 +385,12 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      outline.renderOrder=1005;mesh.add(outline);hoverOutlines.push(outline);
    });
    if(node.isLight){
-     // The light's bulb handle is an editor-only mesh.
      const marker=node.children.find(mesh=>mesh.name==='Outliner light handle');
-     if(marker)marker.material.color.set('#ffd276');
+     if(marker){
+       const outline=new THREE.LineSegments(new THREE.EdgesGeometry(marker.geometry),
+         new THREE.LineBasicMaterial({color:0xffd276,depthTest:false,depthWrite:false}));
+       outline.renderOrder=1005;marker.add(outline);hoverOutlines.push(outline);
+     }
    }
  }
  function refreshList(){
@@ -530,16 +535,17 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    if(!draft||!transform.object)return;
    const node=transform.object,current=itemRef();
    if(!current?.value)return;
-   const original=originalRoot(),t=pose(),item=current.value;
+   const original=originalRoot(),item=current.value;
    if(current.kind==='base'){
      draft.base.position=node.position.toArray().map((n,i)=>n+original.position[i]);
      draft.base.rotation=[node.rotation.x,node.rotation.y,node.rotation.z]
        .map((n,i)=>n+original.rotation[i]);
    }else if(current.kind==='light'){
-     item.position=asLocalPosition(node.position.toArray(),t);
+     // Child nodes already live in the assembly's local coordinate frame.
+     item.position=node.position.toArray();
    }else{
-     item.position=asLocalPosition(node.position.toArray(),t);
-     item.rotation=asLocalRotation([node.rotation.x,node.rotation.y,node.rotation.z],t);
+     item.position=node.position.toArray();
+     item.rotation=[node.rotation.x,node.rotation.y,node.rotation.z];
    }
    refreshFields();rerender();
  }
