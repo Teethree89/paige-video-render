@@ -57,6 +57,16 @@ export function saveArrayPrototype(source,allowedShots,shotId,objectId,
  return validatePrimitiveDocument(doc,allowedShots);
 }
 
+// The source scene uses natural names like "Right Ave Crowns" and
+// "Right Ave Trunks". Their first two normalized words identify an assembly,
+// but are never enough on their own: all repeated instance placements must
+// still line up before the arrays can be combined. Single-word names do not
+// assert an implicit group.
+export function arrayGroupKey(name){
+ const words=String(name||'').trim().toLowerCase().match(/[\\p{L}\\p{N}]+/gu)||[];
+ return words.length>=3?words.slice(0,2).join(' '):null;
+}
+
 // Spatially aligned, independently authored arrays can be folded into one
 // repeated prototype. This is opt-in: proximity only suggests companions.
 // Do not merge arrays if even one repeated instance would shift, or if a
@@ -118,8 +128,14 @@ export function findArrayCompanions(source,shotId,objectId){
  const roots=findMatchingArrays(doc,shotId,objectId);
  const rootSet=new Set(roots);
  const all=entry.objects;
+ const rootKey=arrayGroupKey(base.name);
+ // Order explicit naming conventions before weaker spatial-only matches:
+ // a nearby unrelated array cannot consume the intended companion first.
+ const ranked=[...all].sort((a,b)=>
+   Number(!(rootKey&&arrayGroupKey(a.name)===rootKey))-
+   Number(!(rootKey&&arrayGroupKey(b.name)===rootKey)));
  const result=[],used=new Set(roots);
- for(const other of all){
+ for(const other of ranked){
    if(!other.repeat||used.has(other.id)||other.arrayParts?.objects.length||
      other.arrayParts?.lights.length)continue;
    const origin=relative(base,other);
@@ -144,7 +160,9 @@ export function findArrayCompanions(source,shotId,objectId){
      scale:[...other.scale],material:structuredClone(other.material),
      ...(other.points?{points:structuredClone(other.points)}:{})
    };
-   result.push({id:other.id,name:other.name,ids:companions,part:imported});
+   const nameMatch=!!(rootKey&&arrayGroupKey(other.name)===rootKey);
+   result.push({id:other.id,name:other.name,ids:companions,part:imported,
+     nameMatch,groupKey:nameMatch?rootKey:null});
    for(const id of companions)used.add(id);
  }
  return result;
