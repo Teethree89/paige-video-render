@@ -17,7 +17,7 @@ export function findMatchingArrays(source,shotId,objectId){
 // saves the prototype. Each linked group's center, orientation, count and
 // spacing are retained, while its mesh appearance and attached parts match.
 export function saveArrayPrototype(source,allowedShots,shotId,objectId,
-  {material,scale,parts},linkedIds=null){
+  {name,material,scale,parts},linkedIds=null){
  const doc=validatePrimitiveDocument(source,allowedShots);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
  const base=entry?.objects.find(o=>o.id===objectId&&o.repeat);
@@ -28,6 +28,7 @@ export function saveArrayPrototype(source,allowedShots,shotId,objectId,
    throw Error('Linked arrays changed; reopen the prototype editor');
  for(const id of ids){
    const target=entry.objects.find(o=>o.id===id);
+   target.name=name;
    target.material=structuredClone(material);
    target.scale=[...scale];
    if(parts.objects.length||parts.lights.length)
