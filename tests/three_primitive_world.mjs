@@ -518,3 +518,41 @@ test('array prototype mini viewport frames the saved mesh with finite camera coo
  world.dispose();grid.geometry.dispose();grid.material.dispose();
  axes.geometry.dispose();axes.material.dispose();
 });
+
+test('combining aligned lamp arrays keeps physical mesh coordinates and exports per-copy lights',async()=>{
+ const {findArrayCompanions,saveArrayPrototype}=await import('../array-prototype.js');
+ const array={count:[3,1,1],spacing:[8,0,0]};
+ const pole=unit('pole','cylinder',{name:'Pole',position:[0,3,0],scale:[.3,6,.3],repeat:array});
+ const bulb=unit('bulb','sphere',{name:'Bulb',position:[0,6.5,0],scale:[1,.5,1],repeat:array,
+   material:{color:'#ffe4ad',metalness:.2,roughness:.55}});
+ const before={schemaVersion:1,scenes:[{shotId:'s1',objects:[pole,bulb]}]};
+ const scene1=new THREE.Scene(),world1=createPrimitiveWorld(scene1);
+ world1.setDocument(before,['s1']);world1.showShot('s1');
+ scene1.updateMatrixWorld(true);
+ const originalPoints=world1.getArrayInstances('s1','bulb').map(node=>
+   node.getWorldPosition(new THREE.Vector3()).toArray().map(round));
+ const candidate=findArrayCompanions(before,'s1','pole')[0];
+ assert.deepEqual(candidate.ids,['bulb']);
+ const withLights={objects:[candidate.part],lights:[{
+   id:'bulb_spot',type:'spot',name:'Lamp cone',
+   color:'#ffefc9',intensity:100,position:[0,3.5,0],
+   target:[0,-2,0],angle:.55,penumbra:.2,distance:25
+ }]};
+ const after=saveArrayPrototype(before,['s1'],'s1','pole',{
+   name:pole.name,scale:pole.scale,material:pole.material,parts:withLights
+ },['pole'],['bulb']);
+ const scene2=new THREE.Scene(),world2=createPrimitiveWorld(scene2);
+ world2.setDocument(after,['s1']);world2.showShot('s1');
+ scene2.updateMatrixWorld(true);
+ const instances=world2.getArrayInstances('s1','pole');
+ assert.equal(instances.length,3);
+ const mergedPoints=instances.map(node=>
+   node.children.find(child=>child.name.startsWith('Bulb '))
+     .getWorldPosition(new THREE.Vector3()).toArray().map(round));
+ assert.deepEqual(mergedPoints,originalPoints,'real Three.js positions stay unchanged');
+ const exportRoot=world2.getSceneForExport('s1');
+ const gltf=await new GLTFExporter().parseAsync(exportRoot,{binary:false,onlyVisible:false});
+ assert.equal(gltf.extensions.KHR_lights_punctual.lights.length,3);
+ assert.equal(gltf.nodes.filter(n=>(n.name||'').startsWith('Bulb ')).length,3);
+ world1.dispose();world2.dispose();
+});

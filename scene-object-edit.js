@@ -55,14 +55,14 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onSelect,onStatus,onArrayEdit,getInitialObjectId
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onSelect,onStatus,onArrayEdit,getInitialObjectId
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
   const createButton=el('sceneCreateMenuButton');
   const selectionPanel=setupSceneSelectionPanel();
   const move=el('sceneEditMove'),rotate=el('sceneEditRotate');
-  const erase=el('sceneEditDelete'),name=el('sceneEditName'),hint=el('sceneEditStatus');
+  const duplicate=el('sceneEditDuplicate'),erase=el('sceneEditDelete'),name=el('sceneEditName'),hint=el('sceneEditStatus');
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
   const transform=new TransformControls(camera,canvas);
   // The editor pins Three r166, where TransformControls is an Object3D.
@@ -103,6 +103,7 @@ export function setupSceneObjectEditing({
     move?.setAttribute('aria-pressed',String(operation==='translate'));
     rotate?.setAttribute('aria-pressed',String(operation==='rotate'));
     if(erase)erase.disabled=!active||!selectedId;
+    if(duplicate)duplicate.disabled=!active||!selectedId;
     if(rotate)rotate.disabled=!!selectedId?.startsWith('light::')||
       !!selectedId?.startsWith('light-target::');
     if(name)name.textContent=selectedId?(()=>{
@@ -213,6 +214,15 @@ export function setupSceneObjectEditing({
       message('Transform rejected: '+error.message);
       refresh(); // discard unsaved invalid canvas transform
     }
+  }
+  function duplicateSelected(){
+    if(!active||!selectedId||!onDuplicate)return false;
+    try{
+      const copied=onDuplicate(selectedShot,selectedId);
+      if(!copied||!select(copied))throw Error('Could not select copied object');
+      message('Duplicated object. Move or rotate the new copy; the source is unchanged.');
+      return true;
+    }catch(error){message('Duplicate rejected: '+error.message);refresh();return false;}
   }
   function deleteSelected(){
     if(!active||!selectedId)return false;
@@ -328,11 +338,18 @@ export function setupSceneObjectEditing({
   move?.addEventListener('click',()=>setMode('translate'));
   rotate?.addEventListener('click',()=>setMode('rotate'));
   erase?.addEventListener('click',deleteSelected);
+  duplicate?.addEventListener('click',duplicateSelected);
+  document.addEventListener?.('keydown',event=>{
+    if(!active||!selectedId||!(event.ctrlKey||event.metaKey)||
+       event.key.toLowerCase()!=='d'||event.target?.closest?.('input,textarea,select,[contenteditable]')||
+       !el('arrayEditModal')?.hidden)return;
+    event.preventDefault();duplicateSelected();
+  });
   updateButtons();
   return {
     get active(){return active;},
     get selectedId(){return selectedId;},
-    setActive,refresh,select,setMode,deleteSelected,updateHighlight,focusSelectionIfOffscreen,clearArrayHighlights,
+    setActive,refresh,select,setMode,duplicateSelected,deleteSelected,updateHighlight,focusSelectionIfOffscreen,clearArrayHighlights,
     dispose(){setActive(false,{skipExit:true});selectionPanel.restore();
       transform.dispose?.();scene.remove(helper);clearHighlight();clearArrayHighlights();}
   };

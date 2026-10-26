@@ -38,6 +38,7 @@
           <div class="scene-edit-actions" role="group" aria-label="Transform mode">
             <button id="sceneEditMove" type="button" title="Move selected object on X Y Z (W)" aria-pressed="true">↔ Move (W)</button>
             <button id="sceneEditRotate" type="button" title="Rotate selected object around X Y Z (E)" aria-pressed="false">⟳ Rotate (E)</button>
+            <button id="sceneEditDuplicate" type="button" title="Duplicate selected shape, repeated array, or light (Ctrl/Cmd+D)" disabled>⧉ Duplicate</button>
             <button id="sceneEditDelete" class="scene-edit-delete" type="button" disabled>Delete</button>
           </div>
           <div id="sceneEditFields" class="scene-edit-fields" aria-label="Selected object's editable properties" hidden></div>
@@ -448,10 +449,17 @@
         <button id="arrayEditCancel" type="button" class="ghost">Cancel</button>
       </header>
       <div class="array-editor-layout">
-        <div class="array-editor-viewport"><canvas id="arrayEditCanvas" aria-label="Orbitable 3D prototype preview"></canvas>
+        <div class="array-editor-viewport"><div class="array-edit-gizmo-tools" role="group" aria-label="Prototype transform mode">
+            <button id="arrayEditMove" type="button" aria-pressed="true">↔ Move (W)</button>
+            <button id="arrayEditRotate" type="button" aria-pressed="false">⟳ Rotate (E)</button>
+          </div><canvas id="arrayEditCanvas" aria-label="Orbitable 3D prototype preview"></canvas>
           <p>Drag to orbit · Scroll to zoom · Preview changes are not saved</p>
         </div>
         <div class="array-editor-controls">
+          <div class="section-label">GROUP RELATED ARRAYS</div>
+          <div id="arrayEditCompanions" class="array-companions"></div>
+          <p class="field-help">Compatible arrays have equal repeats and aligned coordinates. Check the parts to merge into this shared prototype when you Save. Unchecked arrays remain separate.</p>
+          <div class="divider"></div>
           <div class="section-label">ADD TO EVERY COPY</div>
           <div class="two-input"><label class="field">Category<select id="arrayEditCategory"></select></label>
             <label class="field">Object / light<select id="arrayEditPreset"></select></label></div>
@@ -459,6 +467,7 @@
           <div class="divider"></div>
           <label class="field">Edit component<select id="arrayEditPartSelect"></select></label>
           <div id="arrayEditProperties"></div>
+          <button id="arrayEditDuplicatePart" class="wide secondary" type="button">⧉ Duplicate selected component</button>
           <button id="arrayEditDeletePart" class="wide ghost" type="button" disabled>Remove selected component</button>
           <p id="arrayEditStatus" class="field-help" role="status"></p>
         </div>

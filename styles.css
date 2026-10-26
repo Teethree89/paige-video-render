@@ -423,3 +423,17 @@ html,body{font-size:14px}
  .array-editor-controls{border-left:0;border-top:1px solid #365268;max-height:none}
  .array-editor-viewport,.array-editor-viewport canvas{min-height:210px;height:240px}
  .array-editor-shell{max-height:97vh}}
+
+/* Multi-array prototype editing — explicit opt-in assembly grouping. */
+.array-companions{display:flex;flex-direction:column;gap:6px;max-height:150px;overflow:auto}
+.array-companions p{font-size:11px;color:#9bb5c6;margin:2px 0 7px;line-height:1.5}
+.array-companion{display:flex;align-items:center;gap:10px;background:#112535;
+ border:1px solid #37566b;border-radius:5px;padding:9px 10px;
+ color:#d0e8ed;font-size:11px;line-height:1.35;cursor:pointer}
+.array-companion input{accent-color:#88f3db;flex-shrink:0}
+.array-edit-gizmo-tools{position:absolute;top:12px;left:12px;display:flex;gap:6px;
+ z-index:3;pointer-events:auto}
+.array-edit-gizmo-tools button{background:#122b39e8;color:#c5e5ed;border:1px solid #476e7c;
+ border-radius:5px;padding:9px 12px;font-size:11px;box-shadow:0 4px 12px #0007}
+.array-edit-gizmo-tools button.active{background:#8ceddf;color:#092d30;border-color:#b3fff3}
+.array-edit-gizmo-tools button:disabled{opacity:.45;pointer-events:none}

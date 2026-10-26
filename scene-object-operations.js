@@ -50,3 +50,30 @@ export function deleteLightObject(source,allowedShots,shotId,lightId){
  entry.lights=entry.lights.filter(x=>x.id!==lightId);
  return validatePrimitiveDocument(doc,allowedShots);
 }
+
+/** Duplicate a selected scene primitive or light without touching its original.
+ * The new entry remains editable through the existing inspector/gizmo path.
+ * Repeated prototypes retain their child shapes, lights and repeat layout. */
+export function duplicateSceneSelection(source,allowedShots,shotId,selectedId){
+ const doc=validatePrimitiveDocument(source,allowedShots);
+ const entry=doc.scenes.find(s=>s.shotId===shotId);
+ if(!entry)throw Error('Selected chapter no longer exists');
+ const isLight=selectedId.startsWith('light::')||selectedId.startsWith('light-target::');
+ const id=selectedId.replace(/^light(?::|\-target:):/,'');
+ const list=isLight?(entry.lights||[]):entry.objects;
+ const item=list.find(x=>x.id===id);
+ if(!item)throw Error('Selected object no longer exists');
+ const taken=new Set(list.map(x=>x.id));
+ const prefix=(id+'_copy').slice(0,58);
+ let copyId=prefix,index=2;
+ while(taken.has(copyId))copyId=(prefix+'_'+index++).slice(0,64);
+ const copy=structuredClone(item);
+ copy.id=copyId;
+ copy.name=(item.name+' copy').slice(0,100);
+ const offset=isLight?1.5:Math.min(10,Math.max(1.5,item.scale[0]*.5));
+ copy.position=[item.position[0]+offset,item.position[1],item.position[2]];
+ if(isLight&&copy.target)copy.target=[copy.target[0]+offset,copy.target[1],copy.target[2]];
+ list.push(copy);
+ return {document:validatePrimitiveDocument(doc,allowedShots),
+   selectedId:(isLight?'light::':'')+copyId};
+}
