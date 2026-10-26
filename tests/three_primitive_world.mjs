@@ -553,6 +553,6 @@ test('combining aligned lamp arrays keeps physical mesh coordinates and exports 
  const exportRoot=world2.getSceneForExport('s1');
  const gltf=await new GLTFExporter().parseAsync(exportRoot,{binary:false,onlyVisible:false});
  assert.equal(gltf.extensions.KHR_lights_punctual.lights.length,3);
- assert.equal(gltf.nodes.filter(n=>n.name.startsWith('Bulb ')).length,3);
+ assert.equal(gltf.nodes.filter(n=>(n.name||'').startsWith('Bulb ')).length,3);
  world1.dispose();world2.dispose();
 });
