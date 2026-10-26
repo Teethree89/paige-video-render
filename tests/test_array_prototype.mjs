@@ -303,3 +303,47 @@ test('array template replacement carries real prototype spotlights with local XY
  assert.equal(moved.intensity,120);
  assert.equal(doc.scenes[0].objects.find(x=>x.id==='front_trunks').arrayParts.lights.length,1);
 });
+
+
+test('assembly replacement and subsequent edits propagate over multiple destination rows',async()=>{
+ const {replaceArrayAssembly,listAssemblyTemplates,saveAssemblyTemplateDraft}=
+   await import('../array-assembly-templates.js');
+ const mk=(id,name,primitive,position,repeat,rotation=[0,0,0])=>{
+   const obj=makePrimitive(primitive,id,position);
+   obj.name=name;obj.repeat=repeat;obj.rotation=rotation;return obj;
+ };
+ const layout={count:[3,1,1],spacing:[8,0,0]};
+ const source={schemaVersion:1,scenes:[{shotId:'forest',objects:[
+   mk('src_trunk','Right Ave Trunks','cylinder',[0,1,0],layout),
+   mk('src_crown','Right Ave Crowns','sphere',[0,3,0],layout),
+   mk('dst_a','South Edge Trees','sphere',[0,4,20],
+      {count:[5,1,1],spacing:[6,0,0]}),
+   mk('dst_b','South Edge Trees','sphere',[40,4,20],
+      {count:[1,1,6],spacing:[0,0,7]},[0,Math.PI/2,0])
+ ]}]};
+ const template=listAssemblyTemplates(source,'forest').find(x=>x.key==='right ave');
+ const crown=template.parts.find(x=>x.name==='Right Ave Crowns');
+ const trunk=template.parts.find(x=>x.name==='Right Ave Trunks');
+ const replaced=replaceArrayAssembly(source,['forest'],'forest',
+   'dst_a',template.id,crown.id,trunk.id);
+ assert.equal(replaced.created.length,2,'one new trunk array per destination source row');
+ const first=replaced.document.scenes[0].objects.find(x=>x.id==='dst_a');
+ const draftPart={...structuredClone(replaced.document.scenes[0].objects.find(
+   x=>x.id===replaced.created[0].targetId)),id:'trunk_edit',
+   position:[0,-3,0],rotation:[0,0,0]};
+ delete draftPart.repeat;delete draftPart.arrayParts;delete draftPart.layer;
+ const saved=saveAssemblyTemplateDraft(replaced.document,['forest'],'forest',
+   first.id,{...first,material:{...first.material,color:'#889944'}},
+   {objects:[draftPart],lights:[]},
+   replaced.created.map(m=>({...m,partId:'trunk_edit'})));
+ for(const rowId of ['dst_a','dst_b']){
+   const row=saved.scenes[0].objects.find(x=>x.id===rowId);
+   assert.equal(row.name,'South Edge Crowns');
+   assert.equal(row.material.color,'#889944');
+ }
+ assert.deepEqual(saved.scenes[0].objects.find(x=>x.id==='dst_b').repeat,
+   {count:[1,1,6],spacing:[0,0,7]});
+ for(const created of replaced.created)
+   assert.ok(saved.scenes[0].objects.some(x=>x.id===created.targetId),
+     'each sibling preserved after editing one prototype');
+});
