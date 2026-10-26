@@ -473,9 +473,18 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  byId('arrayEditDeletePart')?.addEventListener('click',()=>{
    if(!draft||selected==='root')return;
    const [kind,id]=selected.split(':');
-   const list=kind==='light'?draft.parts.lights:draft.parts.objects;
-   const index=list.findIndex(x=>x.id===id);
-   if(index!==-1)list.splice(index,1);
+   const paired=candidates.find(c=>draft.absorbed.get(c.id)?.partId===id);
+   if(paired){
+     // Removing an imported companion from the prototype must not silently
+     // destroy its original array on Save. Unlink it instead.
+     excludeCompanion(paired);
+     renderCompanions();updateAssemblySummary();
+     setStatus('Unlinked '+paired.name+'. Its original array remains intact.');
+   }else{
+     const list=kind==='light'?draft.parts.lights:draft.parts.objects;
+     const index=list.findIndex(x=>x.id===id);
+     if(index!==-1)list.splice(index,1);
+   }
    selected='root';refreshList();rerender();
  });
  function close(){
