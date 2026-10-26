@@ -339,7 +339,7 @@ export function setupSceneObjectEditing({
   rotate?.addEventListener('click',()=>setMode('rotate'));
   erase?.addEventListener('click',deleteSelected);
   duplicate?.addEventListener('click',duplicateSelected);
-  document.addEventListener('keydown',event=>{
+  document.addEventListener?.('keydown',event=>{
     if(!active||!selectedId||!(event.ctrlKey||event.metaKey)||
        event.key.toLowerCase()!=='d'||event.target?.closest?.('input,textarea,select,[contenteditable]')||
        !el('arrayEditModal')?.hidden)return;
