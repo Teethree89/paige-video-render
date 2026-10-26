@@ -399,3 +399,65 @@ test('3-part lamp assemblies retain complete descriptors, copies and existing de
  assert.equal(override.document.scenes[0].objects.find(x=>x.id==='south_lamps')
    .arrayParts.lights[0].intensity,80,'source lights require explicit opt-in');
 });
+
+
+test('Corner Grove two-piece templates work through visual importer without a mandatory secondary',async()=>{
+ const {listAssemblyTemplates,replaceArrayAssembly}=
+   await import('../array-assembly-templates.js');
+ const repeat={count:[4,1,1],spacing:[6,0,0]};
+ const make=(id,name,type,position)=>{
+   const obj=makePrimitive(type,id,position);
+   obj.name=name;obj.repeat=structuredClone(repeat);return obj;
+ };
+ const source={schemaVersion:1,scenes:[{shotId:'grove',objects:[
+   make('grove_crowns','Corner Grove Crowns','sphere',[12,4,0]),
+   make('grove_trunks','Corner Grove Trunks','cylinder',[12,1.5,0]),
+   make('target_trees','South Edge Trees','sphere',[70,4,30])
+ ]}]};
+ const snapshot=structuredClone(source);
+ const template=listAssemblyTemplates(source,'grove').find(t=>t.key==='corner grove');
+ assert.ok(template,'Corner Grove is a selectable 2-piece source');
+ assert.equal(template.parts.length,2);
+ const crown=template.parts.find(p=>p.name==='Corner Grove Crowns');
+ // The new all-mesh label UI does NOT pass secondaryId. Prior code crashed
+ // while assembling the return value: secondaryComponent:secondary.id
+ const result=replaceArrayAssembly(source,['grove'],'grove','target_trees',
+   template.id,crown.id,undefined,{replaceLights:true});
+ assert.equal(result.primaryComponent,crown.id);
+ assert.equal(result.secondaryComponent,null);
+ assert.equal(result.created.length,1);
+ assert.deepEqual(source,snapshot,'loading stays transactional until Save');
+ assert.equal(result.document.scenes[0].objects.find(x=>x.id==='target_trees').name,
+   'South Edge Crowns');
+ assert.ok(result.document.scenes[0].objects.find(x=>x.name==='South Edge Trunks'));
+ // Legacy 2-role callers must retain their original behavior.
+ const trunk=template.parts.find(p=>p.name==='Corner Grove Trunks');
+ const old=replaceArrayAssembly(source,['grove'],'grove','target_trees',
+   template.id,crown.id,trunk.id);
+ assert.equal(old.secondaryComponent,trunk.id);
+});
+
+test('visual template import without secondary preserves all three meshes',async()=>{
+ const {listAssemblyTemplates,replaceArrayAssembly}=
+   await import('../array-assembly-templates.js');
+ const make=(id,name,type,y)=>{
+   const obj=makePrimitive(type,id,[10,y,0]);obj.name=name;
+   obj.repeat={count:[1,1,3],spacing:[0,0,7]};return obj;
+ };
+ const source={schemaVersion:1,scenes:[{shotId:'street',objects:[
+   make('posts','Street Light Posts','cylinder',3),
+   make('bulbs','Street Light Glass Bulbs','sphere',6),
+   make('hoods','Street Light Lamp Housings','box',6.3),
+   make('targets','Garden Edge Fixtures','box',4)
+ ]}]};
+ const sourceTemplate=listAssemblyTemplates(source,'street').find(t=>t.key==='street light');
+ assert.ok(sourceTemplate);
+ const result=replaceArrayAssembly(source,['street'],'street','targets',
+   sourceTemplate.id,sourceTemplate.parts[0].id);
+ assert.equal(result.secondaryComponent,null);
+ assert.equal(result.created.length,2);
+ const arr=result.document.scenes[0].objects;
+ assert.ok(arr.some(x=>x.name==='Garden Edge Glass Bulbs'));
+ assert.ok(arr.some(x=>x.name==='Garden Edge Lamp Housings'));
+ assert.equal(arr.length,6);
+});
