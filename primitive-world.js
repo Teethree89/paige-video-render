@@ -302,11 +302,11 @@ export function createPrimitiveWorld(scene) {
     }
     for(const target of targets?.values()||[])
       target.scale.setScalar(Math.max(.0001,worldPerPixel(target)*7/.15));
-    for(const guide of guides?.values()||[]){
+    for(const [id,guide] of guides||[]){
       const {source,target,line,arrow}=guide;
       _delta.subVectors(target.position,source.position);
       const length=_delta.length();
-      const node=actual?.get([...guides].find(([,item])=>item===guide)?.[0]);
+      const node=actual?.get(id);
       if(node&&length>.01){
         // lookAt receives world coordinates. The shot root is anchored away
         // from local origin, so convert target from shot-local -> world.
