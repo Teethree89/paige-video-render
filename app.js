@@ -208,7 +208,7 @@ async function boot(){
      el('inspectBtn').disabled=true;
      return true;
    },
-   onExit:()=>endGeometryReview(),
+   onExit:()=>{el('sceneCreateFeedback').hidden=true;endGeometryReview();},
    onTransform:(shotId,objectId,mode,vector)=>{
      sequence.primitiveScenes=editPrimitiveTransform(sequence.primitiveScenes,
        sequence.shots.map(s=>s.id),shotId,objectId,mode,vector);
@@ -394,10 +394,34 @@ async function boot(){
     },
     onCreate:(category,item,origin)=>{
       const created=primitiveEditor.createAsset(category,item,origin);
-      if(created&&category==='lights')sceneObjectEditor?.focusSelectionIfOffscreen();
-      return created;
+      if(!created)throw Error(primitiveEditor.getLastCreateError()||'Unknown creation error.');
+      if(category!=='lights')return true;
+      sceneObjectEditor?.focusSelectionIfOffscreen();
+      const shotId=shotAt(playhead).id;
+      const entry=sequence.primitiveScenes?.scenes?.find(s=>s.shotId===shotId);
+      const lightId=primitiveEditor.getSelectedLightId();
+      const source=entry?.lights?.find(l=>l.id===lightId);
+      const node=primitiveWorld.getLightNode(shotId,lightId);
+      const marker=primitiveWorld.getLightMarker(shotId,lightId);
+      const visible=primitiveWorld.isLightMarkerVisible(shotId,lightId);
+      const count=entry?.lights?.length||0;
+      return source&&node&&marker&&visible?
+        'Light created: '+source.name+' ('+count+'/8). Saved '+lightId+
+          ' · Three.js light ✓ · Edit gizmo ✓ · XYZ '+
+          source.position.map(n=>n.toFixed(1)).join(', '):
+        'Light saved ('+count+'/8), but viewport verification FAILED: '+
+          ['saved='+!!source,'Three.js='+!!node,'gizmo='+!!marker,'visible='+visible].join(' · ');
     },
-    onStatus:message=>{el('primitiveStatus').textContent=message;el('sceneEditStatus').textContent=message;}
+    onStatus:message=>{
+      el('primitiveStatus').textContent=message;
+      el('sceneEditStatus').textContent=message;
+      const feedback=el('sceneCreateFeedback');
+      if(feedback){
+        feedback.textContent=message;
+        feedback.hidden=false;
+        feedback.classList.toggle('error',/failed|rejected|cap|maximum/i.test(message));
+      }
+    }
   });
  el('primitiveCleanupSaved')?.addEventListener('click',()=>{
    const note=el('primitiveStatus');
