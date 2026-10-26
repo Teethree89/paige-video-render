@@ -27,6 +27,10 @@ export function shapeSummary(item){
 export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world,onSelectionChange=()=>{}}) {
   let selectedId=null,selectedLightId=null,previousShot=null;
   const editor=el('primitiveEditor'),objectSelect=el('primitiveObjectSelect');
+  // Browser inputs may be moved to the Selected Object dialog while editing.
+  // Some lightweight DOM test harnesses only implement the inspector query.
+  const fieldInputs=selector=>document.querySelectorAll?.(selector)||
+    editor.querySelectorAll(selector);
   const layerFilter=el('primitiveLayerFilter');
   const status=el('primitiveStatus');
   const editable=el('primitiveFields');
@@ -105,7 +109,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveMetalness').value=selected.material.metalness;
       el('primitiveRoughness').value=selected.material.roughness;
       el('primitiveShapeReadOnly').textContent=shapeSummary(selected);
-      for(const input of document.querySelectorAll('[data-prim]')){
+      for(const input of fieldInputs('[data-prim]')){
         const [field,index]=input.dataset.prim.split('.');
         input.value=selected[field][Number(index)];
       }
@@ -138,7 +142,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveLightDistance').value=chosen.distance??0;
       el('primitiveLightAngle').value=chosen.angle??.6;
       el('primitiveLightPenumbra').value=chosen.penumbra??.3;
-      for(const input of document.querySelectorAll('[data-light]')){
+      for(const input of fieldInputs('[data-light]')){
         const [key,index]=input.dataset.light.split('.');
         input.value=chosen[key]?.[Number(index)]??0;
       }
@@ -223,7 +227,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       if(item)item.material[key.toLowerCase()]=key==='Color'?event.target.value:Number(event.target.value);
     }));
   }
-  for(const input of document.querySelectorAll('[data-prim]')){
+  for(const input of fieldInputs('[data-prim]')){
     input.addEventListener('change',event=>apply(entry=>{
       const item=entry.objects.find(o=>o.id===selectedId);if(!item)return;
       const [field,index]=input.dataset.prim.split('.');
@@ -291,7 +295,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       else{delete light.angle;delete light.penumbra;}
     }
   }));
-  for(const input of document.querySelectorAll('[data-light]'))
+  for(const input of fieldInputs('[data-light]'))
     input.addEventListener('change',event=>{
       const [key,index]=event.target.dataset.light.split('.');
       editLight(light=>{light[key][Number(index)]=Number(event.target.value);});
