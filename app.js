@@ -406,10 +406,10 @@ async function boot(){
       const visible=primitiveWorld.isLightMarkerVisible(shotId,lightId);
       const count=entry?.lights?.length||0;
       return source&&node&&marker&&visible?
-        'Light created: '+source.name+' ('+count+'/8). Saved '+lightId+
+        'Light created: '+source.name+' ('+count+' total). Saved '+lightId+
           ' · Three.js light ✓ · Edit gizmo ✓ · XYZ '+
           source.position.map(n=>n.toFixed(1)).join(', '):
-        'Light saved ('+count+'/8), but viewport verification FAILED: '+
+        'Light saved ('+count+' total), but viewport verification FAILED: '+
           ['saved='+!!source,'Three.js='+!!node,'gizmo='+!!marker,'visible='+visible].join(' · ');
     },
     onStatus:message=>{
