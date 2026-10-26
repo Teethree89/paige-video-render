@@ -26,6 +26,12 @@ const component=(root,child=null)=>{
 };
 const partsFor=root=>[component(root),
  ...(root.arrayParts?.objects||[]).map(part=>component(root,part))];
+const lightsFor=root=>(root.arrayParts?.lights||[]).map(light=>{
+ const rotation=quat(root.rotation),center=xyz(root.position);
+ const global=p=>xyz(p).applyQuaternion(rotation).add(center).toArray();
+ return {...structuredClone(light),position:global(light.position),
+   ...(light.target?{target:global(light.target)}:{})};
+});
 export function listAssemblyTemplates(source,shotId){
  const doc=validatePrimitiveDocument(source);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
@@ -54,7 +60,7 @@ export function listAssemblyTemplates(source,shotId){
    const prefix=base.name.trim().split(/\s+/).slice(0,2).join(' ');
    const labels=components.map(c=>c.name.split(/\s+/).at(-1)).join(' + ');
    out.push({id:base.id,key,label:prefix+' — '+labels,
-     parts:components,rootIds:ids});
+     parts:components,lights:assembled.flatMap(lightsFor),rootIds:ids});
    }
  }
  return out.sort((a,b)=>a.label.localeCompare(b.label));
@@ -92,6 +98,13 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
    const label=naming+' '+role;
    return {part,index,local,relative,label};
  });
+ const sourceLights=(sourceTemplate.lights||[]).map((spec,index)=>{
+   const relative=p=>xyz(p).sub(xyz(primary.position))
+     .applyQuaternion(primaryQuat.clone().invert()).toArray();
+   return {...structuredClone(spec),id:'assembly_light_'+index,
+     position:relative(spec.position),
+     ...(spec.target?{target:relative(spec.target)}:{})};
+ });
  const created=[];
  for(const rootId of roots){
    const target=entry.objects.find(o=>o.id===rootId);
@@ -112,6 +125,7 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
        Object.assign(target,shape);
        delete target.arrayParts;delete target.points;
        if(shape.points)target.points=shape.points;
+       if(sourceLights.length)target.arrayParts={objects:[],lights:structuredClone(sourceLights)};
      }else{
        entry.objects.push(shape);created.push({rootId,targetId:shape.id,partId:spec.part.id});
      }
