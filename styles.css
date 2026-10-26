@@ -362,3 +362,18 @@ html,body{font-size:14px}
 .reference-card #referenceStill[hidden]{display:none!important}
 .reference-card #referenceMediaStatus{font-size:10px;color:#8ab0bd;
   line-height:1.35;margin:5px 0 3px;overflow-wrap:anywhere}
+
+/* Separate, accessible object and generation tabs (not scroll jump links). */
+.inspector [role="tabpanel"][hidden]{display:none!important}
+.inspector .inspector-jump [role="tab"][aria-selected="true"]{
+ background:#225565;color:#d5fff9;border-color:#72d7ca}
+.inspector .inspector-jump [role="tab"]:focus-visible{outline:2px solid #a3fff5;outline-offset:2px}
+#inspectorGenerationPanel{padding:6px 16px 22px;min-width:0}
+#inspectorGenerationPanel .ai-scene-panel{margin:8px 0 0;display:block}
+
+.scene-create-feedback[hidden]{display:none!important}
+.scene-create-feedback{position:absolute;z-index:74;left:50%;transform:translateX(-50%);
+ bottom:52px;width:max-content;max-width:calc(100% - 30px);padding:9px 12px;
+ background:#0b3037ee;color:#b7fff4;border:1px solid #5eb7ad;border-radius:8px;
+ box-shadow:0 8px 30px #000b;font:11px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}
+.scene-create-feedback.error{background:#3b222af2;color:#ffe2e3;border-color:#b96972}

@@ -25,7 +25,7 @@ export function shapeSummary(item){
   return parts.join(' · ');
 }
 export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world,onSelectionChange=()=>{}}) {
-  let selectedId=null,selectedLightId=null,previousShot=null;
+  let selectedId=null,selectedLightId=null,previousShot=null,lastCreateError=null;
   const editor=el('primitiveEditor'),objectSelect=el('primitiveObjectSelect');
   // Browser inputs may be moved to the Selected Object dialog while editing.
   // Some lightweight DOM test harnesses only implement the inspector query.
@@ -248,6 +248,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     });
   });
   function createAsset(category,preset,origin=[0,0,0]){
+    lastCreateError=null;
     try{
       const shot=getActiveShot();if(!shot)throw Error('Select a scene first.');
       const result=insertCreatedAsset(getPrimitiveDocument(),shot.id,category,preset,origin);
@@ -261,6 +262,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
         (category==='lights'?' Move the bulb gizmo in Edit mode; it illuminates nearby surfaces.':'');
       return true;
     }catch(err){
+      lastCreateError=err.message;
       status.textContent='Create failed: '+err.message;return false;
     }
   }
@@ -335,5 +337,5 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     finally{button.disabled=false;refresh();}
   });
   refresh();
-  return {refresh,selectObject,selectLight,createAsset,getSelectedId:()=>selectedId,getSelectedLightId:()=>selectedLightId};
+  return {refresh,selectObject,selectLight,createAsset,getLastCreateError:()=>lastCreateError,getSelectedId:()=>selectedId,getSelectedLightId:()=>selectedLightId};
 }

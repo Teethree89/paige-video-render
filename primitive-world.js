@@ -275,6 +275,11 @@ export function createPrimitiveWorld(scene) {
     showShot(activeShotId);
   }
   function getLightMarker(shotId,id){return lightMarkers.get(shotId)?.get(id)||null;}
+  function getLightNode(shotId,id){return lightNodes.get(shotId)?.get(id)||null;}
+  function isLightMarkerVisible(shotId,id){
+    const marker=getLightMarker(shotId,id);
+    return !!(marker?.visible&&marker.parent?.visible&&activeShotId===shotId);
+  }
   function getLightTargetMarker(shotId,id){return lightTargets.get(shotId)?.get(id)||null;}
   function updateLightVisuals(camera,viewportHeight=720){
     if(!markersEnabled||!camera)return;
@@ -362,6 +367,6 @@ export function createPrimitiveWorld(scene) {
   }
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
-  return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,getLightTargetMarker,updateLightVisuals,setLightMarkersVisible,getPickableMeshes,
+  return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,getLightNode,isLightMarkerVisible,getLightTargetMarker,updateLightVisuals,setLightMarkersVisible,getPickableMeshes,
     getSceneForExport,getDocument,dispose};
 }

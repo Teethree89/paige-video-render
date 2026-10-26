@@ -93,13 +93,43 @@ export function setupWorkspaceControls(root=document){
       if(key==='ArrowRight')showWidth(state.inspectorWidth-step);});
   el('timelineResizeHandle')?.addEventListener('dblclick',()=>showHeight(320));
   el('inspectorResizeHandle')?.addEventListener('dblclick',()=>showWidth(360));
-  el('inspectorObjectsButton')?.addEventListener('click',()=>{
-    const details=el('primitiveEditor');if(details){details.open=true;details.scrollIntoView({behavior:'smooth',block:'start'});}
-  });
-  el('inspectorGenerationButton')?.addEventListener('click',()=>{
-    const details=el('primitiveEditor');if(details)details.open=true;
-    el('aiScenePanel')?.scrollIntoView({behavior:'smooth',block:'start'});
-  });
-  return {setZoom:showZoom,setHeight:showHeight};
+  const objectTab=el('inspectorObjectsButton'),generationTab=el('inspectorGenerationButton');
+  const objectPanel=el('inspectorObjectsPanel'),generationPanel=el('inspectorGenerationPanel');
+  // Keep one live instance of the AI controls. Reparenting happens before
+  // app.js initializes any paid-job handlers and leaves all IDs unchanged.
+  const aiPanel=el('aiScenePanel');
+  if(generationPanel&&aiPanel)generationPanel.appendChild(aiPanel);
+  const setInspectorTab=(value,{focus=false}={})=>{
+    const generation=value==='generation';
+    if(objectPanel)objectPanel.hidden=generation;
+    if(generationPanel)generationPanel.hidden=!generation;
+    for(const [tab,selected] of [[objectTab,!generation],[generationTab,generation]]){
+      if(!tab)continue;
+      tab.setAttribute('aria-selected',String(selected));
+      tab.tabIndex=selected?0:-1;
+      if(selected&&focus)tab.focus?.();
+    }
+    const heading=el('inspectorHeading'),hint=el('inspectorHint');
+    if(generation){
+      if(heading)heading.textContent='AI generation';
+      if(hint)hint.textContent='Generate or review an editable 3D scene for the current chapter.';
+    }else{
+      if(heading)heading.textContent='Project settings';
+      if(hint)hint.textContent='Select a timeline item to adjust its animation.';
+    }
+    const aside=objectTab?.closest?.('.inspector');
+    if(aside)aside.scrollTop=0;
+  };
+  objectTab?.addEventListener('click',()=>setInspectorTab('objects'));
+  generationTab?.addEventListener('click',()=>setInspectorTab('generation'));
+  [objectTab,generationTab].forEach(tab=>tab?.addEventListener('keydown',event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    event.preventDefault();
+    const target=event.key==='Home'?'objects':event.key==='End'?'generation':
+      tab===objectTab?'generation':'objects';
+    setInspectorTab(target,{focus:true});
+  }));
+  setInspectorTab('objects');
+  return {setZoom:showZoom,setHeight:showHeight,setInspectorTab};
 }
 if(typeof document!=='undefined')setupWorkspaceControls();

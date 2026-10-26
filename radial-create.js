@@ -10,7 +10,7 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
  const submenu=document.getElementById('sceneCreateSubmenu');
  const trigger=document.getElementById('sceneCreateMenuButton');
  if(!viewport||!menu||!wheel||!submenu||!trigger)throw Error('Missing Create radial menu UI');
- let shown=false,press=null,hold=null,hover=null,submenuClosing=null,menuPoint=null;
+ let shown=false,press=null,hold=null,hover=null,submenuClosing=null,menuPoint=null,lastPointer=null;
  let last={category:'primitives',item:'box'};
  const perCategory={...CREATE_DEFAULTS};
  try{
@@ -45,8 +45,9 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
      const result=onCreate(category,item,position);
      if(result!==false){
        last={category,item};perCategory[category]=item;save();
-       onStatus('Created '+item.replaceAll('-',' ')+' · '+category);
-     }
+       onStatus(typeof result==='string'?result:
+         'Created '+item.replaceAll('-',' ')+' · '+category);
+     }else onStatus('Create failed: '+item.replaceAll('-',' ')+'. Check chapter light cap and editor status.');
      hide();return result!==false;
    }catch(error){onStatus('Create failed: '+error.message);hide();return false;}
  }
@@ -131,6 +132,11 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
      else create(last.category,last.item,original);
    }
  }
+ viewport.addEventListener('pointermove',event=>{
+   if(Number.isFinite(event.clientX)&&Number.isFinite(event.clientY)&&
+     !event.target?.closest?.('button,input,select,textarea'))
+     lastPointer={x:event.clientX,y:event.clientY};
+ },true);
  viewport.addEventListener('pointerdown',pointerDown,true);
  window.addEventListener('pointerup',pointerUp,true);
  window.addEventListener('pointercancel',()=>{press=null;hide();},true);
@@ -144,8 +150,20 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
  },true);
  document.addEventListener('keydown',event=>{
    if(event.key==='Escape'&&shown){event.preventDefault();hide();}
-   if(event.key.toLowerCase()==='c'&&event.shiftKey&&!event.ctrlKey&&!event.metaKey&&
-     !event.target.closest?.('input,textarea,select,[contenteditable=true]')){
+   const typing=event.target?.closest?.('input,textarea,select,[contenteditable=true]');
+   if(event.key?.toLowerCase()==='l'&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey&&
+     !event.altKey&&!event.repeat&&!typing){
+     if(!canCreate())return;
+     event.preventDefault();
+     // Independent of the radial wheel: always a LIGHT, at the last viewport
+     // cursor position (or viewport center if no pointer has entered yet).
+     const rect=viewport.getBoundingClientRect();
+     const at=lastPointer||{x:rect.left+rect.width/2,y:rect.top+rect.height/2};
+     create('lights',perCategory.lights||'point-white',at);
+     return;
+   }
+   if(event.key?.toLowerCase()==='c'&&event.shiftKey&&!event.ctrlKey&&!event.metaKey&&
+     !typing){
      event.preventDefault();open();
    }
  });

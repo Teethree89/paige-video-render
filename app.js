@@ -208,7 +208,7 @@ async function boot(){
      el('inspectBtn').disabled=true;
      return true;
    },
-   onExit:()=>endGeometryReview(),
+   onExit:()=>{el('sceneCreateFeedback').hidden=true;endGeometryReview();},
    onTransform:(shotId,objectId,mode,vector)=>{
      sequence.primitiveScenes=editPrimitiveTransform(sequence.primitiveScenes,
        sequence.shots.map(s=>s.id),shotId,objectId,mode,vector);
@@ -394,10 +394,34 @@ async function boot(){
     },
     onCreate:(category,item,origin)=>{
       const created=primitiveEditor.createAsset(category,item,origin);
-      if(created&&category==='lights')sceneObjectEditor?.focusSelectionIfOffscreen();
-      return created;
+      if(!created)throw Error(primitiveEditor.getLastCreateError()||'Unknown creation error.');
+      if(category!=='lights')return true;
+      sceneObjectEditor?.focusSelectionIfOffscreen();
+      const shotId=shotAt(playhead).id;
+      const entry=sequence.primitiveScenes?.scenes?.find(s=>s.shotId===shotId);
+      const lightId=primitiveEditor.getSelectedLightId();
+      const source=entry?.lights?.find(l=>l.id===lightId);
+      const node=primitiveWorld.getLightNode(shotId,lightId);
+      const marker=primitiveWorld.getLightMarker(shotId,lightId);
+      const visible=primitiveWorld.isLightMarkerVisible(shotId,lightId);
+      const count=entry?.lights?.length||0;
+      return source&&node&&marker&&visible?
+        'Light created: '+source.name+' ('+count+'/8). Saved '+lightId+
+          ' · Three.js light ✓ · Edit gizmo ✓ · XYZ '+
+          source.position.map(n=>n.toFixed(1)).join(', '):
+        'Light saved ('+count+'/8), but viewport verification FAILED: '+
+          ['saved='+!!source,'Three.js='+!!node,'gizmo='+!!marker,'visible='+visible].join(' · ');
     },
-    onStatus:message=>{el('primitiveStatus').textContent=message;el('sceneEditStatus').textContent=message;}
+    onStatus:message=>{
+      el('primitiveStatus').textContent=message;
+      el('sceneEditStatus').textContent=message;
+      const feedback=el('sceneCreateFeedback');
+      if(feedback){
+        feedback.textContent=message;
+        feedback.hidden=false;
+        feedback.classList.toggle('error',/failed|rejected|cap|maximum/i.test(message));
+      }
+    }
   });
  el('primitiveCleanupSaved')?.addEventListener('click',()=>{
    const note=el('primitiveStatus');
@@ -589,7 +613,10 @@ function renderChapters(){let parent=el('chapterList');parent.replaceChildren();
 function refreshAll(){renderTimeline();renderChapters();rebuildOverlayDom();renderInspector();refreshPlayhead();}
 function select(type,id){selection={type,id};renderInspector();renderTimeline();}
 function selectedData(){return selection?sequence[selection.type==='camera'?'camera':'text'].find(i=>i.id===selection.id):null;}
-function renderInspector(){let item=selectedData();el('projectPanel').hidden=!!item;el('cameraPanel').hidden=!item||selection.type!=='camera';el('textPanel').hidden=!item||selection.type!=='text';el('inspectorHeading').textContent=!item?'Project settings':selection.type==='camera'?'Camera keyframe':'Text overlay';el('inspectorHint').textContent=!item?'Select a timeline item to adjust its animation.':selection.type==='camera'?'Edit position, focal target, lens and cut behavior.':'Adjust wording, timing, screen location and styling.';
+function renderInspector(){let item=selectedData();el('projectPanel').hidden=!!item;el('cameraPanel').hidden=!item||selection.type!=='camera';el('textPanel').hidden=!item||selection.type!=='text';if(el('inspectorGenerationButton')?.getAttribute('aria-selected')!=='true'){
+  el('inspectorHeading').textContent=!item?'Project settings':selection.type==='camera'?'Camera keyframe':'Text overlay';
+  el('inspectorHint').textContent=!item?'Select a timeline item to adjust its animation.':selection.type==='camera'?'Edit position, focal target, lens and cut behavior.':'Adjust wording, timing, screen location and styling.';
+ }
  if(!item)return;
  if(selection.type==='camera'){el('camTime').textContent='KEYFRAME @ '+fmt(item.at);for(let input of document.querySelectorAll('[data-cam]')){let [k,i]=input.dataset.cam.split('.');input.value=String(+item[k][Number(i)].toFixed(2));}el('camFov').value=item.fov;el('camCut').checked=!!item.cut;}
  else{el('textValue').value=item.value;el('textSubtitle').value=item.subtitle||'';for(let field of ['Start','End','X','Y'])el('text'+field).value=item[field.toLowerCase()];el('textSize').value=item.size||'medium';el('textAlign').value=item.align||'center';el('textTone').value=item.tone||'white';const fade=el('textFadeMode');if(fade)fade.value=item.textFade||'linear';}
