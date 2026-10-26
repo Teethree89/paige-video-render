@@ -1,4 +1,4 @@
-import {validatePrimitiveDocument} from './primitive-schema.js';
+import {validatePrimitiveDocument,capGeneratedLights,LIMITS} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {appendArgonDetail,argonDetailIndex} from './argon-detail.js';
 import {createArgonOverlay} from './ai-generation-overlay.js';
@@ -124,7 +124,7 @@ const REPAIR_LABELS=Object.freeze({json:'unreadable JSON',
   transform:'position or rotation out of range',scale:'size out of range',
   material:'material converted or defaulted',repeat:'repeat over its limits',footprint:'invalid footprint',
   name:'name too long',scene_copies:'over 2,000 rendered copies',light:'invalid light',
-  light_cap:'over 8 lights',camera:'invalid camera estimate',other:'other rule'});
+  light_cap:'over 32 AI-generated lights',camera:'invalid camera estimate',other:'other rule'});
 const repairLabel=code=>REPAIR_LABELS[code]||'other rule';
 export function describeRepairs(repairs) {
   const parts=Object.entries(repairs||{}).filter(([,n])=>Number.isInteger(n)&&n>0)
@@ -411,6 +411,11 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   }
   function showProposal(doc,shot,fullEnvironment=false){
     doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
+    const limited=capGeneratedLights(doc);
+    doc=limited.document;
+    if(limited.discarded)log('AI light limit: kept '+LIMITS.aiLightsPerScene+
+      ' lights in each generated chapter and omitted '+limited.discarded+
+      ' additional proposed light(s). Manual editing remains unlimited.');
     if(doc.scenes.length!==1||doc.scenes[0].shotId!==shot.id)
       throw Error('Model returned geometry for the wrong shot.');
     if(getActiveShot()?.id!==shot.id)
