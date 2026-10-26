@@ -26,9 +26,15 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  key.position.set(8,14,12);scene.add(key);
  const camera=new THREE.PerspectiveCamera(46,1,.1,2000);
  camera.position.set(9,7,13);
- const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
- renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
- renderer.outputColorSpace=THREE.SRGBColorSpace;
+ // Avoid allocating a second WebGL context during normal page startup.
+ // It is needed only after a user confirms opening the mini editor.
+ let renderer=null;
+ function ensureRenderer(){
+   if(renderer)return;
+   renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+   renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+   renderer.outputColorSpace=THREE.SRGBColorSpace;
+ }
  const orbit=new OrbitControls(camera,canvas);
  orbit.enableDamping=true;orbit.minDistance=.5;orbit.maxDistance=300;
  const world=createPrimitiveWorld(scene);
@@ -266,6 +272,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  return {
    open(id,partId){
      if(draft)return false;
+     try{ensureRenderer();}
+     catch(error){setStatus('3D prototype preview unavailable: '+error.message);return false;}
      const doc=getDocument(),shot=getShotIds().find(s=>s===id);
      if(!shot)return false;
      const scene=doc?.scenes?.find(s=>s.shotId===id);
@@ -286,6 +294,6 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    },
    close,
    get active(){return !!draft;},
-   dispose(){close();world.dispose();renderer.dispose();orbit.dispose();}
+   dispose(){close();world.dispose();renderer?.dispose();orbit.dispose();}
  };
 }
