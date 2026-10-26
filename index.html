@@ -26,6 +26,11 @@
     <main class="main-col">
       <section class="viewport" id="viewport">
         <canvas id="scene"></canvas>
+        <div id="sceneObjectContextMenu" class="scene-object-context-menu" role="menu" aria-label="Selected object actions" hidden>
+          <button type="button" data-object-action="array" role="menuitem">▦ Make / edit array…</button>
+          <button type="button" data-object-action="edit" role="menuitem">✎ Edit group / array components…</button>
+          <button type="button" data-object-action="duplicate" role="menuitem">⧉ Duplicate object</button>
+        </div>
         <div id="sceneCreateMenu" class="scene-create-menu" role="group" aria-label="Create scene object" hidden>
           <div id="sceneCreateWheel" class="scene-create-wheel"></div>
           <div id="sceneCreateSubmenu" class="scene-create-submenu" hidden></div>
@@ -485,6 +490,27 @@
       </footer>
     </div>
   </section>
+  <dialog id="sceneMakeArrayDialog" class="confirm-dialog" aria-labelledby="sceneMakeArrayTitle">
+    <h3 id="sceneMakeArrayTitle" class="section-label">MAKE ARRAY</h3>
+    <p id="sceneMakeArrayInfo">Center the copies on the current object's position. Axis spacing is relative to the object's rotation.</p>
+    <div class="section-label">COPY COUNT (X · Y · Z)</div>
+    <div class="triple-input">
+      <label>X<input data-array-count="0" type="number" min="1" max="100" step="1" value="3" /></label>
+      <label>Y<input data-array-count="1" type="number" min="1" max="100" step="1" value="1" /></label>
+      <label>Z<input data-array-count="2" type="number" min="1" max="100" step="1" value="1" /></label>
+    </div>
+    <div class="section-label">SPACING BETWEEN COPIES (X · Y · Z)</div>
+    <div class="triple-input">
+      <label>X<input data-array-spacing="0" type="number" step="0.1" value="4" /></label>
+      <label>Y<input data-array-spacing="1" type="number" step="0.1" value="0" /></label>
+      <label>Z<input data-array-spacing="2" type="number" step="0.1" value="0" /></label>
+    </div>
+    <p id="sceneMakeArrayStatus" class="field-help" role="status"></p>
+    <div class="confirm-actions">
+      <button id="sceneMakeArrayCancel" class="ghost" type="button">Cancel</button>
+      <button id="sceneMakeArraySave" class="primary" type="button">Create / update copies</button>
+    </div>
+  </dialog>
   <dialog id="arrayTemplateRoles" class="confirm-dialog" aria-labelledby="arrayTemplateRoleTitle">
     <h3 id="arrayTemplateRoleTitle" class="section-label">WHICH OBJECT IS THE CROWN?</h3>
     <p id="arrayTemplateRoleHelp">Choose the primary component to place at the destination array centers.</p>
