@@ -349,7 +349,7 @@ export function setupSceneObjectEditing({
     if(el('arrayEditConfirmText'))
       el('arrayEditConfirmText').textContent=
         'Edit '+base.name+'? The chosen '+(base.repeat?'copy':'object')+' and all '+count+
-        ' matching item(s) across '+all.length+' group(s) are highlighted'+
+        (base.repeat?' matching copies':' matching object(s)')+' across '+all.length+' group(s) are highlighted'+
         (named.length?', including '+named.map(x=>x.name).join(', '):'')+'. '+
         'The editable components open together in the prototype editor; only Save applies edits.';
     if(arrayConfirm){
