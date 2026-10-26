@@ -37,7 +37,8 @@ renderer.setSize(viewport.clientWidth,viewport.clientHeight);
 renderer.outputColorSpace=THREE.SRGBColorSpace;
 renderer.toneMapping=THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure=1.35;
-renderer.shadowMap.enabled=false;
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(50,16/9,.35,500);
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enabled=false;controls.enableDamping=true;controls.dampingFactor=.08;controls.maxDistance=Infinity;
@@ -106,14 +107,16 @@ function endGeometryReview(){
   reviewLights.visible=false;reviewStage.visible=false;renderer.toneMappingExposure=1.35;
   applyCamera();renderWorld();
 }
-function showGeneratedGeometry(shotId,scroll=false){
+function showGeneratedGeometry(shotId,scroll=false,{editMode=false}={}){
   const bounds=primitiveWorld.getBounds(shotId);
   if(!bounds)return false;
   // Freeze cinematic playback and inspect the proposed geometry without
   // modifying authored camera keys or saving unaccepted primitives.
   setPlaying(false);
   reviewShotId=shotId;orbitMode=true;controls.enabled=true;
-  reviewLights.visible=true;renderer.toneMappingExposure=1.65;
+  // AI preview uses temporary studio fill. Edit mode must display the
+  // authored lights without extra fill masking their actual effect.
+  reviewLights.visible=!editMode;renderer.toneMappingExposure=editMode?1.35:1.65;
   // The cinematic distance haze obscures small primitive details when viewing
   // them close up. Keep the original fog object and restore it on exit.
   if(scene.fog)scene.fog.density=0;
@@ -197,7 +200,7 @@ async function boot(){
      // existing numeric XYZ primitive fields remain visible and synchronized.
      selection=null;renderInspector();renderTimeline();
      const shot=shotAt(playhead);
-     if(!reviewShotId&&primitiveWorld.hasObjects(shot.id))showGeneratedGeometry(shot.id);
+     if(!reviewShotId&&primitiveWorld.hasObjects(shot.id))showGeneratedGeometry(shot.id,false,{editMode:true});
      else if(!reviewShotId){
        orbitMode=true;controls.enabled=true;
        controls.target.set(...cameraAt(playhead).t);controls.update();
