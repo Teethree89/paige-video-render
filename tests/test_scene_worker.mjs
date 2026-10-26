@@ -1284,9 +1284,10 @@ test('Argon results keep every valid part, report what was repaired, and fail on
     const point=(extra={})=>({type:'point',color:'#ffcc88',intensity:20,position:[0,4,0],...extra});
     const lit=await poll({schemaVersion:1,scenes:[{shotId:sample.shotId,
       camera:{position:[0,1,0],target:[0,1,0],fov:40},objects:[object],
-      lights:[point(),point({type:'ambient'}),point(),...Array.from({length:7},(_,i)=>point({name:'Lamp '+i}))]}]});
+      lights:[point(),point({type:'ambient'}),point(),...Array.from({length:31},(_,i)=>point({name:'Lamp '+i}))]}]});
     assert.deepEqual(lit.proposal.scenes[0].lights.map(light=>light.name),
-      ['point light 1','point light 2','Lamp 0','Lamp 1','Lamp 2','Lamp 3','Lamp 4','Lamp 5']);
+      ['point light 1','point light 2',...Array.from({length:30},(_,i)=>'Lamp '+i)]);
+    assert.equal(lit.proposal.scenes[0].lights.length,32);
     assert.equal(lit.proposal.scenes[0].camera,undefined);
     assert.deepEqual(lit.repairs,{light:1,light_cap:1,camera:1});
     // A clean scene reports no repairs at all.
@@ -1824,7 +1825,7 @@ test('Argon sorts objects into editor layers, may add lights, and direct image c
     assert.equal(body.stream,true);assert.equal(body.background,undefined);
       assert.equal(body.input.length,6);
       assert.match(body.system_instruction,/layer: "structures"/);
-      assert.match(body.system_instruction,/scene "lights": up to 8 lights/);
+      assert.match(body.system_instruction,/scene "lights": up to 32 lights/);
       const objectShape=body.response_format.schema.properties.scenes.items.properties.objects.items;
       assert.deepEqual(objectShape.properties.layer,{type:'string',enum:['structures','ground','vegetation','details']});
       assert.ok(objectShape.required.includes('layer'));
@@ -1921,7 +1922,7 @@ test('Argon thinking and detail settings reach Google, change the prompt and are
     await direct({mode:'full_scene'});
     let body=bodies.at(-1);
     assert.equal(body.generation_config.thinking_level,'medium');
-    assert.match(body.system_instruction,/at most 120 objects, 8 lights/);
+    assert.match(body.system_instruction,/at most 120 objects, 32 lights/);
     assert.match(body.system_instruction,/Target 80 to 120 objects/);
     assert.doesNotMatch(body.system_instruction,/DETAIL:/);
     // Standard is the prompt of the live 69-, 71- and 85-object scenes, unchanged.
@@ -1932,7 +1933,7 @@ test('Argon thinking and detail settings reach Google, change the prompt and are
     body=bodies.at(-1);
     assert.equal(body.generation_config.thinking_level,'high');
     assert.equal(body.generation_config.max_output_tokens,32768,'the token budget never changes');
-    assert.match(body.system_instruction,/at most 240 objects, 8 lights/);
+    assert.match(body.system_instruction,/at most 240 objects, 32 lights/);
     assert.match(body.system_instruction,/DETAIL: MAXIMUM/);
     // Live: High and Maximum answered with empty scenes, so they build on the
     // Standard scene in the same answer and rule out an empty one.
@@ -2033,7 +2034,7 @@ test('offline ablations isolate wording and count instructions without modifying
     'bays, window frames and mullions, railings, steps, roof equipment, curbs,\n'+
     'signage frames and site furniture, each attached to its parent surface.';
   assert.equal(words,base.replace('\nTarget 80 to 120 objects',paragraph+'\nTarget 80 to 120 objects'));
-  const raise=p=>p.replace('- at most 120 objects, 8 lights','- at most 150 objects, 8 lights')
+  const raise=p=>p.replace('- at most 120 objects, 32 lights','- at most 150 objects, 32 lights')
     .replace('Target 80 to 120 objects','Target 110 to 150 objects');
   assert.equal(counts,raise(base));assert.equal(combined,raise(words));
   for(const text of [words,counts,combined]){
