@@ -465,3 +465,16 @@ html,body{font-size:14px}
 /* Keep source/preview errors visible beside the Replace button. */
 .array-template-status{margin:6px 0 10px;padding:8px 10px;border-left:3px solid #6797aa;background:#122837;color:#d8eaf3;line-height:1.45}
 .array-template-status.error{border-left-color:#f4a075;background:#372527;color:#ffe8dc;font-weight:650}
+
+/* Scene-graph Outliner: one movable parent, ordered editable mesh/light children. */
+.array-outliner{display:flex;flex-direction:column;max-height:330px;overflow-y:auto;border:1px solid #3b5367;border-radius:6px;background:#101b29;padding:5px;gap:3px;margin:10px 0}
+.array-outliner-row{display:flex;align-items:center;gap:5px;min-height:32px;border-radius:4px;border:1px solid transparent;padding:3px 5px}
+.array-outliner-row:hover,.array-outliner-row:focus-within{background:#193546;border-color:#466779}
+.array-outliner-row[aria-selected=true]{background:#244457;border-color:#5ba5ad}
+.array-outliner-row input{min-width:0;flex:1;padding:5px 6px;color:#e7f5f7;background:transparent;border:1px solid transparent;border-radius:3px;font-size:11px}
+.array-outliner-row input:focus{background:#0b1a27;border-color:#75c9d0;outline:none}
+.array-node-pick,.array-node-order{font-size:12px;padding:3px 5px;border-radius:3px;background:transparent;color:#a4d5df}
+.array-node-pick{flex-shrink:0}
+.array-node-pick:hover,.array-node-order:hover:not(:disabled){background:#265467;color:white}
+.array-node-order:disabled{opacity:.25;cursor:default}
+.array-outliner-row[draggable=true]{cursor:grab}
