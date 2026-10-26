@@ -437,3 +437,14 @@ html,body{font-size:14px}
  border-radius:5px;padding:9px 12px;font-size:11px;box-shadow:0 4px 12px #0007}
 .array-edit-gizmo-tools button.active{background:#8ceddf;color:#092d30;border-color:#b3fff3}
 .array-edit-gizmo-tools button:disabled{opacity:.45;pointer-events:none}
+
+/* Object-context menu stays separate from the empty-space Create wheel. */
+.scene-object-context-menu{position:absolute;z-index:1250;min-width:220px;max-width:calc(100% - 16px);display:flex;flex-direction:column;gap:4px;padding:8px;border:1px solid #426078;background:#101f30;box-shadow:0 12px 36px #000b;border-radius:7px}
+.scene-object-context-menu[hidden]{display:none}
+.scene-object-context-menu button{text-align:left;color:#e0eef8;background:#182b3c;border:1px solid transparent;border-radius:4px;padding:11px 12px;white-space:nowrap}
+.scene-object-context-menu button:hover,.scene-object-context-menu button:focus-visible{background:#254559;border-color:#5a95a9}
+#sceneMakeArrayDialog .triple-input{margin:10px 0 17px}
+#sceneMakeArrayDialog .section-label{margin-top:13px}
+#arrayTemplateRoles{max-width:min(480px,calc(100vw - 26px))}
+#arrayTemplateRoles select{width:100%;margin:8px 0 18px}
+#arrayEditTemplate{width:100%}
