@@ -26,7 +26,6 @@
     <main class="main-col">
       <section class="viewport" id="viewport">
         <canvas id="scene"></canvas>
-        <button id="sceneCreateMenuButton" type="button" class="scene-create-trigger" title="Open Create wheel (hold right-click or Shift+C)">＋ Create</button>
         <div id="sceneCreateMenu" class="scene-create-menu" role="group" aria-label="Create scene object" hidden>
           <div id="sceneCreateWheel" class="scene-create-wheel"></div>
           <div id="sceneCreateSubmenu" class="scene-create-submenu" hidden></div>
@@ -41,7 +40,8 @@
             <button id="sceneEditRotate" type="button" title="Rotate selected object around X Y Z (E)" aria-pressed="false">⟳ Rotate (E)</button>
             <button id="sceneEditDelete" class="scene-edit-delete" type="button" disabled>Delete</button>
           </div>
-          <p id="sceneEditStatus" role="status">Click an editable shape to select it.</p>
+          <div id="sceneEditFields" class="scene-edit-fields" aria-label="Selected object's editable properties" hidden></div>
+          <p id="sceneEditStatus" role="status">Click an editable shape or light to select it.</p>
           <p class="scene-edit-note">Drag gizmo axes · Drag empty space to orbit · Scroll to zoom</p>
         </section>
         <div class="stage-top"><span class="pill"><span class="pulse-dot"></span> 3D PREVIEW</span><span id="shotTitle">01 / ESTABLISHING THE INFRASTRUCTURE</span></div>
@@ -59,7 +59,7 @@
       </section>
       <section class="transport">
         <div class="transport-left"><button id="backBtn" disabled class="icon-button" title="Previous shot">⏮</button><button id="playBtn" disabled class="play-button" title="Play / Pause (Space)">▶</button><button id="nextBtn" disabled class="icon-button" title="Next shot">⏭</button><span id="clock" class="timecode">00:00.00 <span>/</span> 00:56.47</span></div>
-        <div class="transport-right"><button id="addCameraBtn" disabled title="Create camera keyframe at playhead">+ Camera key</button><button id="addTextBtn" disabled title="Create text overlay at playhead">+ Text</button><label for="speed">SPEED</label><select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><button id="inspectBtn" disabled class="toggle-button" title="Enable orbit camera while paused">Orbit inspect</button><div class="scene-mode-switch" role="group" aria-label="Viewport mode"><button id="sceneModeView" type="button" class="active" aria-pressed="true" disabled>View</button><button id="sceneModeEdit" type="button" aria-pressed="false" disabled>Edit</button></div></div>
+        <div class="transport-right"><button id="addCameraBtn" disabled title="Create camera keyframe at playhead">+ Camera key</button><button id="addTextBtn" disabled title="Create text overlay at playhead">+ Text</button><label for="speed">SPEED</label><select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><button id="inspectBtn" disabled class="toggle-button" title="Enable orbit camera while paused">Orbit inspect</button><button id="sceneCreateMenuButton" type="button" class="scene-create-trigger" title="Open Create wheel (hold right-click or Shift+C)" hidden>＋ Create</button><div class="scene-mode-switch" role="group" aria-label="Viewport mode"><button id="sceneModeView" type="button" class="active" aria-pressed="true" disabled>View</button><button id="sceneModeEdit" type="button" aria-pressed="false" disabled>Edit</button></div></div>
       </section>
       <div id="timelineResizeHandle" class="timeline-resizer" role="separator" aria-label="Resize timeline vertically" aria-orientation="horizontal" tabindex="0" title="Drag to resize timeline · double-click to reset"></div>
       <section class="timeline-section" id="studioTimeline">
