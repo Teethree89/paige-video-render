@@ -322,6 +322,7 @@ export function setupSceneObjectEditing({
   arrayConfirm?.addEventListener?.('cancel',event=>{
     event.preventDefault();closeArrayDialog();clearArrayHighlights();
   });
+  arrayConfirm?.addEventListener?.('keydown',event=>event.stopPropagation());
   view?.addEventListener('click',()=>setActive(false));
   edit?.addEventListener('click',()=>setActive(true));
   move?.addEventListener('click',()=>setMode('translate'));
