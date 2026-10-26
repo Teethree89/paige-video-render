@@ -200,7 +200,7 @@ async function boot(){
      // existing numeric XYZ primitive fields remain visible and synchronized.
      selection=null;renderInspector();renderTimeline();
      const shot=shotAt(playhead);
-     if(!reviewShotId&&primitiveWorld.hasObjects(shot.id))showGeneratedGeometry(shot.id,false,{editMode:true});
+     if(!reviewShotId&&primitiveWorld.hasSceneContent(shot.id))showGeneratedGeometry(shot.id,false,{editMode:true});
      else if(!reviewShotId){
        orbitMode=true;controls.enabled=true;
        controls.target.set(...cameraAt(playhead).t);controls.update();
@@ -363,7 +363,7 @@ async function boot(){
     viewport,
     canCreate:()=>ready&&sceneObjectEditor?.active&&
       !aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
-    getCreateOrigin:(clientX,clientY)=>{
+    getCreateOrigin:(clientX,clientY,category)=>{
       const id=shotAt(playhead)?.id;
       const anchor=primitiveAnchors()[id]||[0,0,0];
       let target=controls.target.clone();
@@ -373,7 +373,14 @@ async function boot(){
         const ray=new THREE.Raycaster();
         ray.setFromCamera(new THREE.Vector2(nx,ny),camera);
         const hit=new THREE.Vector3();
-        if(ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),hit))
+        // Lights illuminate the actual mesh surface under the click, not an
+        // unrelated Y=0 intersection behind an elevated model.
+        // Ordinary geometry keeps its existing ground-plane placement.
+        const surface=category==='lights'
+          ?ray.intersectObjects(primitiveWorld.getPickableMeshes(id).filter(
+            node=>!node.userData.primitiveLightId),false)[0]:null;
+        if(surface)target=surface.point;
+        else if(ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),hit))
           target=hit;
       }
       return target.toArray().map((v,i)=>Math.max(-9000,Math.min(9000,v-anchor[i])));
@@ -488,9 +495,22 @@ function syncReferenceMedia(time){
 }
 function applyHistory(doc){
  if(!doc)return;
- setPlaying(false);endGeometryReview();sequence=doc;
+ // Undo/redo is a data operation, not a request to leave object editing.
+ // Preserve orbit framing and the current gizmo when its object survives;
+ // syncPrimitiveWorld reattaches the selection to rebuilt nodes (or clears
+ // the selection if the undone object was just created).
+ const editing=sceneObjectEditor?.active===true;
+ setPlaying(false);
+ if(!editing)endGeometryReview();
+ sequence=doc;
  referenceBuilder?.loadFromSequence(sequence);syncPrimitiveWorld();selection=null;
- refreshAll();seek(Math.min(playhead,sequence.duration));saveLocal(false);
+ refreshAll();seek(Math.min(playhead,sequence.duration));
+ if(editing&&sceneObjectEditor?.active&&!primitiveWorld.hasSceneContent(shotAt(playhead).id)){
+   // Removing the last object/light must not leave an orphan review stage.
+   reviewShotId=null;reviewLights.visible=false;reviewStage.visible=false;
+   el('returnTimelineCameraBtn').hidden=true;
+ }
+ saveLocal(false);
 }
 function saveLocal(record=true){
  if(record){try{timelineHistory?.record(sequence);}catch(error){console.warn('Timeline history skipped invalid intermediate edit:',error.message);}}

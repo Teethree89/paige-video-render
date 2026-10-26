@@ -254,7 +254,8 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       onDocumentChange(validatePrimitiveDocument(result.document,allowed()));
       refresh();onSelectionChange(selectedId||(selectedLightId?'light::'+selectedLightId:null));
       editor.open=true;
-      status.textContent='Created '+preset.replaceAll('-',' ')+' in '+shot.name+'.';
+      status.textContent='Created '+preset.replaceAll('-',' ')+' in '+shot.name+'.'+
+        (category==='lights'?' Move the bulb gizmo in Edit mode; it illuminates nearby surfaces.':'');
       return true;
     }catch(err){
       status.textContent='Create failed: '+err.message;return false;

@@ -205,13 +205,24 @@ export function createPrimitiveWorld(scene) {
     showShot(activeShotId);
   }
   function hasObjects(shotId){return document.scenes.some(s=>s.shotId===shotId&&s.objects.length>0);}
+  function hasSceneContent(shotId){
+    return document.scenes.some(s=>s.shotId===shotId&&(s.objects.length>0||(s.lights?.length||0)>0));
+  }
   function getBounds(shotId){
     const root=groups.get(shotId);
     if(!root)return null;
     // Include the shot anchor and every rotated/scaled primitive.
     const bounds=new THREE.Box3().setFromObject(root);
+    if(bounds.isEmpty()){
+      // Lights are Object3D nodes with no mesh geometry. A lights-only shot
+      // still needs bounds so Edit mode can frame its light gizmo.
+      const entry=document.scenes.find(s=>s.shotId===shotId);
+      for(const spec of entry?.lights||[])
+        bounds.expandByPoint(new THREE.Vector3(...spec.position).add(root.position));
+    }
     if(bounds.isEmpty())return null;
     const sphere=bounds.getBoundingSphere(new THREE.Sphere());
+    sphere.radius=Math.max(sphere.radius,1);
     return {center:sphere.center.toArray(),radius:sphere.radius};
   }
   function showShot(shotId){
@@ -259,6 +270,6 @@ export function createPrimitiveWorld(scene) {
   }
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
-  return {setDocument,showShot,hasObjects,getBounds,getCamera,getObjectNode,getLightMarker,setLightMarkersVisible,getPickableMeshes,
+  return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,setLightMarkersVisible,getPickableMeshes,
     getSceneForExport,getDocument,dispose};
 }

@@ -107,9 +107,11 @@ test('new light presets produce shot-local punctual lights and recognizable edit
  assert.equal(entry.lights.length,2);
  assert.deepEqual(entry.lights.map(l=>l.type),['point','spot']);
  assert.equal(entry.lights[0].intensity,180);
- assert.equal(entry.lights[1].intensity,240);
+ assert.equal(entry.lights[1].intensity,320);
  assert.notEqual(entry.lights[0].id,entry.lights[1].id);
- assert.deepEqual(entry.lights[0].position,entry.lights[1].position);
+ assert.deepEqual(entry.lights[0].position,[0,2,0]);
+ assert.deepEqual(entry.lights[1].position,[0,5,1.5]);
+ assert.deepEqual(entry.lights[1].target,[0,0,0]);
  assert.match(world,/new THREE\.PointLight\(color,spec\.intensity,spec\.distance\)/);
  assert.match(world,/new THREE\.SpotLight\(color,spec\.intensity,spec\.distance,spec\.angle,spec\.penumbra\)/);
  assert.match(world,/for\(const spec of entry\.lights\|\|\[\]\)root\.add\(light\(spec\)\)/);
@@ -138,5 +140,49 @@ test('editor and video agree on shadow rendering; editing suppresses temporary s
  assert.match(app,/showGeneratedGeometry\(shot\.id,false,\{editMode:true\}\)/);
  assert.match(world,/node\.castShadow=spec\.type!=='point'/);
  assert.match(world,/mesh\.receiveShadow=true/);
- assert.match(assets,/id\.startsWith\('spot'\)\?240:180/);
+ assert.match(assets,/intensity:directional\?2\.1:spot\?320:180/);
+});
+
+
+test('right-click lights aim at clicked scene geometry and frame light-only chapters',async()=>{
+ const origin=[14,3,-9];
+ const point=insertCreatedAsset(empty(),'chapter','lights','point-blue',origin);
+ const spot=insertCreatedAsset(empty(),'chapter','lights','spot-warm',origin);
+ const sun=insertCreatedAsset(empty(),'chapter','lights','sun',origin);
+ assert.deepEqual(point.document.scenes[0].lights[0].position,[14,5,-9]);
+ assert.deepEqual(spot.document.scenes[0].lights[0].position,[14,8,-7.5]);
+ assert.deepEqual(spot.document.scenes[0].lights[0].target,origin);
+ assert.deepEqual(sun.document.scenes[0].lights[0].position,[22,15,-1]);
+ assert.deepEqual(sun.document.scenes[0].lights[0].target,origin);
+ const updated=insertCreatedAsset(point.document,'chapter','lights','spot-cool',origin);
+ assert.equal(updated.document.scenes[0].objects.length,0);
+ assert.equal(updated.document.scenes[0].lights.length,2);
+ assert.notEqual(updated.document.scenes[0].lights[0].id,updated.document.scenes[0].lights[1].id);
+ const [app,radial,world]=await Promise.all(
+  ['app.js','radial-create.js','primitive-world.js'].map(
+    file=>readFile(new URL('../'+file,import.meta.url),'utf8')));
+ assert.match(radial,/getCreateOrigin\(at\?\.x,at\?\.y,category,item\)/);
+ assert.match(app,/getCreateOrigin:\(clientX,clientY,category\)=>/);
+ assert.match(app,/category==='lights'\s*\?ray\.intersectObjects\(/);
+ assert.match(app,/primitiveWorld\.getPickableMeshes\(id\)/);
+ assert.match(app,/primitiveWorld\.hasSceneContent\(shot\.id\)/);
+ assert.match(world,/function hasSceneContent\(shotId\)/);
+ assert.match(world,/for\(const spec of entry\?\.lights\|\|\[\]\)/);
+ assert.match(world,/bounds\.expandByPoint\(/);
+ assert.match(world,/Math\.max\(sphere\.radius,1\)/);
+});
+
+test('undo and redo preserve Edit mode and do not strand a removed light gizmo',async()=>{
+ const [app,timeline,editor]=await Promise.all(
+  ['app.js','timeline-tools.js','scene-object-edit.js'].map(
+    file=>readFile(new URL('../'+file,import.meta.url),'utf8')));
+ const history=app.slice(app.indexOf('function applyHistory(doc){'),app.indexOf('function saveLocal(record=true)'));
+ assert.match(history,/const editing=sceneObjectEditor\?\.active===true/);
+ assert.match(history,/if\(!editing\)endGeometryReview\(\)/);
+ assert.match(history,/syncPrimitiveWorld\(\)/);
+ assert.match(history,/if\(editing&&sceneObjectEditor\?\.active&&!primitiveWorld\.hasSceneContent/);
+ assert.match(history,/saveLocal\(false\)/);
+ assert.match(editor,/select\(null\);return;/);
+ assert.match(timeline,/if\(key==='z'\)/);
+ assert.match(timeline,/if\(key==='y'\)/);
 });
