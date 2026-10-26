@@ -399,3 +399,115 @@ test('3-part lamp assemblies retain complete descriptors, copies and existing de
  assert.equal(override.document.scenes[0].objects.find(x=>x.id==='south_lamps')
    .arrayParts.lights[0].intensity,80,'source lights require explicit opt-in');
 });
+
+
+test('scene Outliner converts a legacy two-part tree into one parent array with real child geometry',async()=>{
+ const {editableAssembly,saveAssemblyHierarchy}=
+   await import('../array-assembly-templates.js');
+ const copies={count:[1,1,14],spacing:[0,0,10]};
+ const mk=(id,name,type,position)=>{
+   const item=makePrimitive(type,id,position);item.name=name;item.repeat=structuredClone(copies);
+   return item;
+ };
+ const crowns=mk('crowns','Corner Grove Crowns','sphere',[20,4.3,5]);
+ const trunks=mk('trunks','Corner Grove Trunks','cylinder',[20,1.6,5]);
+ const old={schemaVersion:1,scenes:[{shotId:'forest',objects:[crowns,trunks]}]};
+ const source=structuredClone(old);
+ const converted=editableAssembly(crowns);
+ assert.equal(converted.base.primitive,'group');
+ assert.equal(converted.parts.objects.length,1);
+ const trunk={...structuredClone(trunks),id:'local_trunk',position:[0,-2.7,0],
+   rotation:[0,0,0]};
+ delete trunk.repeat;
+ converted.parts.objects.push(trunk);
+ converted.parts.order.push('object:local_trunk');
+ const saved=saveAssemblyHierarchy(old,['forest'],'forest','crowns',converted,['crowns'],['trunks']);
+ assert.deepEqual(old,source,'editing a prototype cannot modify the scene before Save');
+ assert.equal(saved.scenes[0].objects.length,1);
+ const group=saved.scenes[0].objects[0];
+ assert.equal(group.primitive,'group');
+ assert.equal(group.name,'Corner Grove');
+ assert.equal(group.arrayParts.objects.length,2);
+ assert.deepEqual(group.arrayParts.order,['object:source_mesh','object:local_trunk']);
+ assert.deepEqual(group.position,crowns.position);
+ assert.deepEqual(group.repeat,copies);
+ assert.equal(validatePrimitiveDocument(saved,['forest']).scenes[0].objects[0].arrayParts.order.length,2);
+});
+
+test('replace entire three-mesh lamp assembly and all lights, retaining destination XYZ rotation and copies',async()=>{
+ const {listAssemblyTemplates,replaceAssemblyContents,saveAssemblyHierarchy}
+   =await import('../array-assembly-templates.js');
+ const mk=(id,name,type,pos,rep)=>{
+   const item=makePrimitive(type,id,pos);
+   item.name=name;item.repeat=rep;return item;
+ };
+ const sourceRepeat={count:[1,1,3],spacing:[0,0,7]};
+ const targetRepeat={count:[5,1,1],spacing:[11,0,0]};
+ const post=mk('post','Right Street Posts','cylinder',[0,3,0],sourceRepeat);
+ const housing=mk('house','Right Street Lamp Housing','box',[0,7,0],sourceRepeat);
+ const lens=mk('lens','Right Street Glass Lens','sphere',[0,7.3,0],sourceRepeat);
+ housing.arrayParts={objects:[],lights:[{
+   id:'source_glow',name:'Right Street Soft Light',type:'spot',color:'#ffedcc',
+   intensity:180,position:[0,0,0],target:[0,-3,0],distance:40,
+   angle:.6,penumbra:.4
+ }]};
+ const target=mk('target','South Edge Trees','sphere',[70,3,20],targetRepeat);
+ target.rotation=[0,Math.PI/2,0];
+ target.arrayParts={objects:[],lights:[{
+   id:'old',name:'South Edge Old Light',type:'point',color:'#ffffff',
+   intensity:25,position:[0,0,0],distance:12
+ }]};
+ const input={schemaVersion:1,scenes:[{shotId:'street',objects:[post,housing,lens,target]}]};
+ const snapshot=structuredClone(input);
+ const template=listAssemblyTemplates(input,'street').find(t=>t.key==='right street');
+ assert.ok(template,'3-part lamp can be used as a template');
+ const result=replaceAssemblyContents(input,['street'],'street','target',template.id);
+ assert.deepEqual(input,snapshot,'the real scene is immutable before Save');
+ assert.equal(result.componentCount,4,'all three meshes and spotlight copied');
+ const swapped=result.document.scenes[0].objects.find(x=>x.id==='target');
+ assert.equal(swapped.primitive,'group');
+ assert.deepEqual(swapped.position,target.position);
+ assert.deepEqual(swapped.rotation,target.rotation);
+ assert.deepEqual(swapped.repeat,target.repeat);
+ assert.equal(swapped.arrayParts.objects.length,3);
+ assert.equal(swapped.arrayParts.lights.length,1);
+ assert.deepEqual(swapped.arrayParts.order.length,4);
+ assert.deepEqual(swapped.arrayParts.objects.map(x=>x.name),[
+   'South Edge Posts','South Edge Lamp Housing','South Edge Glass Lens'
+ ]);
+ assert.equal(swapped.arrayParts.lights[0].name,'South Edge Soft Light');
+ assert.equal(swapped.arrayParts.lights[0].intensity,180);
+ assert.equal(result.document.scenes[0].objects.length,4,'source assembly remains untouched');
+ const edited=structuredClone(swapped);
+ edited.arrayParts.objects[0].name='South Edge Renamed Post';
+ edited.arrayParts.objects[0].position[0]+=.6;
+ edited.arrayParts.order.reverse();
+ const saved=saveAssemblyHierarchy(result.document,['street'],'street','target',
+   {base:edited,parts:edited.arrayParts},['target']);
+ const after=saved.scenes[0].objects.find(x=>x.id==='target');
+ assert.deepEqual(after.position,target.position);
+ assert.deepEqual(after.rotation,target.rotation);
+ assert.deepEqual(after.repeat,target.repeat);
+ assert.equal(after.arrayParts.objects[0].name,'South Edge Renamed Post');
+ assert.equal(after.arrayParts.order[0].startsWith('light:'),true);
+ assert.throws(()=>validatePrimitiveDocument({schemaVersion:1,scenes:[{shotId:'street',
+   objects:[{...after,arrayParts:{...after.arrayParts,order:[
+     ...after.arrayParts.order.slice(0,-1),'object:does_not_exist']}}]}]},['street']),/order/);
+});
+
+test('single newly authored tree group can be reused as an assembly template',async()=>{
+ const {listAssemblyTemplates,replaceAssemblyContents}=
+   await import('../array-assembly-templates.js');
+ const root=makePrimitive('group','pine_parent',[1,0,2]);
+ root.name='Forest Pine';root.arrayParts={objects:[
+   {...makePrimitive('cylinder','trunk',[0,2,0]),name:'Forest Pine Trunk'},
+   {...makePrimitive('sphere','crown',[0,5,0]),name:'Forest Pine Crown'}
+ ],lights:[],order:['object:trunk','object:crown']};
+ const target=makePrimitive('sphere','target',[40,5,10]);
+ target.name='South Edge Trees';target.repeat={count:[3,1,1],spacing:[12,0,0]};
+ const input={schemaVersion:1,scenes:[{shotId:'forest',objects:[root,target]}]};
+ const src=listAssemblyTemplates(input,'forest').find(x=>x.id==='pine_parent');
+ assert.ok(src,'a single non-repeating multi-piece group is a valid source');
+ const result=replaceAssemblyContents(input,['forest'],'forest','target','pine_parent');
+ assert.equal(result.document.scenes[0].objects.find(x=>x.id==='target').arrayParts.objects.length,2);
+});
