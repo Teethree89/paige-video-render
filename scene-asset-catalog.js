@@ -97,11 +97,16 @@ export function insertCreatedAsset(source,shotId,category,id,origin=[0,0,0]){
      [[id,null,[0,1,0],'#72c9db']] : specs[id];
    if(!pieces)throw Error('Unknown scene asset');
    const layer=layerFor[category];
-   for(const [shape,scale,offset,color] of pieces){
+   const created=[];
+   for(const [index,[shape,scale,offset,color]] of pieces.entries()){
      const objectId=unique(shape,used);
      const obj=makePrimitive(shape,objectId,[
        origin[0]+offset[0],origin[1]+offset[1],origin[2]+offset[2]]);
-     obj.name=(id.replaceAll('-',' ')+' '+shape).slice(0,100);
+     const pieceName=category==='vegetation'&&pieces.length>1?
+       (index===0?'Trunk':index===1?'Crown':'Foliage '+index):
+       category==='props'&&id==='lamp-post'?(index===0?'Post':'Lamp'):
+       shape+' '+(index+1);
+     obj.name=(id.replaceAll('-',' ')+' '+pieceName).slice(0,100);
      if(scale)obj.scale=[...scale];
      obj.material.color=color;
      if(id==='window'||id==='water'||id==='lamp-post'&&shape==='sphere'){
@@ -110,7 +115,21 @@ export function insertCreatedAsset(source,shotId,category,id,origin=[0,0,0]){
      if(layer)obj.layer=layer;
      if(shape==='plane'&&category==='terrain')obj.rotation=[-Math.PI/2,0,0];
      if(shape==='cylinder'&&category==='vehicles')obj.rotation=[Math.PI/2,0,0];
-     entry.objects.push(obj);selected={kind:'object',id:obj.id};
+     created.push(obj);
+   }
+   if(created.length>1){
+     const root=created[0];
+     root.name=(id.replaceAll('-',' ')+' Group').slice(0,100);
+     root.arrayParts={objects:created.slice(1).map(part=>({
+       ...part,position:part.position.map((n,i)=>n-root.position[i]),
+       ...(part.layer?{}:{})
+     })),lights:[]};
+     // Children are expressed in root-local coordinates; keep their names,
+     // materials and scales independently editable in the mini inspector.
+     for(const child of root.arrayParts.objects)delete child.layer;
+     entry.objects.push(root);selected={kind:'object',id:root.id};
+   }else{
+     entry.objects.push(created[0]);selected={kind:'object',id:created[0].id};
    }
  }
  return {document:validatePrimitiveDocument(doc),selected};
