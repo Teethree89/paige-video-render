@@ -21,7 +21,7 @@ import {setupArrayPrototypeEditor} from './array-prototype-editor.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
 import {createScenePostprocessor,applyShotEffects,effectsForShot,vignetteStyle} from './scene-effects.js';
-import {editPrimitiveTransform,deletePrimitiveObject,editLightTransform,editLightTarget,deleteLightObject} from './scene-object-operations.js';
+import {editPrimitiveTransform,deletePrimitiveObject,duplicateSceneSelection,editLightTransform,editLightTarget,deleteLightObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
@@ -214,6 +214,12 @@ async function boot(){
      sequence.primitiveScenes=editPrimitiveTransform(sequence.primitiveScenes,
        sequence.shots.map(s=>s.id),shotId,objectId,mode,vector);
      syncPrimitiveWorld();saveLocal();renderWorld();
+   },
+   onDuplicate:(shotId,selectedId)=>{
+     const next=duplicateSceneSelection(sequence.primitiveScenes,sequence.shots.map(s=>s.id),shotId,selectedId);
+     sequence.primitiveScenes=next.document;
+     syncPrimitiveWorld();saveLocal();renderWorld();
+     return next.selectedId;
    },
    onDelete:(shotId,objectId)=>{
      sequence.primitiveScenes=deletePrimitiveObject(sequence.primitiveScenes,
