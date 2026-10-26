@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {CREATE_CATEGORIES,CREATE_DEFAULTS,insertCreatedAsset,validateCreateChoice} from '../scene-asset-catalog.js';
-import {validatePrimitiveDocument,validateSceneEffects,LIMITS} from '../primitive-schema.js';
+import {validatePrimitiveDocument,validateSceneEffects,capGeneratedLights,LIMITS} from '../primitive-schema.js';
 import {editLightTransform,editLightTarget,deleteLightObject} from '../scene-object-operations.js';
 const empty=()=>({schemaVersion:1,scenes:[]});
 test('every radial Create submenu item creates validated scene geometry or a punctual light',()=>{
@@ -20,19 +20,35 @@ test('quick repeat and per-category remembered choice names stay allowlisted',()
  assert.throws(()=>validateCreateChoice('lights','remote-script'),/Unrecognized/);
  assert.throws(()=>insertCreatedAsset(empty(),'chapter','vehicles','../etc/passwd'),/Unrecognized/);
 });
-test('lights get editable stable IDs, can coexist with no geometry, and respect caps',()=>{
+test('manually added lights are unbounded beyond the AI cap, with unique IDs',()=>{
  let doc=empty();
- for(let n=0;n<LIMITS.lightsPerScene;n++)doc=insertCreatedAsset(
+ for(let n=0;n<48;n++)doc=insertCreatedAsset(
   doc,'shot_a','lights',n%2?'spot-cool':'point-blue',[0,1,0]).document;
  const lights=doc.scenes[0].lights;
- assert.equal(new Set(lights.map(x=>x.id)).size,LIMITS.lightsPerScene);
+ assert.equal(lights.length,48,'a 9th, 33rd or later light must work');
+ assert.equal(new Set(lights.map(x=>x.id)).size,48);
  assert.equal(doc.scenes[0].objects.length,0);
  assert.equal(lights[0].color,'#80bcff');
  assert.equal(lights[1].type,'spot');
- assert.throws(()=>insertCreatedAsset(doc,'shot_a','lights','sun'),/at most 8/);
+ const added=insertCreatedAsset(doc,'shot_a','lights','sun',[0,1,0]);
+ assert.equal(validatePrimitiveDocument(added.document).scenes[0].lights.length,49);
  const legacy={schemaVersion:1,scenes:[{shotId:'shot_a',objects:[],
   lights:[{type:'point',name:'Old',color:'#ffffff',intensity:5,position:[0,3,0]}]}]};
  assert.equal(validatePrimitiveDocument(legacy).scenes[0].lights[0].id,undefined);
+});
+test('AI proposals trim to 32, but a user may still edit an AI-authored scene beyond 32',()=>{
+ let manual=empty();
+ for(let n=0;n<35;n++)manual=insertCreatedAsset(manual,'chapter','lights','point-white',[n,0,0]).document;
+ const before=structuredClone(manual),limited=capGeneratedLights(manual);
+ assert.equal(LIMITS.aiLightsPerScene,32);
+ assert.equal(limited.discarded,3);
+ assert.equal(limited.document.scenes[0].lights.length,32);
+ assert.deepEqual(manual,before,'AI cap must not mutate existing editor documents');
+ assert.equal(capGeneratedLights(limited.document).discarded,0);
+ const edited=insertCreatedAsset(limited.document,'chapter','lights','point-blue',[0,0,0]);
+ assert.equal(edited.document.scenes[0].lights.length,33);
+ assert.throws(()=>validatePrimitiveDocument({...manual,scenes:[
+    {...manual.scenes[0],lights:'not an array'}]}),/lights must be an array/);
 });
 test('complex vehicle preset remains editable and emission survives JSON round-trip',()=>{
  const doc=insertCreatedAsset(empty(),'chapter','vehicles','truck').document;
