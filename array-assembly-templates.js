@@ -41,8 +41,8 @@ export function listAssemblyTemplates(source,shotId){
    const signature=[...ids].sort().join('|');
    if(seen.has(signature))continue;
    seen.add(signature);
-   const prefix=base.name.trim().split(/\\s+/).slice(0,2).join(' ');
-   const labels=components.map(c=>c.name.replace(new RegExp('^'+prefix+'\\\\s*','i'),'')).join(' + ');
+   const prefix=base.name.trim().split(/\s+/).slice(0,2).join(' ');
+   const labels=components.map(c=>c.name.split(/\s+/).at(-1)).join(' + ');
    out.push({id:base.id,key,label:prefix+' — '+labels,
      parts:components,rootIds:ids});
  }
@@ -63,7 +63,7 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
  const secondary=sourceTemplate.parts.find(p=>p.id===secondaryId);
  if(!primary||!secondary||primary.id===secondary.id)
    throw Error('Choose distinct primary and supporting components');
- const naming=dest.name.trim().split(/\\s+/).slice(0,2).join(' ');
+ const naming=dest.name.trim().split(/\s+/).slice(0,2).join(' ');
  if(!arrayGroupKey(dest.name))throw Error('Destination needs a two-word group name');
  const roots=findMatchingArrays(doc,shotId,dest.id);
  // Do not absorb unrelated array definitions just because their names match.
@@ -77,7 +77,7 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
    const local=xyz(part.position).sub(xyz(primary.position))
      .applyQuaternion(primaryQuat.clone().invert());
    const relative=primaryQuat.clone().invert().multiply(quat(part.rotation));
-   const role=part.name.trim().split(/\\s+/).at(-1);
+   const role=part.name.trim().split(/\s+/).at(-1);
    const label=naming+' '+role;
    return {part,index,local,relative,label};
  });
