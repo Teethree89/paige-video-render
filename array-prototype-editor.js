@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
-import {findMatchingArrays,saveArrayPrototype} from './array-prototype.js';
+import {findMatchingArrays,findArrayCompanions,saveArrayPrototype} from './array-prototype.js';
 import {repeatOffsets} from './primitive-schema.js';
 
 const sampleShot='arrayPreview';
@@ -72,24 +73,87 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  }
  const orbit=new OrbitControls(camera,canvas);
  orbit.enableDamping=true;orbit.minDistance=.5;orbit.maxDistance=300;
+ const transform=new TransformControls(camera,canvas);
+ const helper=typeof transform.getHelper==='function'?transform.getHelper():transform;
+ scene.add(helper);
+ transform.setSpace('world');transform.enabled=false;
+ let operation='translate',dragging=false;
  const world=createPrimitiveWorld(scene);
- let draft=null,source=null,shotId=null,objectId=null,linked=[],selected='root',frame=0;
+ let draft=null,source=null,shotId=null,objectId=null,linked=[],candidates=[],selected='root',frame=0;
+ const originalRoot=()=>source?.scenes?.find(s=>s.shotId===shotId)?.objects.find(o=>o.id===objectId);
+ const pose=()=>{
+   const old=originalRoot();
+   const center=new THREE.Vector3(...draft.base.position).sub(new THREE.Vector3(...old.position));
+   const angles=draft.base.rotation.map((n,i)=>n-old.rotation[i]);
+   const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(...angles));
+   return {center,q};
+ };
+ const asWorldPosition=(p,t)=>new THREE.Vector3(...p).applyQuaternion(t.q).add(t.center).toArray();
+ const asLocalPosition=(p,t)=>new THREE.Vector3(...p).sub(t.center).applyQuaternion(t.q.clone().invert()).toArray();
+ const asWorldRotation=(p,t)=>new THREE.Euler().setFromQuaternion(
+   t.q.clone().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...p)))).toArray().slice(0,3);
+ const asLocalRotation=(p,t)=>new THREE.Euler().setFromQuaternion(
+   t.q.clone().invert().multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(...p)))).toArray().slice(0,3);
+ function uniquePartId(base='copy'){
+   const used=new Set([objectId,...draft.parts.objects.map(o=>o.id),...draft.parts.lights.map(l=>l.id)]);
+   const prefix=('part_'+base).replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,55);
+   let id=prefix,n=2;
+   while(used.has(id))id=prefix+'_'+n++;
+   return id;
+ }
+ function previewItem(item,kind,t){
+   const copy=structuredClone(item);
+   copy.position=asWorldPosition(item.position,t);
+   if(kind==='object')copy.rotation=asWorldRotation(item.rotation,t);
+   else if(item.target)copy.target=asWorldPosition(item.target,t);
+   return copy;
+ }
+ function attachSelected(){
+   transform.detach();
+   if(!draft)return;
+   const node=selected==='root'?world.getObjectNode(sampleShot,objectId):
+     selected.startsWith('object:')?world.getObjectNode(sampleShot,selected.slice(7)):
+       world.getLightMarker(sampleShot,selected.slice(6));
+   if(!node)return;
+   if(selected.startsWith('light:')&&operation==='rotate')setMode('translate');
+   transform.attach(node);
+ }
+ function setMode(mode){
+   if(!['translate','rotate'].includes(mode))return;
+   if(mode==='rotate'&&selected.startsWith('light:'))return;
+   operation=mode;transform.setMode(mode);
+   transform.setSpace(mode==='translate'?'world':'local');
+   for(const [id,value] of [['arrayEditMove','translate'],['arrayEditRotate','rotate']]){
+     const button=byId(id);if(!button)continue;
+     button.setAttribute('aria-pressed',String(mode===value));
+     button.classList.toggle('active',mode===value);
+     button.disabled=value==='rotate'&&selected.startsWith('light:');
+   }
+ }
+ byId('arrayEditMove')?.addEventListener('click',()=>setMode('translate'));
+ byId('arrayEditRotate')?.addEventListener('click',()=>setMode('rotate'));
  const setStatus=value=>{if(status)status.textContent=value;};
  function rootItem(){
-   return draft?{...draft.base,id:objectId,position:[0,0,0],rotation:[0,0,0],
-     repeat:undefined,arrayParts:undefined}:null;
+   if(!draft)return null;
+   const old=originalRoot();
+   return {...draft.base,id:objectId,
+     position:draft.base.position.map((n,i)=>n-old.position[i]),
+     rotation:draft.base.rotation.map((n,i)=>n-old.rotation[i]),
+     repeat:undefined,arrayParts:undefined};
  }
  function previewDocument(){
    if(!draft)return null;
-   const base=rootItem();
+   const base=rootItem(),t=pose();
    delete base.repeat;delete base.arrayParts;
    return {schemaVersion:1,scenes:[{shotId:sampleShot,
-     objects:[base,...draft.parts.objects],lights:draft.parts.lights}]};
+     objects:[base,...draft.parts.objects.map(o=>previewItem(o,'object',t))],
+     lights:draft.parts.lights.map(l=>previewItem(l,'light',t))}]};
  }
  function rerender({refit=false}={}){
    if(!draft)return;
    try{
      const doc=previewDocument();
+     transform.detach();
      world.setDocument(doc,[sampleShot]);world.showShot(sampleShot);
      world.setLightMarkersVisible(true);
      if(refit){
@@ -107,7 +171,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        axes.position.copy(grid.position);
        axes.scale.setScalar(Math.max(.3,Math.min(12,radius*.27)));
      }
-     setStatus('Changes are temporary until Save. Orbit to inspect the prototype.');
+     attachSelected();
+     setStatus('Changes are temporary until Save. W to move / E to rotate.');
    }catch(error){setStatus('Preview: '+error.message);}
  }
  function stop(){
@@ -115,7 +180,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    frame=0;
  }
  function animate(){
-   if(!draft)return;
+   if(!draft||!renderer)return;
    const width=canvas.clientWidth||500,height=canvas.clientHeight||320;
    if(canvas.width!==Math.round(width*renderer.getPixelRatio())||
      canvas.height!==Math.round(height*renderer.getPixelRatio())){
