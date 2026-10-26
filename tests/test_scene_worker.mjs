@@ -1975,7 +1975,12 @@ test('Standard prompts are byte-identical to the pre-detail-investigation reques
   };
   for(const [mode,hash] of Object.entries(hashes)){
     const {body}=await captureArgonRequest({mode});
-    assert.equal(createHash('sha256').update(body.system_instruction).digest('hex'),hash);
+    // The original Standard generation prompt must remain byte-identical
+    // except for the explicit AI light budget: 8 -> 32.
+    const normalized=body.system_instruction
+      .replace('up to 32 lights','up to 8 lights')
+      .replace('32 lights and 2000','8 lights and 2000');
+    assert.equal(createHash('sha256').update(normalized).digest('hex'),hash);
   }
 });
 
