@@ -84,7 +84,7 @@ const light = spec => {
 export function createPrimitiveWorld(scene) {
   const groups=new Map();
   // Saved primitive ID -> top-level transform node (repeat arrays share one holder).
-  const objectNodes=new Map(),lightNodes=new Map(),lightMarkers=new Map(),lightTargets=new Map(),lightGuides=new Map(),lightMarkerGroups=new Map();
+  const objectNodes=new Map(),arrayInstances=new Map(),lightNodes=new Map(),lightMarkers=new Map(),lightTargets=new Map(),lightGuides=new Map(),lightMarkerGroups=new Map();
   let markersEnabled=false;
   let document={schemaVersion:1,scenes:[]};
   let activeShotId=null;
@@ -97,7 +97,7 @@ export function createPrimitiveWorld(scene) {
         if(item.isLight)item.dispose();
       });
     }
-    groups.clear();objectNodes.clear();lightNodes.clear();
+    groups.clear();objectNodes.clear();arrayInstances.clear();lightNodes.clear();
     for(const root of lightMarkerGroups.values()){
       scene.remove(root);
       root.traverse(node=>{
@@ -118,7 +118,7 @@ export function createPrimitiveWorld(scene) {
       root.userData.shotId=entry.shotId;
       const anchor=anchors[entry.shotId]||[0,0,0];
       root.position.set(...anchor);
-      const layerGroups=new Map(),nodes=new Map();
+      const layerGroups=new Map(),nodes=new Map(),arrays=new Map();
       for(const item of entry.objects){
         const key=item.layer||'manual';
         if(!layerGroups.has(key)){
@@ -139,18 +139,52 @@ export function createPrimitiveWorld(scene) {
         // transform holding one plain mesh per copy (shared geometry and
         // material), so GLB/After Effects see ordinary nodes, not instancing.
         const holder=offsets.length===1?null:tag(new THREE.Group());
+        const hasParts=!!(item.arrayParts?.objects?.length||item.arrayParts?.lights?.length);
+        const instances=[];
         let directMesh=null;
         offsets.forEach((offset,index)=>{
           const mesh=tag(new THREE.Mesh(shape,material));
           mesh.castShadow=true;
           mesh.receiveShadow=true;
+          mesh.userData.primitiveArrayIndex=holder?index:null;
           if(!holder)directMesh=mesh;
           mesh.name=holder?item.name+' '+(index+1):item.name;
           mesh.scale.set(...item.scale);
-          if(holder)mesh.position.set(...offset);
-          else{mesh.position.set(...item.position);mesh.rotation.set(...item.rotation);}
-          (holder||layerGroups.get(key)).add(mesh);
+          // With prototype components, this is an actual repeated assembly:
+          // a shared instance group carries the source mesh, additions and
+          // shot-local punctual lights in exactly the same local frame.
+          if(holder&&hasParts){
+            const instance=tag(new THREE.Group());
+            instance.name=item.name+' instance '+(index+1);
+            instance.userData.primitiveArrayIndex=index;
+            instance.position.set(...offset);
+            instance.add(mesh);
+            for(const part of item.arrayParts.objects){
+              const extra=new THREE.Mesh(geometry(part),surface(part.material));
+              extra.name=part.name+' '+(index+1);
+              extra.userData.primitiveId=item.id;
+              extra.userData.primitiveArrayIndex=index;
+              extra.userData.primitiveArrayPartId=part.id;
+              extra.position.set(...part.position);
+              extra.rotation.set(...part.rotation);
+              extra.scale.set(...part.scale);
+              extra.castShadow=true;extra.receiveShadow=true;
+              instance.add(extra);
+            }
+            for(const spec of item.arrayParts.lights){
+              const node=light(spec);
+              node.userData.primitiveArrayPartId=spec.id;
+              instance.add(node);
+            }
+            holder.add(instance);instances.push(instance);
+          }else{
+            if(holder)mesh.position.set(...offset);
+            else{mesh.position.set(...item.position);mesh.rotation.set(...item.rotation);}
+            (holder||layerGroups.get(key)).add(mesh);
+            if(holder)instances.push(mesh);
+          }
         });
+        if(holder)arrays.set(item.id,instances);
         if(holder){
           holder.name=item.name;
           holder.position.set(...item.position);
@@ -238,6 +272,7 @@ export function createPrimitiveWorld(scene) {
       lightGuides.set(entry.shotId,guides);
       groups.set(entry.shotId,root);
       objectNodes.set(entry.shotId,nodes);
+      arrayInstances.set(entry.shotId,arrays);
       scene.add(root);
       scene.add(markerRoot); // keep the scene's primary root first for existing integrations
     }
@@ -333,6 +368,9 @@ export function createPrimitiveWorld(scene) {
   function getObjectNode(shotId,objectId){
     return objectNodes.get(shotId)?.get(objectId)||null;
   }
+  function getArrayInstances(shotId,objectId){
+    return arrayInstances.get(shotId)?.get(objectId)||[];
+  }
   function getPickableMeshes(shotId){
     const root=groups.get(shotId),meshes=[];
     root?.traverse(node=>{if(node.isMesh&&node.userData.primitiveId)meshes.push(node);});
@@ -368,5 +406,5 @@ export function createPrimitiveWorld(scene) {
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
   return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,getLightNode,isLightMarkerVisible,getLightTargetMarker,updateLightVisuals,setLightMarkersVisible,getPickableMeshes,
-    getSceneForExport,getDocument,dispose};
+    getSceneForExport,getDocument,getArrayInstances,dispose};
 }
