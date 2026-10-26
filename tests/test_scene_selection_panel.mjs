@@ -125,6 +125,6 @@ test('Create button is Edit-only in transport, not over the review controls',asy
  assert.match(obj,/function focusSelectionIfOffscreen\(/);
  assert.match(css,/\.scene-create-trigger\[hidden\]\{display:none!important\}/);
  assert.match(css,/\.scene-edit-tools\{position:absolute;left:15px/);
- assert.match(primitive,/document\.querySelectorAll\('\[data-light\]'\)/);
- assert.match(primitive,/document\.querySelectorAll\('\[data-prim\]'\)/);
+ assert.match(primitive,/fieldInputs\('\[data-light\]'\)/);
+ assert.match(primitive,/fieldInputs\('\[data-prim\]'\)/);
 });
