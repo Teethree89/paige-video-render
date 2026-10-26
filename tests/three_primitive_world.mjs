@@ -556,3 +556,39 @@ test('combining aligned lamp arrays keeps physical mesh coordinates and exports 
  assert.equal(gltf.nodes.filter(n=>(n.name||'').startsWith('Bulb ')).length,3);
  world1.dispose();world2.dispose();
 });
+
+
+test('composite pine is one movable object, editable child meshes and exports all child nodes',async()=>{
+ const {insertCreatedAsset}=await import('../scene-asset-catalog.js');
+ const {setSceneObjectRepeat}=await import('../scene-object-operations.js');
+ const blank={schemaVersion:1,scenes:[{shotId:'forest',objects:[]}]};
+ const created=insertCreatedAsset(blank,'forest','vegetation','pine',[6,0,8]);
+ const one=created.document.scenes[0].objects;
+ assert.equal(one.length,1,'pine selects as one group');
+ assert.equal(one[0].arrayParts.objects.length,1,'pine crown remains editable');
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+ try{
+   world.setDocument(created.document,['forest']);
+   world.showShot('forest');
+   let top=world.getObjectNode('forest',one[0].id);
+   assert.equal(top.type,'Group','root TransformControls moves whole group');
+   let meshes=[];top.traverse(n=>{if(n.isMesh)meshes.push(n)});
+   assert.equal(meshes.length,2,'trunk and crown drawn as separate real meshes');
+   assert.equal(world.getArrayInstances('forest',one[0].id).length,0,
+     'single composite is not mistakenly registered as a repeat array');
+   const repeated=setSceneObjectRepeat(created.document,['forest'],'forest',
+     one[0].id,[1,1,3],[0,0,8]);
+   world.setDocument(repeated,['forest']);world.showShot('forest');
+   const copies=world.getArrayInstances('forest',one[0].id);
+   assert.equal(copies.length,3);
+   for(const copy of copies){
+     meshes=[];copy.traverse(n=>{if(n.isMesh)meshes.push(n)});
+     assert.equal(meshes.length,2,'each repeated tree retains editable trunk and crown');
+   }
+   const exportRoot=world.getSceneForExport('forest');
+   const gltf=await new GLTFExporter().parseAsync(exportRoot,
+     {binary:false,onlyVisible:false});
+   assert.ok(gltf.nodes.filter(n=>n.name?.includes('Crown')).length>=3,
+     'all crown meshes survive glTF export');
+ }finally{world.dispose();}
+});

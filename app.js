@@ -21,7 +21,7 @@ import {setupArrayPrototypeEditor} from './array-prototype-editor.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
 import {createScenePostprocessor,applyShotEffects,effectsForShot,vignetteStyle} from './scene-effects.js';
-import {editPrimitiveTransform,deletePrimitiveObject,duplicateSceneSelection,editLightTransform,editLightTarget,deleteLightObject} from './scene-object-operations.js';
+import {editPrimitiveTransform,deletePrimitiveObject,duplicateSceneSelection,setSceneObjectRepeat,editLightTransform,editLightTarget,deleteLightObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
@@ -215,6 +215,11 @@ async function boot(){
        sequence.shots.map(s=>s.id),shotId,objectId,mode,vector);
      syncPrimitiveWorld();saveLocal();renderWorld();
    },
+   onMakeArray:(shotId,objectId,count,spacing)=>{
+     sequence.primitiveScenes=setSceneObjectRepeat(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,objectId,count,spacing);
+     syncPrimitiveWorld();saveLocal();renderWorld();
+   },
    onDuplicate:(shotId,selectedId)=>{
      const next=duplicateSceneSelection(sequence.primitiveScenes,sequence.shots.map(s=>s.id),shotId,selectedId);
      sequence.primitiveScenes=next.document;
@@ -388,6 +393,17 @@ async function boot(){
  });
  const radialCreate=setupRadialCreate({
     viewport,
+    getObjectAt:(clientX,clientY)=>sceneObjectEditor?.pickObjectAt(clientX,clientY)||null,
+    onObjectAction:(action,id)=>{
+      if(!sceneObjectEditor?.select(id))return;
+      if(action==='array')sceneObjectEditor.openMakeArray(id);
+      else if(action==='duplicate')sceneObjectEditor.duplicateSelected();
+      else if(action==='edit'){
+        if(!sceneObjectEditor.openGroupEditor(id))
+          el('sceneEditStatus').textContent=
+            'This is a single shape. Use Make Array or create a multi-part object to edit components.';
+      }
+    },
     canCreate:()=>ready&&sceneObjectEditor?.active&&
       !aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
     getCreateOrigin:(clientX,clientY,category)=>{

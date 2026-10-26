@@ -20,9 +20,9 @@ export function saveArrayPrototype(source,allowedShots,shotId,objectId,
   {name,material,scale,parts,position,rotation},linkedIds=null,absorbedIds=[]){
  const doc=validatePrimitiveDocument(source,allowedShots);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
- const base=entry?.objects.find(o=>o.id===objectId&&o.repeat);
- if(!base)throw Error('Selected repeat array no longer exists');
- const eligible=findMatchingArrays(doc,shotId,objectId);
+ const base=entry?.objects.find(o=>o.id===objectId&&(o.repeat||o.arrayParts));
+ if(!base)throw Error('Selected editable group no longer exists');
+ const eligible=base.repeat?findMatchingArrays(doc,shotId,objectId):[objectId];
  const ids=linkedIds||eligible;
  if(!Array.isArray(ids)||!ids.includes(objectId)||ids.some(id=>!eligible.includes(id)))
    throw Error('Linked arrays changed; reopen the prototype editor');
@@ -32,7 +32,7 @@ export function saveArrayPrototype(source,allowedShots,shotId,objectId,
    throw Error('Array rotation must have finite XYZ coordinates');
  const move=position?position.map((n,i)=>n-base.position[i]):[0,0,0];
  const turn=rotation?rotation.map((n,i)=>n-base.rotation[i]):[0,0,0];
- const candidateGroups=findArrayCompanions(doc,shotId,objectId).map(c=>c.ids);
+ const candidateGroups=base.repeat?findArrayCompanions(doc,shotId,objectId).map(c=>c.ids):[];
  const allowedAbsorbed=new Set(candidateGroups.flat());
  const absorbed=new Set(absorbedIds);
  if([...absorbed].some(id=>!allowedAbsorbed.has(id))||

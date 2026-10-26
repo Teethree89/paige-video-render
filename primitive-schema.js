@@ -206,7 +206,8 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       // refused; an entire array still counts toward the rendered-copy cap.
       let arrayParts;
       if(item.arrayParts!=null){
-        if(!repeat)fail(id+' array components require an actual repeat array');
+        // A single composed asset and a repeated assembly share the same
+        // local component model; only nested groups/arrays are prohibited.
         const raw=item.arrayParts;
         if(!raw||typeof raw!=='object'||Array.isArray(raw)||
           !Array.isArray(raw.objects)||!Array.isArray(raw.lights))

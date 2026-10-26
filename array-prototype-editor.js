@@ -5,6 +5,8 @@ import {createPrimitiveWorld} from './primitive-world.js';
 import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
 import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from './array-prototype.js';
 import {repeatOffsets} from './primitive-schema.js';
+import {listAssemblyTemplates,replaceArrayAssembly,saveAssemblyTemplateDraft}
+  from './array-assembly-templates.js';
 
 const sampleShot='arrayPreview';
 const finite=value=>Number.isFinite(Number(value))?Number(value):null;
@@ -80,6 +82,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  let operation='translate',dragging=false;
  const world=createPrimitiveWorld(scene);
  let draft=null,source=null,shotId=null,objectId=null,linked=[],candidates=[],selected='root',frame=0;
+ let sourceTemplates=[],templateChoice=null,roleStage=0,primaryRoleId=null;
  const originalRoot=()=>source?.scenes?.find(s=>s.shotId===shotId)?.objects.find(o=>o.id===objectId);
  const pose=()=>{
    const old=originalRoot();
@@ -333,14 +336,13 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  }
  function updateAssemblySummary(){
    if(!draft||!info)return;
-   const base=originalRoot();
    const copies=linked.reduce((sum,key)=>{
      const row=source.scenes.find(s=>s.shotId===shotId).objects.find(o=>o.id===key);
-     return sum+repeatOffsets(row.repeat).length;
+     return sum+repeatOffsets(row?.repeat).length;
    },0);
    const included=draft.absorbed.size;
-   info.textContent=copies+' instances · '+linked.length+' source array(s) · '+
-     included+' companion array(s) included in the editable preview. '+
+   info.textContent=copies+' instance(s) · '+linked.length+' source group(s) · '+
+     (draft.templatePlan?'Template replacement staged · ':included+' companion array(s) · ')+
      'Only Save writes the assembled copies.';
  }
  function renderCompanions(){
@@ -470,6 +472,89 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    refreshList();rerender({refit:true});
  }
  byId('arrayEditDuplicatePart')?.addEventListener('click',duplicatePart);
+ const templateSelect=byId('arrayEditTemplate');
+ const useTemplate=byId('arrayEditUseTemplate');
+ const roleDialog=byId('arrayTemplateRoles'),roleSelect=byId('arrayTemplateRoleSelect');
+ const roleTitle=byId('arrayTemplateRoleTitle'),roleHelp=byId('arrayTemplateRoleHelp');
+ const roleConfirm=byId('arrayTemplateRoleConfirm');
+ function resetTemplateDialog(){
+   if(roleDialog?.open)roleDialog.close();
+   templateChoice=null;primaryRoleId=null;roleStage=0;
+ }
+ function renderTemplateRole(){
+   if(!roleDialog||!templateChoice||!roleSelect)return;
+   const trees=templateChoice.parts.some(p=>/crown|trunk|tree/i.test(p.name));
+   const target=roleStage===0?(trees?'crown':'primary piece'):
+     trees?'trunk':'support piece';
+   roleTitle.textContent='WHICH OBJECT IS THE '+target.toUpperCase()+'?';
+   roleHelp.textContent=roleStage===0?
+     'This piece replaces the selected array geometry at its existing XYZ positions. Confirm to continue.':
+     'This second piece becomes a separately named repeated array, placed relative to every primary copy. Confirm to preview before saving.';
+   selectOptions(roleSelect,templateChoice.parts.filter(p=>roleStage===0||p.id!==primaryRoleId)
+     .map(p=>[p.id,p.name+' ('+p.primitive+')']));
+   const match=templateChoice.parts.find(p=>new RegExp(
+     roleStage===0?(trees?'crown':'main'):(trees?'trunk|post':'support|pole'),'i').test(p.name)
+     &&(roleStage===0||p.id!==primaryRoleId));
+   if(match)roleSelect.value=match.id;
+   roleConfirm.textContent=roleStage===0?'Yes · use '+target+' →':
+     'Yes · use '+target+' and preview';
+ }
+ function stageTemplate(){
+   const template=sourceTemplates.find(t=>t.id===templateSelect?.value);
+   if(!draft?.base.repeat||!template||!roleDialog)return;
+   templateChoice=template;roleStage=0;primaryRoleId=null;
+   renderTemplateRole();roleDialog.showModal();
+ }
+ useTemplate?.addEventListener('click',stageTemplate);
+ byId('arrayTemplateRoleCancel')?.addEventListener('click',resetTemplateDialog);
+ roleDialog?.addEventListener('cancel',()=>{templateChoice=null;primaryRoleId=null;roleStage=0;});
+ roleDialog?.addEventListener('keydown',event=>event.stopPropagation());
+ roleConfirm?.addEventListener('click',()=>{
+   if(!templateChoice||!roleSelect?.value)return;
+   if(roleStage===0){
+     primaryRoleId=roleSelect.value;roleStage=1;renderTemplateRole();return;
+   }
+   try{
+     const swapped=replaceArrayAssembly(source,getShotIds(),shotId,objectId,
+       templateChoice.id,primaryRoleId,roleSelect.value);
+     const sceneData=swapped.document.scenes.find(sc=>sc.shotId===shotId);
+     const root=sceneData.objects.find(o=>o.id===objectId);
+     const rootQuat=new THREE.Quaternion().setFromEuler(new THREE.Euler(...root.rotation));
+     const children=[],mappings=[];
+     // Siblings are editable in the mini viewport, but remain separate named
+     // arrays on Save instead of being silently folded into the crown array.
+     for(const mapping of swapped.created.filter(c=>c.rootId===objectId)){
+       const sibling=sceneData.objects.find(o=>o.id===mapping.targetId);
+       const part=structuredClone(sibling);
+       delete part.repeat;delete part.arrayParts;delete part.layer;
+       part.id=uniquePartId(mapping.targetId);
+       part.position=new THREE.Vector3(...sibling.position)
+         .sub(new THREE.Vector3(...root.position))
+         .applyQuaternion(rootQuat.clone().invert()).toArray();
+       part.rotation=new THREE.Euler().setFromQuaternion(
+         rootQuat.clone().invert().multiply(
+           new THREE.Quaternion().setFromEuler(new THREE.Euler(...sibling.rotation))))
+         .toArray().slice(0,3);
+       children.push(part);
+       mappings.push({...mapping,partId:part.id});
+     }
+     const selectedSource=new Map(swapped.created.filter(c=>c.rootId===objectId)
+       .map((m,i)=>[m.partId,children[i].id]));
+     const allMappings=swapped.created.map(m=>({...m,
+       partId:selectedSource.get(m.partId)}));
+     if(allMappings.some(m=>!m.partId))
+       throw Error('Template components did not align across matching arrays');
+     draft.base=structuredClone(root);
+     draft.parts={objects:children,lights:structuredClone(root.arrayParts?.lights||[])};
+     draft.absorbed.clear();
+     draft.templatePlan={document:swapped.document,mappings:allMappings};
+     candidates=[];
+     selected='root';
+     resetTemplateDialog();renderCompanions();refreshList();
+     updateAssemblySummary();rerender({refit:true});
+     setStatus('Template staged. Edit individual components, then Save or Cancel.');
+   }catch(error){setStatus('Template replacement blocked: '+error.message);resetTemplateDialog();}
+ });
  byId('arrayEditDeletePart')?.addEventListener('click',()=>{
    if(!draft||selected==='root')return;
    const [kind,id]=selected.split(':');
@@ -488,6 +573,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    selected='root';refreshList();rerender();
  });
  function close(){
+   resetTemplateDialog();
    stop();transform.detach();transform.enabled=false;dragging=false;
    orbit.enabled=true;
    draft=null;source=null;shotId=null;objectId=null;linked=[];candidates=[];
@@ -498,10 +584,13 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  byId('arrayEditSave')?.addEventListener('click',()=>{
    if(!draft)return;
    try{
-     const document=saveArrayPrototype(source,getShotIds(),shotId,objectId,{
-       name:draft.base.name,material:draft.base.material,scale:draft.base.scale,
-       position:draft.base.position,rotation:draft.base.rotation,parts:draft.parts
-     },linked,[...draft.absorbed.values()].flatMap(x=>x.ids));
+     const document=draft.templatePlan?
+       saveAssemblyTemplateDraft(draft.templatePlan.document,getShotIds(),shotId,objectId,
+         draft.base,draft.parts,draft.templatePlan.mappings):
+       saveArrayPrototype(source,getShotIds(),shotId,objectId,{
+         name:draft.base.name,material:draft.base.material,scale:draft.base.scale,
+         position:draft.base.position,rotation:draft.base.rotation,parts:draft.parts
+       },linked,[...draft.absorbed.values()].flatMap(x=>x.ids));
      onSave(document);
      close();
    }catch(error){setStatus('Save blocked: '+error.message);}
@@ -525,13 +614,18 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const doc=getDocument(),shot=getShotIds().find(s=>s===id);
      if(!shot)return false;
      const scene=doc?.scenes?.find(s=>s.shotId===id);
-     const base=scene?.objects?.find(o=>o.id===partId&&o.repeat);
+     const base=scene?.objects?.find(o=>o.id===partId&&(o.repeat||o.arrayParts));
      if(!base)return false;
-     const matches=findMatchingArrays(doc,id,partId);
+     const matches=base.repeat?findMatchingArrays(doc,id,partId):[partId];
      draft={base:structuredClone(base),
        parts:structuredClone(base.arrayParts||{objects:[],lights:[]}),absorbed:new Map()};
      source=structuredClone(doc);shotId=id;objectId=partId;linked=matches;
-     candidates=findArrayCompanions(doc,id,partId);
+     candidates=base.repeat?findArrayCompanions(doc,id,partId):[];
+     sourceTemplates=base.repeat?listAssemblyTemplates(doc,id)
+       .filter(t=>t.id!==partId):[];
+     selectOptions(templateSelect||makeEl('select'),
+       [['','Choose an array assembly…'],...sourceTemplates.map(t=>[t.id,t.label])]);
+     if(useTemplate)useTemplate.disabled=!sourceTemplates.length;
      selected='root';dragging=false;transform.enabled=true;setMode('translate');
      // Make recognized named assemblies visible immediately. The checkboxes
      // let the editor opt out, and Cancel remains completely non-destructive.
@@ -539,7 +633,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        includeCompanion(candidate);
      const group=arrayGroupKey(base.name);
      const title=byId('arrayEditTitle');
-     if(title)title.textContent=group?
+     if(title)title.textContent=!base.repeat?'Edit grouped object':group?
        'Edit '+base.name.trim().split(/\s+/).slice(0,2).join(' ')+' assembly':
        'Edit one object, update the array';
      modal.hidden=false;modal.tabIndex=-1;modal.focus();

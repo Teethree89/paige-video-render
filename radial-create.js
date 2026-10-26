@@ -4,11 +4,30 @@ import {CREATE_CATEGORIES,CREATE_DEFAULTS,validateCreateChoice} from './scene-as
 // Hover over a category for >= 500 ms = choose its subcategory.
 // Clicking a first-ring category = repeat last item in that category.
 export const CREATE_HOLD_MS=380,CREATE_HOVER_MS=500;
-export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,onStatus=()=>{}}){
+export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,
+ getObjectAt=()=>null,onObjectAction=()=>{},onStatus=()=>{}}){
  const menu=document.getElementById('sceneCreateMenu');
  const wheel=document.getElementById('sceneCreateWheel');
  const submenu=document.getElementById('sceneCreateSubmenu');
  const trigger=document.getElementById('sceneCreateMenuButton');
+ const objectMenu=document.getElementById('sceneObjectContextMenu');
+ let contextObject=null;
+ const hideObjectMenu=()=>{if(objectMenu)objectMenu.hidden=true;contextObject=null;};
+ function openObjectMenu(id,x,y){
+   if(!objectMenu)return;
+   hide();hideObjectMenu();contextObject=id;
+   const rect=viewport.getBoundingClientRect();
+   objectMenu.style.left=Math.max(8,Math.min(x-rect.left,rect.width-218))+'px';
+   objectMenu.style.top=Math.max(8,Math.min(y-rect.top,rect.height-126))+'px';
+   objectMenu.hidden=false;
+ }
+ objectMenu?.querySelectorAll('[data-object-action]').forEach(button=>{
+   button.addEventListener('click',event=>{
+     event.preventDefault();event.stopPropagation();
+     const action=button.dataset.objectAction,id=contextObject;
+     hideObjectMenu();if(id)onObjectAction(action,id);
+   });
+ });
  if(!viewport||!menu||!wheel||!submenu||!trigger)throw Error('Missing Create radial menu UI');
  let shown=false,press=null,hold=null,hover=null,submenuClosing=null,menuPoint=null,lastPointer=null;
  let last={category:'primitives',item:'box'};
@@ -116,6 +135,13 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
  function pointerDown(event){
    if(event.button!==2||!viewport.contains(event.target)||event.target.closest('button,input,select,textarea'))return;
    if(!canCreate())return;
+   const objectId=getObjectAt(event.clientX,event.clientY);
+   if(objectId){
+     event.preventDefault();event.stopPropagation();
+     press=null;cleanup();openObjectMenu(objectId,event.clientX,event.clientY);
+     return;
+   }
+   hideObjectMenu();
    // In Edit mode, secondary mouse input belongs to Create, not orbit.
    event.preventDefault();event.stopPropagation();
    press={x:event.clientX,y:event.clientY,started:performance.now(),held:false};
@@ -147,9 +173,12 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
  },true);
  document.addEventListener('pointerdown',event=>{
    if(shown&&!menu.contains(event.target)&&event.target!==trigger&&event.button!==2)hide();
+   if(objectMenu&&!objectMenu.hidden&&!objectMenu.contains(event.target)&&event.button!==2)
+     hideObjectMenu();
  },true);
  document.addEventListener('keydown',event=>{
    if(event.key==='Escape'&&shown){event.preventDefault();hide();}
+   if(event.key==='Escape'&&objectMenu&&!objectMenu.hidden)hideObjectMenu();
    const typing=event.target?.closest?.('input,textarea,select,[contenteditable=true]');
    if(event.key?.toLowerCase()==='l'&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey&&
      !event.altKey&&!event.repeat&&!typing){

@@ -52,8 +52,9 @@ test('AI proposals trim to 32, but a user may still edit an AI-authored scene be
 });
 test('complex vehicle preset remains editable and emission survives JSON round-trip',()=>{
  const doc=insertCreatedAsset(empty(),'chapter','vehicles','truck').document;
- assert.ok(doc.scenes[0].objects.length>=5);
+ assert.equal(doc.scenes[0].objects.length,1,'multi-part truck now selects and moves as one group');
  const first=doc.scenes[0].objects[0];
+ assert.ok(first.arrayParts.objects.length>=5,'every original piece remains independently editable');
  first.material.emissive='#ffaa00';first.material.emissiveIntensity=2.2;
  first.material.opacity=.75;
  const validated=validatePrimitiveDocument(doc);
