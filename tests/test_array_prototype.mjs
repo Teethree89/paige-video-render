@@ -1,5 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {register} from 'node:module';
+import {pathToFileURL} from 'node:url';
+if(process.env.THREE_NODE_MODULES){
+ const parent=pathToFileURL(process.env.THREE_NODE_MODULES.replace(/\\/?$/,'/')+'resolver.js').href;
+ register('data:text/javascript,'+encodeURIComponent(`export async function resolve(s,c,next){
+   return next(s,s==='three'||s.startsWith('three/')?{...c,parentURL:${JSON.stringify(parent)}}:c);}`));
+}
 import {makePrimitive,validatePrimitiveDocument} from '../primitive-schema.js';
 import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from '../array-prototype.js';
 import {insertCreatedAsset} from '../scene-asset-catalog.js';
