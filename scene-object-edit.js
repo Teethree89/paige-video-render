@@ -55,7 +55,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onSelect,onStatus,onArrayEdit,getInitialObjectId
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onSelect,onStatus,onArrayEdit,getInitialObjectId
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -75,6 +75,49 @@ export function setupSceneObjectEditing({
   let frameStart=null,draggingHandle=false,skipClick=false,highlight=null;
   let arrayHighlights=[],pendingArray=null;
   const arrayConfirm=el('arrayEditConfirm');
+  const makeArrayDialog=el('sceneMakeArrayDialog');
+  let pendingArrayObject=null;
+  function closeMakeArray(){
+    if(makeArrayDialog?.open)makeArrayDialog.close();
+    pendingArrayObject=null;
+  }
+  function openMakeArray(id){
+    if(!active||!makeArrayDialog||!select(id))return false;
+    const entry=getDocument()?.scenes?.find(s=>s.shotId===currentShot());
+    const obj=entry?.objects.find(o=>o.id===id);
+    if(!obj)return false;
+    pendingArrayObject={shotId:currentShot(),objectId:id};
+    const count=obj.repeat?.count||[3,1,1];
+    const spacing=obj.repeat?.spacing||[4,0,0];
+    for(const [field,values] of [['count',count],['spacing',spacing]])
+      makeArrayDialog.querySelectorAll('[data-array-'+field+']').forEach(input=>{
+        input.value=String(values[Number(input.dataset['array'+
+          field[0].toUpperCase()+field.slice(1)])]);});
+    const title=el('sceneMakeArrayTitle');
+    if(title)title.textContent=(obj.repeat?'EDIT ARRAY':'MAKE ARRAY')+' · '+obj.name;
+    const status=el('sceneMakeArrayStatus');if(status)status.textContent='';
+    if(typeof makeArrayDialog.showModal==='function')makeArrayDialog.showModal();
+    return true;
+  }
+  el('sceneMakeArrayCancel')?.addEventListener('click',closeMakeArray);
+  makeArrayDialog?.addEventListener('cancel',()=>{pendingArrayObject=null;});
+  makeArrayDialog?.addEventListener('keydown',event=>event.stopPropagation());
+  el('sceneMakeArraySave')?.addEventListener('click',()=>{
+    if(!pendingArrayObject)return;
+    const read=(name)=>[...makeArrayDialog.querySelectorAll('[data-array-'+name+']')]
+      .sort((a,b)=>Number(a.dataset['array'+name[0].toUpperCase()+name.slice(1)])-
+        Number(b.dataset['array'+name[0].toUpperCase()+name.slice(1)]))
+      .map(input=>Number(input.value));
+    try{
+      onMakeArray?.(pendingArrayObject.shotId,pendingArrayObject.objectId,
+        read('count'),read('spacing'));
+      closeMakeArray();refresh();
+      message('Array copies and spacing saved. Double-click a copy to edit its prototype.');
+    }catch(error){
+      const status=el('sceneMakeArrayStatus');
+      if(status)status.textContent='Cannot create array: '+error.message;
+    }
+  });
   const message=text=>{if(hint)hint.textContent=text;onStatus?.(text);};
   const currentShot=()=>getActiveShot()?.id||null;
   function clearHighlight(){
@@ -278,17 +321,20 @@ export function setupSceneObjectEditing({
   function askArrayEdit(shotId,objectId,clickedIndex){
     const source=getDocument();
     const sceneData=source?.scenes?.find(s=>s.shotId===shotId);
-    const base=sceneData?.objects?.find(o=>o.id===objectId&&o.repeat);
+    const base=sceneData?.objects?.find(o=>o.id===objectId&&(o.repeat||o.arrayParts));
     if(!base)return;
-    const matching=findMatchingArrays(source,shotId,objectId);
+    const matching=base.repeat?findMatchingArrays(source,shotId,objectId):[objectId];
     if(!matching.length)return;
-    const named=findArrayCompanions(source,shotId,objectId)
-      .filter(candidate=>candidate.nameMatch);
+    const named=base.repeat?findArrayCompanions(source,shotId,objectId)
+      .filter(candidate=>candidate.nameMatch):[];
     const all=[...new Set([...matching,...named.flatMap(candidate=>candidate.ids)])];
     clearArrayHighlights();
     let count=0;
     for(const id of all){
-      for(const [i,instance] of world.getArrayInstances(shotId,id).entries()){
+      const row=sceneData.objects.find(o=>o.id===id);
+      const instances=row?.repeat?world.getArrayInstances(shotId,id):
+        [world.getObjectNode(shotId,id)].filter(Boolean);
+      for(const [i,instance] of instances.entries()){
         const outline=createSelectionOutline(instance);
         if(!outline)continue;
         const clicked=id===objectId&&i===clickedIndex;
@@ -302,10 +348,10 @@ export function setupSceneObjectEditing({
     pendingArray={shotId,objectId,clickedIndex};
     if(el('arrayEditConfirmText'))
       el('arrayEditConfirmText').textContent=
-        'Edit '+base.name+'? The chosen copy and all '+count+
-        ' matching copies across '+all.length+' array group(s) are highlighted'+
+        'Edit '+base.name+'? The chosen '+(base.repeat?'copy':'object')+' and all '+count+
+        ' matching item(s) across '+all.length+' group(s) are highlighted'+
         (named.length?', including '+named.map(x=>x.name).join(', '):'')+'. '+
-        'The named companions open together in the prototype editor; only Save applies edits.';
+        'The editable components open together in the prototype editor; only Save applies edits.';
     if(arrayConfirm){
       arrayConfirm.hidden=false;
       if(typeof arrayConfirm.showModal==='function'&&!arrayConfirm.open)
@@ -315,9 +361,13 @@ export function setupSceneObjectEditing({
   canvas.addEventListener('dblclick',event=>{
     if(!active||event.button!==0||transform.dragging||draggingHandle)return;
     ndc(event);raycaster.setFromCamera(pointer,camera);
+    const entry=getDocument()?.scenes?.find(s=>s.shotId===currentShot());
     const hit=raycaster.intersectObjects(world.getPickableMeshes(currentShot()),false)
-      .find(x=>x.object?.userData?.primitiveArrayIndex!=null&&
-        x.object?.userData?.primitiveId);
+      .find(x=>{
+        const ud=x.object?.userData;
+        return !!ud?.primitiveId&&(ud.primitiveArrayIndex!=null||
+          entry?.objects.some(o=>o.id===ud.primitiveId&&o.arrayParts));
+      });
     if(!hit)return;
     const id=hit.object.userData.primitiveId;
     const index=hit.object.userData.primitiveArrayIndex;
@@ -352,9 +402,23 @@ export function setupSceneObjectEditing({
   updateButtons();
   return {
     get active(){return active;},
+    pickObjectAt(x,y){
+      if(!active)return null;
+      ndc({clientX:x,clientY:y});raycaster.setFromCamera(pointer,camera);
+      return raycaster.intersectObjects(world.getPickableMeshes(currentShot()),false)
+        .find(x=>x.object?.userData?.primitiveId)?.object.userData.primitiveId||null;
+    },
+    openMakeArray,
+    openGroupEditor(id){
+      const row=getDocument()?.scenes?.find(s=>s.shotId===currentShot())
+        ?.objects?.find(o=>o.id===id);
+      if(!row?.repeat&&!row?.arrayParts)return false;
+      if(!select(id))return false;
+      askArrayEdit(currentShot(),id,0);return true;
+    },
     get selectedId(){return selectedId;},
     setActive,refresh,select,setMode,duplicateSelected,deleteSelected,updateHighlight,focusSelectionIfOffscreen,clearArrayHighlights,
     dispose(){setActive(false,{skipExit:true});selectionPanel.restore();
-      transform.dispose?.();scene.remove(helper);clearHighlight();clearArrayHighlights();}
+      closeMakeArray();transform.dispose?.();scene.remove(helper);clearHighlight();clearArrayHighlights();}
   };
 }
