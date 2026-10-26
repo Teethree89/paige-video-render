@@ -414,3 +414,59 @@ test('array prototype renders matching additions and real light for every rotate
    assert.equal(names.length,6,'all copies are real exporter light nodes');
  }finally{world.dispose();}
 });
+
+
+test('double-clicking one array mesh outlines all repeats and asks before opening editor',async()=>{
+ const {setupSceneObjectEditing}=await import('../scene-object-edit.js');
+ const {world}=build();
+ const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(48,800/600,.1,1000);
+ camera.position.set(135,5,3);camera.lookAt(110,5,3);camera.updateMatrixWorld();
+ const handlers={},elements=new Map(),oldDocument=globalThis.document;
+ const element=id=>{
+   if(!elements.has(id))elements.set(id,{
+     hidden:true,open:false,textContent:'',disabled:false,
+     classList:{toggle(){}},style:{},attrs:{},callbacks:{},
+     setAttribute(name,value){this.attrs[name]=value;},
+     addEventListener(type,handler){this.callbacks[type]=handler;},
+     showModal(){this.open=true;},close(){this.open=false;},
+     click(){this.callbacks.click?.({preventDefault(){}});}
+   });
+   return elements.get(id);
+ };
+ globalThis.document={getElementById:element};
+ const canvas={style:{},
+   addEventListener(type,handler){handlers[type]=handler;},
+   removeEventListener(type){delete handlers[type];},
+   getBoundingClientRect(){return {left:0,top:0,width:800,height:600}},
+   setPointerCapture(){},releasePointerCapture(){}};
+ const orbit={enabled:true};
+ const calls=[];
+ try{
+   const editor=setupSceneObjectEditing({
+     scene,camera,canvas,orbitControls:orbit,world,
+     getActiveShot:()=>({id:'s1'}),getDocument:()=>document,
+     onEnter:()=>true,onExit:()=>{},
+     onArrayEdit:(shot,id,index)=>{calls.push([shot,id,index]);return true;},
+     onSelect:()=>{},onStatus:()=>{}
+   });
+   assert.equal(editor.setActive(true),true);
+   const prior=scene.children.length;
+   handlers.dblclick({button:0,clientX:400,clientY:300});
+   const dialog=element('arrayEditConfirm');
+   assert.equal(dialog.open,true,'double-click opens Yes/No confirm');
+   assert.match(element('arrayEditConfirmText').textContent,/12 matching copies/);
+   assert.equal(editor.selectedId,'windows');
+   assert.ok(scene.children.length>=prior+12,'all 12 instances get individual outline geometry');
+   assert.equal(calls.length,0,'editing does not start before confirmation');
+   element('arrayEditNo').click();
+   assert.equal(dialog.open,false);
+   assert.equal(calls.length,0);
+   handlers.dblclick({button:0,clientX:400,clientY:300});
+   element('arrayEditYes').click();
+   assert.equal(calls.length,1);
+   assert.equal(calls[0][0],'s1');assert.equal(calls[0][1],'windows');
+   assert.ok(Number.isInteger(calls[0][2])&&calls[0][2]>=0&&calls[0][2]<12);
+   editor.clearArrayHighlights();
+   editor.dispose();
+ }finally{globalThis.document=oldDocument;world.dispose();}
+});
