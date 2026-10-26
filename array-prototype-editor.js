@@ -50,6 +50,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    try{
      const doc=previewDocument();
      world.setDocument(doc,[sampleShot]);world.showShot(sampleShot);
+     world.setLightMarkersVisible(true);
      if(refit){
        const bounds=world.getBounds(sampleShot);
        const center=bounds?.center||new THREE.Vector3();
@@ -75,6 +76,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      camera.aspect=width/height;camera.updateProjectionMatrix();
    }
    orbit.update();
+   world.updateLightVisuals(camera,canvas.clientHeight||320);
    renderer.render(scene,camera);
    frame=requestAnimationFrame(animate);
  }
@@ -200,6 +202,29 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    partsSelect.value=selected;refreshFields();
  }
  partsSelect.addEventListener('change',()=>{selected=partsSelect.value;refreshFields();});
+ // Clicking a prototype mesh or light selects the same editable fields as the
+ // component dropdown. A drag remains an orbit operation, not selection.
+ const picker=new THREE.Raycaster(),mouse=new THREE.Vector2();
+ let pointerStart=null;
+ canvas.addEventListener('pointerdown',event=>{
+   if(event.button===0)pointerStart={x:event.clientX,y:event.clientY};
+ });
+ canvas.addEventListener('pointerup',event=>{
+   if(!draft||event.button!==0||!pointerStart)return;
+   const start=pointerStart;pointerStart=null;
+   if(Math.hypot(event.clientX-start.x,event.clientY-start.y)>5)return;
+   const rect=canvas.getBoundingClientRect();
+   mouse.set(2*(event.clientX-rect.left)/rect.width-1,
+     1-2*(event.clientY-rect.top)/rect.height);
+   picker.setFromCamera(mouse,camera);
+   const hit=picker.intersectObjects(world.getPickableMeshes(sampleShot),false)[0]?.object;
+   const partId=hit?.userData?.primitiveLightId?'light:'+hit.userData.primitiveLightId:
+     hit?.userData?.primitiveId===objectId?'root':
+     hit?.userData?.primitiveId?'object:'+hit.userData.primitiveId:null;
+   if(!partId)return;
+   selected=partId;refreshList();
+ });
+ canvas.addEventListener('pointercancel',()=>{pointerStart=null;});
  byId('arrayEditAdd')?.addEventListener('click',()=>{
    if(!draft)return;
    try{
