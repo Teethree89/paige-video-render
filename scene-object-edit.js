@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {setupSceneSelectionPanel} from './scene-selection-panel.js';
+import {findMatchingArrays} from './array-prototype.js';
+import {repeatOffsets} from './primitive-schema.js';
 
 // Construct the bounds in the selected object's LOCAL coordinates. A world
 // BoxHelper is axis aligned and visually slips away from rotated primitives.
@@ -53,7 +55,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onSelect,onStatus,getInitialObjectId
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onSelect,onStatus,onArrayEdit,getInitialObjectId
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -71,12 +73,19 @@ export function setupSceneObjectEditing({
   transform.detach();
   let active=false,selectedId=null,selectedShot=null,operation='translate';
   let frameStart=null,draggingHandle=false,skipClick=false,highlight=null;
+  let arrayHighlights=[],pendingArray=null;
+  const arrayConfirm=el('arrayEditConfirm');
   const message=text=>{if(hint)hint.textContent=text;onStatus?.(text);};
   const currentShot=()=>getActiveShot()?.id||null;
   function clearHighlight(){
     highlight?.dispose();highlight=null;
   }
-  function updateHighlight(){highlight?.update();}
+  function clearArrayHighlights(){
+    for(const outline of arrayHighlights)outline.dispose();
+    arrayHighlights=[];pendingArray=null;
+  }
+  function updateHighlight(){highlight?.update();
+    for(const outline of arrayHighlights)outline.update();}
   function showHighlight(object){
     clearHighlight();
     highlight=createSelectionOutline(object);
@@ -148,6 +157,7 @@ export function setupSceneObjectEditing({
       if(!select(getInitialObjectId?.()||null,false))select(null,false);
     }else{
       active=false;selectedId=null;selectedShot=null;frameStart=null;
+      closeArrayDialog();clearArrayHighlights();
       world.setLightMarkersVisible?.(false);
       transform.detach();transform.enabled=false;clearHighlight();
       orbitControls.enabled=true; // onExit restores cinematic state
@@ -251,6 +261,68 @@ export function setupSceneObjectEditing({
       hit?.primitiveLightId?'light::'+hit.primitiveLightId:hit?.primitiveId||null);
   });
   canvas.addEventListener('pointercancel',()=>{frameStart=null;skipClick=false;});
+  function closeArrayDialog(){
+    if(arrayConfirm?.open)arrayConfirm.close();
+    if(arrayConfirm)arrayConfirm.hidden=true;
+  }
+  function askArrayEdit(shotId,objectId,clickedIndex){
+    const source=getDocument();
+    const sceneData=source?.scenes?.find(s=>s.shotId===shotId);
+    const base=sceneData?.objects?.find(o=>o.id===objectId&&o.repeat);
+    if(!base)return;
+    const matching=findMatchingArrays(source,shotId,objectId);
+    if(!matching.length)return;
+    clearArrayHighlights();
+    let count=0;
+    for(const id of matching){
+      for(const [i,instance] of world.getArrayInstances(shotId,id).entries()){
+        const outline=createSelectionOutline(instance);
+        if(!outline)continue;
+        const clicked=id===objectId&&i===clickedIndex;
+        outline.line.material.color.set(clicked?0xffc079:0x77f6e5);
+        outline.line.material.opacity=clicked?1:.57;
+        outline.line.renderOrder=clicked?1003:1000;
+        scene.add(outline.line);arrayHighlights.push(outline);
+        count++;
+      }
+    }
+    pendingArray={shotId,objectId,clickedIndex};
+    if(el('arrayEditConfirmText'))
+      el('arrayEditConfirmText').textContent=
+        'Edit '+base.name+'? The chosen copy and all '+count+
+        ' matching copies in '+matching.length+' array group(s) are highlighted. '+
+        'Saving the prototype will update all of them.';
+    if(arrayConfirm){
+      arrayConfirm.hidden=false;
+      if(typeof arrayConfirm.showModal==='function'&&!arrayConfirm.open)
+        arrayConfirm.showModal();
+    }
+  }
+  canvas.addEventListener('dblclick',event=>{
+    if(!active||event.button!==0||transform.dragging||draggingHandle)return;
+    ndc(event);raycaster.setFromCamera(pointer,camera);
+    const hit=raycaster.intersectObjects(world.getPickableMeshes(currentShot()),false)
+      .find(x=>x.object?.userData?.primitiveArrayIndex!=null&&
+        x.object?.userData?.primitiveId);
+    if(!hit)return;
+    const id=hit.object.userData.primitiveId;
+    const index=hit.object.userData.primitiveArrayIndex;
+    if(!select(id))return;
+    askArrayEdit(currentShot(),id,index);
+  });
+  el('arrayEditNo')?.addEventListener('click',()=>{
+    closeArrayDialog();clearArrayHighlights();
+  });
+  el('arrayEditYes')?.addEventListener('click',()=>{
+    const target=pendingArray;
+    closeArrayDialog();
+    if(target&&!onArrayEdit?.(target.shotId,target.objectId,target.clickedIndex))
+      clearArrayHighlights();
+  });
+  arrayConfirm?.addEventListener?.('cancel',event=>{
+    event.preventDefault();closeArrayDialog();clearArrayHighlights();
+  });
+  arrayConfirm?.addEventListener?.('keydown',event=>event.stopPropagation());
   view?.addEventListener('click',()=>setActive(false));
   edit?.addEventListener('click',()=>setActive(true));
   move?.addEventListener('click',()=>setMode('translate'));
@@ -260,8 +332,8 @@ export function setupSceneObjectEditing({
   return {
     get active(){return active;},
     get selectedId(){return selectedId;},
-    setActive,refresh,select,setMode,deleteSelected,updateHighlight,focusSelectionIfOffscreen,
+    setActive,refresh,select,setMode,deleteSelected,updateHighlight,focusSelectionIfOffscreen,clearArrayHighlights,
     dispose(){setActive(false,{skipExit:true});selectionPanel.restore();
-      transform.dispose?.();scene.remove(helper);clearHighlight();}
+      transform.dispose?.();scene.remove(helper);clearHighlight();clearArrayHighlights();}
   };
 }

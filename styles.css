@@ -377,3 +377,49 @@ html,body{font-size:14px}
  background:#0b3037ee;color:#b7fff4;border:1px solid #5eb7ad;border-radius:8px;
  box-shadow:0 8px 30px #000b;font:11px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}
 .scene-create-feedback.error{background:#3b222af2;color:#ffe2e3;border-color:#b96972}
+
+/* Two-step confirmation keeps all repeat copies highlighted until decided. */
+.array-confirm{background:#102330;color:#edfdfa;border:1px solid #5e9b9e;
+ border-radius:12px;box-shadow:0 22px 70px #000b;max-width:min(460px,94vw);padding:22px}
+.array-confirm::backdrop{background:#050d16a8;backdrop-filter:blur(4px)}
+.array-confirm p{color:#bcd5dc;line-height:1.55;font-size:13px}
+.array-confirm .confirm-actions{display:flex;justify-content:flex-end;gap:10px}
+.array-confirm button{padding:9px 17px;border-radius:6px}
+.array-editor-backdrop[hidden]{display:none!important}
+.array-editor-backdrop{position:fixed;inset:0;z-index:11050;background:#040b12dd;
+ backdrop-filter:blur(7px);display:grid;place-items:center;padding:15px}
+.array-editor-shell{width:min(1050px,96vw);max-height:96vh;overflow:hidden;
+ border:1px solid #3e8190;border-radius:12px;background:#0d1c29;color:#ecfbfd;
+ display:flex;flex-direction:column;box-shadow:0 28px 90px #000d}
+.array-editor-header{padding:17px 22px;display:flex;align-items:flex-start;
+ justify-content:space-between;gap:12px;border-bottom:1px solid #365268}
+.array-editor-header h2{font-size:18px;margin:5px 0}
+.array-editor-header p{font-size:12px;line-height:1.5;color:#a5c9d1;margin:4px 0 0}
+.array-editor-header button{flex-shrink:0;padding:8px 17px}
+.array-editor-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);min-height:0;overflow:auto}
+.array-editor-viewport{min-height:365px;position:relative;display:flex;flex-direction:column;background:#10212c}
+.array-editor-viewport canvas{display:block;width:100%;height:100%;min-height:360px;flex:1;touch-action:none}
+.array-editor-viewport p{position:absolute;bottom:10px;left:16px;font-size:11px;
+ pointer-events:none;text-shadow:0 1px 5px #000e;color:#c2ebed}
+.array-editor-controls{padding:15px 19px;max-height:68vh;overflow:auto;border-left:1px solid #375166}
+.array-editor-controls .field{display:flex;flex-direction:column;gap:4px;font-size:11px;
+ color:#bed8e1;margin-bottom:10px;min-width:0}
+.array-editor-controls select,.array-editor-controls input{min-width:0;max-width:100%;
+ background:#102e3d;color:#ebffff;border:1px solid #446777;border-radius:5px;padding:7px}
+.array-editor-controls .two-input{gap:8px}
+.array-editor-controls .array-property{display:flex;justify-content:space-between;
+ gap:10px;align-items:center;font-size:11px;color:#bcd8df;margin:8px 0}
+.array-editor-controls .array-property input{width:55%;min-width:95px}
+.array-editor-controls .array-xyz{font-size:10px;color:#9cc4ce;margin:12px 0}
+.array-editor-controls .array-xyz label{display:inline-flex;flex-direction:column;
+ width:31%;margin:5px 1% 0 0;gap:5px}
+.array-editor-controls #arrayEditProperties h3{font-size:12px;margin:15px 0 8px}
+.array-editor-controls #arrayEditProperties p{font-size:11px;color:#8eb6c3}
+.array-editor-footer{border-top:1px solid #365268;padding:12px 22px;
+ display:flex;gap:12px;align-items:center;justify-content:space-between}
+.array-editor-footer span{font-size:11px;color:#a5c8d4}
+.array-editor-footer button{padding:10px 17px;font-weight:700}
+@media(max-width:720px){.array-editor-layout{grid-template-columns:1fr}
+ .array-editor-controls{border-left:0;border-top:1px solid #365268;max-height:none}
+ .array-editor-viewport,.array-editor-viewport canvas{min-height:210px;height:240px}
+ .array-editor-shell{max-height:97vh}}

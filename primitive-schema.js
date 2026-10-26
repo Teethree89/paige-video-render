@@ -194,14 +194,35 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       const layer=item.layer==null||item.layer===''||item.layer==='manual'?undefined:item.layer;
       if(layer!==undefined&&!ENVIRONMENT_LAYERS.includes(layer))fail(id+' has unsupported environment layer');
       const repeat=item.repeat==null?undefined:repeatSpec(item.repeat,id);
-      instances+=repeat?repeat.count[0]*repeat.count[1]*repeat.count[2]:1;
+      const arrayCopies=repeat?repeat.count[0]*repeat.count[1]*repeat.count[2]:1;
+      const partCount=item.arrayParts?.objects?.length||0;
+      instances+=arrayCopies*(1+partCount);
       if(instances>LIMITS.instancesPerScene)
         fail(shotId+' has more than '+LIMITS.instancesPerScene+' rendered copies');
       const points=item.primitive==='extrude'?footprint(item.points,id):undefined;
+      // Components describe ONE array prototype, stored in its local axes.
+      // Every repeated copy gets its own rendered children and lights.
+      // A nested array, or recursively nested prototype, is intentionally
+      // refused; an entire array still counts toward the rendered-copy cap.
+      let arrayParts;
+      if(item.arrayParts!=null){
+        if(!repeat)fail(id+' array components require an actual repeat array');
+        const raw=item.arrayParts;
+        if(!raw||typeof raw!=='object'||Array.isArray(raw)||
+          !Array.isArray(raw.objects)||!Array.isArray(raw.lights))
+          fail(id+' arrayParts must contain objects and lights arrays');
+        if(raw.objects.some(part=>part.repeat!=null||part.arrayParts!=null))
+          fail(id+' array components cannot contain nested arrays');
+        const sceneParts=validatePrimitiveDocument({schemaVersion:1,scenes:[
+          {shotId:'array_parts',objects:raw.objects,lights:raw.lights}
+        ]},['array_parts']).scenes[0];
+        arrayParts={objects:sceneParts.objects,lights:sceneParts.lights||[]};
+      }
       return {id,name:displayName(item.name,item.primitive+' '+id),
         primitive:item.primitive,position,rotation,scale,
         ...(points?{points}:{}),
         ...(repeat?{repeat}:{}),
+        ...(arrayParts?{arrayParts}:{}),
         ...(layer===undefined?{}:{layer}),
         material};
     });

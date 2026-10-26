@@ -17,6 +17,7 @@ import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupSceneObjectEditing} from './scene-object-edit.js';
+import {setupArrayPrototypeEditor} from './array-prototype-editor.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
 import {createScenePostprocessor,applyShotEffects,effectsForShot,vignetteStyle} from './scene-effects.js';
@@ -78,7 +79,7 @@ const studioPost=createScenePostprocessor(renderer,scene,camera);
 studioPost.setSize(viewport.clientWidth,viewport.clientHeight);
 const cameraBoundsCache=new Map();
 let sceneEffectsPanel=null,lastEffectsShot=null;
-let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
+let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,arrayPrototypeEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
   cameraBoundsCache.clear();
@@ -238,7 +239,20 @@ async function boot(){
      primitiveEditor?.selectLight(id.slice(14)):
      id?.startsWith('light::')?
      primitiveEditor?.selectLight(id.slice(7)):primitiveEditor?.selectObject(id),
-   onStatus:message=>{el('primitiveStatus').textContent=message;}
+   onStatus:message=>{el('primitiveStatus').textContent=message;},
+   onArrayEdit:(shotId,id)=>arrayPrototypeEditor?.open(shotId,id)||false
+ });
+ arrayPrototypeEditor=setupArrayPrototypeEditor({
+   getDocument:()=>sequence.primitiveScenes,
+   getShotIds:()=>sequence.shots.map(shot=>shot.id),
+   onSave:doc=>{
+     sceneObjectEditor?.clearArrayHighlights?.();
+     sequence.primitiveScenes=doc;
+     syncPrimitiveWorld();saveLocal();renderWorld();
+     sceneObjectEditor?.refresh();
+     el('primitiveStatus').textContent='Array prototype saved to every matching instance.';
+   },
+   onClose:()=>sceneObjectEditor?.clearArrayHighlights?.()
  });
  const referenceSampler=(shot,at,detail)=>sampleReferenceMedia(
    referenceBuilder?.sourceForShot(shot.id),shot,at,detail);
