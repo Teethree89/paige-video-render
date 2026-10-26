@@ -9,7 +9,7 @@ const mk=(tag,txt,attributes={})=>{
   return e;
 };
 export function setupTimelineEditing({
-  getSequence,getShotId,onCommit,onSeek,onUndo,onRedo,canUndo,canRedo,
+  getSequence,onCommit,onSeek,onUndo,onRedo,canUndo,canRedo,
   canEdit=()=>true,sourceDuration=()=>null,getSelectedKey=()=>null
 }){
  const tracks=document.getElementById('tracks'),toolbar=document.querySelector('.timeline-toolset');
@@ -61,21 +61,23 @@ export function setupTimelineEditing({
  }
  function note(text){status.textContent=text;}
  function selected(){
-   const seq=getSequence();
-   if(state.chapter&&seq.shots.some(s=>s.id===state.chapter))return state.chapter;
-   return getShotId()?.id||null;
+   return state.chapter&&getSequence().shots.some(s=>s.id===state.chapter)?state.chapter:null;
  }
  function refresh(){
    const available=canEdit();
    undo.disabled=!available||!canUndo();redo.disabled=!available||!canRedo();
    for(const b of [copy,paste,remove,earlier,later,ripple,snap])b.disabled=!available;
-   paste.disabled=!available||!state.clipboard;
+   const id=selected(),seq=getSequence(),index=seq.shots.findIndex(s=>s.id===id);
+   copy.disabled=!available||!id;
+   paste.disabled=!available||!state.clipboard||!id;
+   for(const node of document.querySelectorAll('.shot-item'))
+     node.classList.toggle('selected',node.dataset.shotId===id);
+   
    ripple.setAttribute('aria-pressed',String(state.ripple));
    snap.setAttribute('aria-pressed',String(state.snap));
-   const id=selected(),seq=getSequence(),index=seq.shots.findIndex(s=>s.id===id);
    earlier.disabled=!available||index<=0;
    later.disabled=!available||index<0||index===seq.shots.length-1;
-   remove.disabled=!available||seq.shots.length<=1;
+   remove.disabled=!available||!id||seq.shots.length<=1;
    const active=seq.shots.find(x=>x.id===id);
    chapterField.hidden=!active;
    if(active&&document.activeElement!==durationInput)durationInput.value=(active.end-active.start).toFixed(2);
@@ -169,13 +171,22 @@ export function setupTimelineEditing({
    suppressClick=false;event.preventDefault();event.stopImmediatePropagation();
  },true);
  tracks.addEventListener('pointerdown',event=>{
-   if(event.button!==0||!canEdit())return;
-   const hit=dragTarget(event);if(!hit||!hit.id)return;
+   // If a re-render removed the previous drag target before click fired, do
+   // not suppress an unrelated later click.
+   suppressClick=false;
+   if(event.button!==0)return;
+   const hit=dragTarget(event);
+   if(!hit||!hit.id){
+     if(state.chapter!==null){state.chapter=null;note('Select a chapter to copy, paste, resize or move.');refresh();}
+     return;
+   }
+   if(hit.type.startsWith('chapter'))grabChapter(hit.id);
+   else if(state.chapter!==null){state.chapter=null;refresh();}
+   if(!canEdit())return;
    const kind=hit.type.startsWith('chapter')?'scenes':hit.type==='camera'?'camera':'text';
    if(state.locks.has(kind))return;
    if(hit.type==='chapter-resize'&&state.locks.size)return note('Unlock camera and text tracks to resize a chapter.');
    if(hit.type==='chapter-move'&&state.locks.size)return note('Unlock all tracks to reorder chapters.');
-   if(hit.type.startsWith('chapter'))grabChapter(hit.id);
    const seq=getSequence(),chapter=seq.shots.find(s=>s.id===hit.id);
    const key=seq.camera.find(k=>k.id===hit.id)||seq.text.find(k=>k.id===hit.id);
    state.drag={...hit,startX:event.clientX,startTime:position(event),
@@ -183,8 +194,9 @@ export function setupTimelineEditing({
        hit.type==='camera'?key.at:hit.type==='text'?key.start:chapter.start,
      element:event.target.closest('.shot-item,.key-marker,.text-item'),
      moving:false};
-   tracks.setPointerCapture(event.pointerId);
-   // Do not cancel normal click selection until the pointer actually moves.
+   // Capture on the actual clip/key, not the tracks parent: capturing on
+   // tracks retargets the subsequent click and breaks single-click selection.
+   state.drag.element?.setPointerCapture(event.pointerId);
  },true);
  tracks.addEventListener('pointermove',event=>{
    const drag=state.drag;if(!drag)return;
