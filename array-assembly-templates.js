@@ -30,9 +30,19 @@ export function listAssemblyTemplates(source,shotId){
  const doc=validatePrimitiveDocument(source);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
  if(!entry)return [];
- const out=[],seen=new Set();
- for(const base of entry.objects.filter(x=>x.repeat)){
-   const key=arrayGroupKey(base.name);
+ const out=[],seen=new Set(),byName=new Map();
+ // The exterior contains hundreds of unrelated repeated arrays. Avoid
+ // geometry comparisons for names that cannot possibly form an assembly.
+ for(const item of entry.objects.filter(x=>x.repeat)){
+   const key=arrayGroupKey(item.name);
+   if(!key)continue;
+   if(!byName.has(key))byName.set(key,[]);
+   byName.get(key).push(item);
+ }
+ for(const [key,roots] of byName){
+   if(roots.length<2&&!roots.some(x=>x.arrayParts?.objects?.length))continue;
+   // Match once per named family, not once per repeated object in the scene.
+   for(const base of roots.slice(0,1)){
    const others=findArrayCompanions(doc,shotId,base.id).filter(x=>x.nameMatch);
    const ids=[base.id,...others.map(c=>c.id)];
    const assembled=ids.map(id=>entry.objects.find(x=>x.id===id));
@@ -45,6 +55,7 @@ export function listAssemblyTemplates(source,shotId){
    const labels=components.map(c=>c.name.split(/\s+/).at(-1)).join(' + ');
    out.push({id:base.id,key,label:prefix+' — '+labels,
      parts:components,rootIds:ids});
+   }
  }
  return out.sort((a,b)=>a.label.localeCompare(b.label));
 }
