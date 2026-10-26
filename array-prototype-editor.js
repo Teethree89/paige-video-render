@@ -27,6 +27,21 @@ export function framePrototypeCamera(camera,orbit,bounds){
  return radius;
 }
 
+// Helpers are never attached to the primitive-world root. This keeps them
+// present in the editor only, not in exported GLB or After Effects packages.
+export function createPrototypeGuides(scene){
+ const grid=new THREE.GridHelper(20,20,0x6795a7,0x35556b);
+ grid.name='Prototype ground grid (editor only)';
+ grid.material.transparent=true;
+ grid.material.opacity=.48;
+ grid.material.depthWrite=false;
+ scene.add(grid);
+ const axes=new THREE.AxesHelper(2);
+ axes.name='Prototype XYZ axes (editor only)';
+ scene.add(axes);
+ return {grid,axes};
+}
+
 export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose=()=>{}}){
  const byId=id=>document.getElementById(id);
  const modal=byId('arrayEditModal');
@@ -41,17 +56,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  const scene=new THREE.Scene();
  scene.background=new THREE.Color(0x10212c);
  scene.add(new THREE.HemisphereLight(0xcdeaff,0x344047,2));
- // World-space ground reference and origin axes belong to the mini preview
- // only; neither is stored with the scene or included in GLB/AE exports.
- const grid=new THREE.GridHelper(20,20,0x6795a7,0x35556b);
- grid.name='Prototype ground grid (editor only)';
- grid.material.transparent=true;
- grid.material.opacity=.48;
- grid.material.depthWrite=false;
- scene.add(grid);
- const axes=new THREE.AxesHelper(2);
- axes.name='Prototype XYZ axes (editor only)';
- scene.add(axes);
+ const {grid,axes}=createPrototypeGuides(scene);
  const key=new THREE.DirectionalLight(0xffffff,2.6);
  key.position.set(8,14,12);scene.add(key);
  const camera=new THREE.PerspectiveCamera(46,1,.1,2000);
