@@ -105,7 +105,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveMetalness').value=selected.material.metalness;
       el('primitiveRoughness').value=selected.material.roughness;
       el('primitiveShapeReadOnly').textContent=shapeSummary(selected);
-      for(const input of editor.querySelectorAll('[data-prim]')){
+      for(const input of document.querySelectorAll('[data-prim]')){
         const [field,index]=input.dataset.prim.split('.');
         input.value=selected[field][Number(index)];
       }
@@ -138,7 +138,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveLightDistance').value=chosen.distance??0;
       el('primitiveLightAngle').value=chosen.angle??.6;
       el('primitiveLightPenumbra').value=chosen.penumbra??.3;
-      for(const input of editor.querySelectorAll('[data-light]')){
+      for(const input of document.querySelectorAll('[data-light]')){
         const [key,index]=input.dataset.light.split('.');
         input.value=chosen[key]?.[Number(index)]??0;
       }
@@ -223,7 +223,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       if(item)item.material[key.toLowerCase()]=key==='Color'?event.target.value:Number(event.target.value);
     }));
   }
-  for(const input of editor.querySelectorAll('[data-prim]')){
+  for(const input of document.querySelectorAll('[data-prim]')){
     input.addEventListener('change',event=>apply(entry=>{
       const item=entry.objects.find(o=>o.id===selectedId);if(!item)return;
       const [field,index]=input.dataset.prim.split('.');
@@ -253,7 +253,6 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       if(selectedId)layerFilter.value='all';
       onDocumentChange(validatePrimitiveDocument(result.document,allowed()));
       refresh();onSelectionChange(selectedId||(selectedLightId?'light::'+selectedLightId:null));
-      editor.open=true;
       status.textContent='Created '+preset.replaceAll('-',' ')+' in '+shot.name+'.'+
         (category==='lights'?' Move the bulb gizmo in Edit mode; it illuminates nearby surfaces.':'');
       return true;
@@ -292,7 +291,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       else{delete light.angle;delete light.penumbra;}
     }
   }));
-  for(const input of editor.querySelectorAll('[data-light]'))
+  for(const input of document.querySelectorAll('[data-light]'))
     input.addEventListener('change',event=>{
       const [key,index]=event.target.dataset.light.split('.');
       editLight(light=>{light[key][Number(index)]=Number(event.target.value);});
