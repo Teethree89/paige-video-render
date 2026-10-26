@@ -531,7 +531,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const group=arrayGroupKey(base.name);
      const title=byId('arrayEditTitle');
      if(title)title.textContent=group?
-       'Edit '+base.name.trim().split(/\\s+/).slice(0,2).join(' ')+' assembly':
+       'Edit '+base.name.trim().split(/\s+/).slice(0,2).join(' ')+' assembly':
        'Edit one object, update the array';
      modal.hidden=false;modal.tabIndex=-1;modal.focus();
      updateAssemblySummary();renderCompanions();
