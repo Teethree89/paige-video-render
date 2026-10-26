@@ -501,9 +501,9 @@ test('array prototype mini viewport frames the saved mesh with finite camera coo
  assert.ok(projected.z>-1&&projected.z<1,'source must be between near and far planes');
 
  const {grid,axes}=createPrototypeGuides(scene);
- assert.equal(grid.isGridHelper,true);
+ assert.equal(grid.type,'GridHelper');
  assert.equal(grid.visible,true);
- assert.equal(axes.isAxesHelper,true);
+ assert.equal(axes.type,'AxesHelper');
  const box=new THREE.Box3().setFromObject(source);
  grid.position.set(bounds.center[0],box.min.y-.035,bounds.center[2]);
  grid.scale.setScalar(Math.max(.5,Math.min(50,radius*4/20)));
