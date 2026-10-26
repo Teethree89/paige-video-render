@@ -184,3 +184,35 @@ test('scene light types and values remain bounded but light count is unlimited',
     ['bright',/array/]
   ])assert.throws(()=>lit(lights),pattern);
 });
+
+
+
+test('degree-only editor controls round-trip exact quarter turns without rewriting legacy saved rotations',async()=>{
+ const {radiansToDegrees,degreesToRadians}=await import('../primitive-schema.js');
+ assert.equal(radiansToDegrees(Math.PI/2),90);
+ assert.equal(radiansToDegrees(-Math.PI/4),-45);
+ assert.ok(Math.abs(degreesToRadians(90)-Math.PI/2)<1e-12);
+ const legacy=makePrimitive('box','legacy');
+ legacy.rotation=[0,1.5708,0];
+ legacy.repeat={count:[3,1,1],spacing:[3,0,0]};
+ const saved=validatePrimitiveDocument({schemaVersion:1,scenes:[
+   {shotId:'draft_001',objects:[legacy]}
+ ]});
+ assert.equal(saved.scenes[0].objects[0].rotation[1],1.5708);
+ assert.equal(saved.scenes[0].objects[0].instanceRotation,undefined);
+ const rotated=structuredClone(saved);
+ rotated.scenes[0].objects[0].instanceRotation=[0,degreesToRadians(90),0];
+ const after=validatePrimitiveDocument(rotated,['draft_001']).scenes[0].objects[0];
+ assert.equal(after.rotation[1],1.5708);
+ assert.equal(radiansToDegrees(after.instanceRotation[1]),90);
+ const {readFile}=await import('node:fs/promises');
+ const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
+ const inspector=await readFile(new URL('../primitive-editor.js',import.meta.url),'utf8');
+ const mini=await readFile(new URL('../array-prototype-editor.js',import.meta.url),'utf8');
+ assert.match(html,/Rotation \(degrees °\)/);
+ assert.match(html,/Cone angle \(degrees °\)/);
+ assert.match(inspector,/item\.repeat\?'instanceRotation'/);
+ assert.match(inspector,/degreesToRadians\(Number\(event\.target\.value\)\)/);
+ assert.match(mini,/Rotation of each copy \(°\)/);
+ assert.match(mini,/Local rotation \(°\)/);
+});
