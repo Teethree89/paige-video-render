@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {makePrimitive,validatePrimitiveDocument} from '../primitive-schema.js';
-import {findMatchingArrays,findArrayCompanions,saveArrayPrototype} from '../array-prototype.js';
+import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from '../array-prototype.js';
 import {insertCreatedAsset} from '../scene-asset-catalog.js';
 
 const row=(id,name,position,rotation=[0,0,0])=>({
@@ -150,4 +150,65 @@ test('XYZ and rotation edits move matching array holders by deltas, not absolute
  assert.deepEqual(modified.scenes[0].objects[0].position,[1,4,11]);
  assert.deepEqual(modified.scenes[0].objects[2].position,[1,4,-9]);
  assert.equal(modified.scenes[0].objects[2].rotation[1],Math.PI+.3);
+});
+
+// Representative small fixtures grounded in the imported Atoms-to-AI scene.
+// The imported project is NOT copied into repository tests.
+const namedRow=(name,id,primitive,position,count,spacing)=>{
+ const obj=makePrimitive(primitive,id,position);
+ obj.name=name;obj.repeat={count,spacing};
+ return obj;
+};
+const realWorldPairs=()=>({schemaVersion:1,scenes:[{shotId:'exterior',objects:[
+ namedRow('Right Ave Trunks','right_ave_trunks','cylinder',[70.5,1.6,-5],[1,1,14],[0,0,10.5]),
+ namedRow('Right Ave Crowns','right_ave_crowns','sphere',[70.5,4.2,-5],[1,1,14],[0,0,10.5]),
+ namedRow('Right Street Poles','right_street_poles','cylinder',[72.5,4.2,-10],[1,1,11],[0,0,14]),
+ namedRow('Right Street Lamps','right_street_lamps','box',[73.3,8.4,-10],[1,1,11],[0,0,14]),
+ namedRow('Front Ave Trunks','front_ave_trunks','cylinder',[-10,1.6,69.5],[16,1,1],[10.5,0,0]),
+ namedRow('Front Ave Crowns','front_ave_crowns','sphere',[-10,4.2,69.5],[16,1,1],[10.5,0,0]),
+ namedRow('Front Street Poles','front_street_poles','cylinder',[-12,4.2,70.2],[12,1,1],[14,0,0]),
+ namedRow('Front Street Lamps','front_street_lamps','box',[-12,8.4,71],[12,1,1],[14,0,0]),
+ namedRow('Side Bay Doors','side_bay_doors','box',[48.08,2.4,-16],[1,1,5],[0,0,7.5]),
+ namedRow('Side Bay Downlights','side_bay_downlights','box',[48.3,4.8,-16],[1,1,5],[0,0,7.5]),
+ namedRow('East Chiller Banks','east_banks','box',[22,14.6,-64],[8,1,2],[5.6,0,13]),
+ namedRow('East Chiller Fans','east_fans','cylinder',[22,15.55,-64],[8,1,2],[5.6,0,13]),
+ namedRow('East Chiller Plant Roof Beams','east_beams','box',[22,13.9,-64],[12,1,1],[4,0,0])
+ ]}]});
+test('two-word grouping matches named layouts from real exterior and ignores other nearby arrays',()=>{
+ const doc=realWorldPairs();
+ for(const [root,expected] of [
+  ['right_ave_crowns','right_ave_trunks'],
+  ['right_street_lamps','right_street_poles'],
+  ['front_ave_trunks','front_ave_crowns'],
+  ['front_street_poles','front_street_lamps'],
+  ['side_bay_downlights','side_bay_doors'],
+  ['east_banks','east_fans']
+ ]){
+  const named=findArrayCompanions(doc,'exterior',root).filter(x=>x.nameMatch);
+  assert.deepEqual(named.map(x=>x.id),[expected],root+' must detect only its companion');
+ }
+ assert.equal(arrayGroupKey('RIGHT street lamps'),'right street');
+ assert.equal(arrayGroupKey('Right Ave Crowns'),'right ave');
+ assert.equal(arrayGroupKey('Right Street'),null);
+ assert.equal(findArrayCompanions(doc,'exterior','east_banks')
+   .some(x=>x.id==='east_beams'),false,'same name prefix cannot merge mismatched repeats');
+});
+
+test('named streetlight array merge is atomic, preserving each light position and parent count',()=>{
+ const source=realWorldPairs(),before=structuredClone(source);
+ const companion=findArrayCompanions(source,'exterior','right_street_poles')
+   .find(x=>x.nameMatch&&x.id==='right_street_lamps');
+ assert.ok(companion);
+ const pole=source.scenes[0].objects.find(x=>x.id==='right_street_poles');
+ const after=saveArrayPrototype(source,['exterior'],'exterior',pole.id,{
+   name:pole.name,scale:pole.scale,material:pole.material,
+   parts:{objects:[{...companion.part,id:'lamp_component'}],lights:[]}
+ },[pole.id],companion.ids);
+ assert.deepEqual(source,before);
+ const parent=after.scenes[0].objects.find(o=>o.id===pole.id);
+ assert.equal(parent.repeat.count[2],11);
+ assert.equal(parent.arrayParts.objects[0].id,'lamp_component');
+ assert.deepEqual(parent.arrayParts.objects[0].position.map(x=>Math.round(x*10)/10),[.8,4.2,0]);
+ assert.equal(after.scenes[0].objects.some(o=>o.id==='right_street_lamps'),false);
+ assert.equal(after.scenes[0].objects.some(o=>o.id==='right_ave_trunks'),true);
 });
