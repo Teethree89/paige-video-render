@@ -271,7 +271,7 @@ export function replaceAssemblyContents(source,allowedShots,shotId,destinationId
  const local=p=>xyz(p).sub(xyz(sourceRoot.position))
    .applyQuaternion(inverse).toArray();
  const localRotation=p=>euler(inverse.clone().multiply(quat(p)));
- const used=new Set(),objects=[],lights=[],order=[];
+ const used=new Set(),objects=[],lights=[],order=[],partRemap=new Map();
  for(const part of template.parts){
    const id=childKey(part.id,used);
    const suffix=assemblyDescriptor(part.name,template.prefix);
@@ -283,6 +283,7 @@ export function replaceAssemblyContents(source,allowedShots,shotId,destinationId
      ...(part.points?{points:structuredClone(part.points)}:{})
    });
    order.push('object:'+id);
+   partRemap.set('object:'+part.id,'object:'+id);
  }
  for(const part of template.lights){
    const id=childKey(part.id,used);
@@ -291,6 +292,16 @@ export function replaceAssemblyContents(source,allowedShots,shotId,destinationId
      position:local(part.position),
      ...(part.target?{target:local(part.target)}:{})});
    order.push('light:'+id);
+   partRemap.set('light:'+part.id,'light:'+id);
+ }
+ // Copy authored Outliner order too (lights may be interleaved between meshes).
+ if(sourceRoot.primitive==='group'&&sourceRoot.arrayParts?.order?.length){
+   const reordered=sourceRoot.arrayParts.order.map(key=>{
+     const [kind,id]=key.split(':');
+     return partRemap.get(kind+':'+(kind==='object'?sourceRoot.id+'::'+id:id));
+   });
+   if(reordered.length===order.length&&reordered.every(Boolean))
+     order.splice(0,order.length,...reordered);
  }
  if(!objects.length&&!lights.length)throw Error('Source assembly has no components');
  for(const rootId of roots){
