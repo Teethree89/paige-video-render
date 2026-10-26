@@ -362,3 +362,11 @@ html,body{font-size:14px}
 .reference-card #referenceStill[hidden]{display:none!important}
 .reference-card #referenceMediaStatus{font-size:10px;color:#8ab0bd;
   line-height:1.35;margin:5px 0 3px;overflow-wrap:anywhere}
+
+/* Separate, accessible object and generation tabs (not scroll jump links). */
+.inspector [role="tabpanel"][hidden]{display:none!important}
+.inspector .inspector-jump [role="tab"][aria-selected="true"]{
+ background:#225565;color:#d5fff9;border-color:#72d7ca}
+.inspector .inspector-jump [role="tab"]:focus-visible{outline:2px solid #a3fff5;outline-offset:2px}
+#inspectorGenerationPanel{padding:6px 16px 22px;min-width:0}
+#inspectorGenerationPanel .ai-scene-panel{margin:8px 0 0;display:block}
