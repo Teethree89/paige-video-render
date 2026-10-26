@@ -137,7 +137,10 @@ export function createPrimitiveWorld(scene) {
           layerRoot.userData.layer=key;
           layerGroups.set(key,layerRoot);root.add(layerRoot);
         }
-        const shape=geometry(item),material=surface(item.material);
+        // An assembly parent is a real Three.Group with no phantom mesh.
+        const groupOnly=item.primitive==='group';
+        const shape=groupOnly?null:geometry(item);
+        const material=groupOnly?null:surface(item.material);
         const tag=node=>{
           node.userData.primitiveId=item.id;
           node.userData.primitiveType=item.primitive;
@@ -148,20 +151,21 @@ export function createPrimitiveWorld(scene) {
         // One copy is the object itself. An array is a group at the object's
         // transform holding one plain mesh per copy (shared geometry and
         // material), so GLB/After Effects see ordinary nodes, not instancing.
-        const hasParts=!!(item.arrayParts?.objects?.length||item.arrayParts?.lights?.length);
+        const hasParts=groupOnly||!!(item.arrayParts?.objects?.length||item.arrayParts?.lights?.length);
         // Composite single assets also need a transform holder so moving the
         // selection moves every part; only actual repeats are indexed arrays.
         const holder=offsets.length===1&&!hasParts?null:tag(new THREE.Group());
         const instances=[];
         let directMesh=null;
         offsets.forEach((offset,index)=>{
-          const mesh=tag(new THREE.Mesh(shape,material));
-          mesh.castShadow=true;
-          mesh.receiveShadow=true;
-          mesh.userData.primitiveArrayIndex=item.repeat?index:null;
-          if(!holder)directMesh=mesh;
-          mesh.name=holder?item.name+' '+(index+1):item.name;
-          mesh.scale.set(...item.scale);
+          const mesh=groupOnly?null:tag(new THREE.Mesh(shape,material));
+          if(mesh){
+            mesh.castShadow=true;mesh.receiveShadow=true;
+            mesh.userData.primitiveArrayIndex=item.repeat?index:null;
+            if(!holder)directMesh=mesh;
+            mesh.name=holder?item.name+' '+(index+1):item.name;
+            mesh.scale.set(...item.scale);
+          }
           // With prototype components, this is an actual repeated assembly:
           // a shared instance group carries the source mesh, additions and
           // shot-local punctual lights in exactly the same local frame.
@@ -170,25 +174,35 @@ export function createPrimitiveWorld(scene) {
             instance.name=item.name+' instance '+(index+1);
             instance.userData.primitiveArrayIndex=item.repeat?index:null;
             instance.position.set(...offset);
-            instance.add(mesh);
-            for(const part of item.arrayParts.objects){
-              const extra=new THREE.Mesh(geometry(part),surface(part.material));
-              extra.name=part.name+' '+(index+1);
-              extra.userData.primitiveId=item.id;
-              extra.userData.primitiveArrayIndex=item.repeat?index:null;
-              extra.userData.primitiveArrayPartId=part.id;
-              extra.position.set(...part.position);
-              extra.rotation.set(...part.rotation);
-              extra.scale.set(...part.scale);
-              extra.castShadow=true;extra.receiveShadow=true;
-              instance.add(extra);
-            }
-            for(const spec of item.arrayParts.lights){
-              const shadows=spec.type!=='point'&&arrayShadowSlots>0;
-              if(shadows){arrayShadowSlots--;usedShadowSlots++;}
-              const node=light(spec,shadows);
-              node.userData.primitiveArrayPartId=spec.id;
-              instance.add(node);
+            if(mesh)instance.add(mesh);
+            const objects=item.arrayParts?.objects||[],lights=item.arrayParts?.lights||[];
+            const members=new Map([
+              ...objects.map(part=>['object:'+part.id,{kind:'object',part}]),
+              ...lights.map(part=>['light:'+part.id,{kind:'light',part}])
+            ]);
+            const order=item.arrayParts?.order||[...members.keys()];
+            for(const id of order){
+              const member=members.get(id);
+              if(!member)continue;
+              const {kind,part}=member;
+              if(kind==='object'){
+                const extra=new THREE.Mesh(geometry(part),surface(part.material));
+                extra.name=part.name+' '+(index+1);
+                extra.userData.primitiveId=item.id;
+                extra.userData.primitiveArrayIndex=item.repeat?index:null;
+                extra.userData.primitiveArrayPartId=part.id;
+                extra.position.set(...part.position);
+                extra.rotation.set(...part.rotation);
+                extra.scale.set(...part.scale);
+                extra.castShadow=true;extra.receiveShadow=true;
+                instance.add(extra);
+              }else{
+                const shadows=part.type!=='point'&&arrayShadowSlots>0;
+                if(shadows){arrayShadowSlots--;usedShadowSlots++;}
+                const node=light(part,shadows);
+                node.userData.primitiveArrayPartId=part.id;
+                instance.add(node);
+              }
             }
             holder.add(instance);instances.push(instance);
           }else{
