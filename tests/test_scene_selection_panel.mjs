@@ -99,6 +99,20 @@ test('Create quick-repeat can remember and repeat a light (not just props)',()=>
    assert.deepEqual(created.map(x=>x.category),['lights','lights']);
    assert.deepEqual(created.map(x=>x.item),['point-warm','point-warm']);
    assert.match(store.get('paige-create-recents-v1'),/"category":"lights"/);
+   // L bypasses the wheel entirely and uses the last actual cursor point.
+   viewport.dispatch('pointermove',{target:viewport,clientX:417,clientY:251});
+   let prevented=false;
+   for(const listener of handlers.keydown||[])
+     listener({key:'l',target:viewport,shiftKey:false,ctrlKey:false,metaKey:false,
+       altKey:false,repeat:false,preventDefault(){prevented=true;}});
+   assert.equal(prevented,true);
+   assert.deepEqual(created[2],{category:'lights',item:'point-warm',origin:[0,0,0]});
+   assert.equal(created.length,3);
+   // The shortcut must never create anything while a field is being edited.
+   for(const listener of handlers.keydown||[])
+     listener({key:'l',target:{closest:()=>true},shiftKey:false,ctrlKey:false,
+       metaKey:false,altKey:false,repeat:false,preventDefault(){throw Error('typing');}});
+   assert.equal(created.length,3);
  }finally{
    globalThis.document=previousDocument;
    globalThis.window=previousWindow;
@@ -120,11 +134,46 @@ test('Create button is Edit-only in transport, not over the review controls',asy
  assert.match(html,/id="sceneEditFields"/);
  assert.match(obj,/createButton\.hidden=!active/);
  assert.match(obj,/selectionPanel\.sync\(active\?selectedId:null\)/);
- assert.match(app,/if\(created&&category==='lights'\)sceneObjectEditor\?\.focusSelectionIfOffscreen\(\)/);
+ assert.match(app,/sceneObjectEditor\?\.focusSelectionIfOffscreen\(\)/);
  assert.match(app,/node=>!!node\.userData\.primitiveId/);
  assert.match(obj,/function focusSelectionIfOffscreen\(/);
  assert.match(css,/\.scene-create-trigger\[hidden\]\{display:none!important\}/);
  assert.match(css,/\.scene-edit-tools\{position:absolute;left:15px/);
  assert.match(primitive,/fieldInputs\('\[data-light\]'\)/);
  assert.match(primitive,/fieldInputs\('\[data-prim\]'\)/);
+});
+
+
+test('Objects and AI generation are separate accessible tab panels with no scroll jump',async()=>{
+ const [html,workspace,app]=await Promise.all(
+  ['index.html','workspace-controls.js','app.js'].map(
+    file=>readFile(new URL('../'+file,import.meta.url),'utf8')));
+ for(const id of ['inspectorObjectsButton','inspectorGenerationButton'])
+   assert.match(html,new RegExp('id="'+id+'" role="tab"'));
+ for(const id of ['inspectorObjectsPanel','inspectorGenerationPanel'])
+   assert.match(html,new RegExp('id="'+id+'"'));
+ assert.match(html,/role="tablist"/);
+ assert.match(workspace,/generationPanel\.appendChild\(aiPanel\)/);
+ assert.match(workspace,/objectPanel\.hidden=generation/);
+ assert.match(workspace,/generationPanel\.hidden=!generation/);
+ assert.match(workspace,/tab\.setAttribute\('aria-selected',String\(selected\)\)/);
+ assert.match(workspace,/setInspectorTab\(target,\{focus:true\}\)/);
+ assert.doesNotMatch(workspace,/aiScenePanel'\)\?\.scrollIntoView/);
+ assert.match(app,/inspectorGenerationButton'\)\?\.getAttribute\('aria-selected'\)/);
+});
+test('L shortcut and light creation report proof of both runtime nodes in viewport',async()=>{
+ const [app,radial,world,primitive,html]=await Promise.all(
+  ['app.js','radial-create.js','primitive-world.js','primitive-editor.js','index.html']
+  .map(file=>readFile(new URL('../'+file,import.meta.url),'utf8')));
+ assert.match(radial,/create\('lights',perCategory\.lights\|\|'point-white',at\)/);
+ assert.match(radial,/lastPointer=\{x:event\.clientX,y:event\.clientY\}/);
+ assert.match(radial,/typeof result==='string'\?result/);
+ assert.match(app,/const node=primitiveWorld\.getLightNode\(shotId,lightId\)/);
+ assert.match(app,/const marker=primitiveWorld\.getLightMarker\(shotId,lightId\)/);
+ assert.match(app,/const visible=primitiveWorld\.isLightMarkerVisible\(shotId,lightId\)/);
+ assert.match(app,/Light saved \('/);
+ assert.match(primitive,/getLastCreateError:/);
+ assert.match(html,/id="sceneCreateFeedback"/);
+ assert.match(world,/function getLightNode\(shotId,id\)/);
+ assert.match(world,/function isLightMarkerVisible\(shotId,id\)/);
 });
