@@ -461,3 +461,7 @@ html,body{font-size:14px}
 .array-template-label-row select,.array-template-label-row input{min-height:30px;width:100%;padding:5px;background:#0d2030;border:1px solid #526678;border-radius:4px;color:#eff7fb}
 .array-template-label-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 .array-template-label-actions button{padding:9px 12px;border-radius:5px}
+
+/* Keep source/preview errors visible beside the Replace button. */
+.array-template-status{margin:6px 0 10px;padding:8px 10px;border-left:3px solid #6797aa;background:#122837;color:#d8eaf3;line-height:1.45}
+.array-template-status.error{border-left-color:#f4a075;background:#372527;color:#ffe8dc;font-weight:650}

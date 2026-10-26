@@ -625,3 +625,28 @@ test('many repeated spotlights still shine and export without exceeding GPU shad
      'all 32 real lights remain in the exported GLTF nodes');
  }finally{world.dispose();}
 });
+
+
+test('Replace Assembly always resolves a real template when available, never blank placeholder',async()=>{
+ const {resolveAssemblyTemplateSelection}=await import('../array-prototype-editor.js');
+ const templates=[
+   {id:'right_street',label:'Right Street Poles + Lamps'},
+   {id:'right_ave',label:'Right Ave Trunks + Crowns'}
+ ];
+ assert.equal(resolveAssemblyTemplateSelection(templates,'').id,'right_street',
+   'blank placeholder cannot make an enabled action silently do nothing');
+ assert.equal(resolveAssemblyTemplateSelection(templates,'wrong_id').id,'right_street',
+   'stale browser select values recover to a valid template');
+ assert.equal(resolveAssemblyTemplateSelection(templates,'right_ave').id,'right_ave',
+   'explicit user selection is never overridden');
+ assert.equal(resolveAssemblyTemplateSelection([],''),null);
+ const {readFile}=await import('node:fs/promises');
+ const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
+ const editor=await readFile(new URL('../array-prototype-editor.js',import.meta.url),'utf8');
+ assert.match(html,/id="arrayEditTemplateStatus"[^>]*role="status"/,
+   'replacement failure must be displayed beside the action');
+ assert.match(editor,/if\(!rerender\(\{refit:true\}\)\)/,
+   'preview failure must block staging rather than showing fake success');
+ assert.match(editor,/draft=previousDraft;candidates=previousCandidates/,
+   'failed preview restores the previous draft');
+});

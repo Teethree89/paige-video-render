@@ -11,6 +11,13 @@ import {listAssemblyTemplates,replaceArrayAssembly,saveAssemblyTemplateDraft,ass
 const sampleShot='arrayPreview';
 const finite=value=>Number.isFinite(Number(value))?Number(value):null;
 
+// Never treat a visible, enabled Replace action as a no-op: older projects
+// and browser restorations may leave the select on the blank placeholder.
+export function resolveAssemblyTemplateSelection(templates,selectedId){
+ if(!Array.isArray(templates)||!templates.length)return null;
+ return templates.find(item=>item.id===selectedId)||templates[0];
+}
+
 // getBounds().center is a plain [x,y,z] tuple, NOT a THREE.Vector3.
 // Vector3.copy(array) silently writes undefined X/Y/Z, then the WebGL
 // camera matrix becomes NaN and the viewport draws only its clear color.
@@ -176,7 +183,11 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      }
      attachSelected();
      setStatus('Changes are temporary until Save. W to move / E to rotate.');
-   }catch(error){setStatus('Preview: '+error.message);}
+     return true;
+   }catch(error){
+     setStatus('Preview: '+error.message);
+     return false;
+   }
  }
  function stop(){
    if(frame)cancelAnimationFrame(frame);
@@ -474,6 +485,14 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  byId('arrayEditDuplicatePart')?.addEventListener('click',duplicatePart);
  const templateSelect=byId('arrayEditTemplate');
  const useTemplate=byId('arrayEditUseTemplate');
+ const templateStatus=byId('arrayEditTemplateStatus');
+ const updateTemplateStatus=(message,{error=false}={})=>{
+   if(templateStatus){
+     templateStatus.textContent=message;
+     templateStatus.classList.toggle('error',!!error);
+   }
+   if(error)setStatus(message);
+ };
  const labelPanel=byId('arrayTemplateLabelPanel');
  const labelRowsRoot=byId('arrayTemplateLabelRows');
  const replaceLights=byId('arrayEditReplaceLights');
@@ -543,6 +562,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    candidates=draft.base.repeat?findArrayCompanions(source,shotId,objectId):[];
    resetTemplateDialog();renderCompanions();refreshList();
    updateAssemblySummary();rerender({refit:true});
+   updateTemplateStatus('Template discarded. Select an assembly to try again.');
    setStatus('Template changes discarded. Original destination still untouched.');
  }
  byId('arrayTemplateLabelCancel')?.addEventListener('click',discardTemplate);
@@ -570,8 +590,23 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    setStatus('All component labels confirmed. Save to apply the assembly to every copy.');
  });
  function stageTemplate(){
-   const template=sourceTemplates.find(t=>t.id===templateSelect?.value);
-   if(!draft?.base.repeat||!template)return;
+   // The first option used to be an empty placeholder while the button was
+   // enabled: clicking it silently returned here with no user feedback.
+   if(!draft?.base.repeat){
+     updateTemplateStatus('Select a repeated array before replacing its assembly.',
+       {error:true});return;
+   }
+   const template=resolveAssemblyTemplateSelection(sourceTemplates,templateSelect?.value);
+   if(template&&templateSelect)templateSelect.value=template.id;
+   if(!template){
+     updateTemplateStatus(sourceTemplates.length?
+       'Choose an available assembly from the dropdown first.':
+       'No source assemblies are available in this chapter.',{error:true});
+     return;
+   }
+   updateTemplateStatus('Loading '+template.label+' into the prototype preview…');
+   const previousDraft=structuredClone(draft);
+   const previousCandidates=[...candidates];
    try{
      const rootOriginal=originalRoot();
      const destPrefix=rootOriginal.name.trim().split(/\s+/).slice(0,2).join(' ');
@@ -629,11 +664,34 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      }
      selected='root';
      renderCompanions();refreshList();updateAssemblySummary();
-     rerender({refit:true});renderTemplateLabels();
+     if(!rerender({refit:true}))
+       throw Error('The replacement geometry could not be drawn in the preview.');
+     renderTemplateLabels();
+     if(!labelPanel||labelPanel.hidden)
+       throw Error('The component identification panel could not be opened.');
+     updateTemplateStatus(labelRows.length+' component(s) loaded. Identify and confirm each piece below.');
      setStatus('All '+labelRows.length+' components are visible. Hover each row or mesh, confirm labels, then Save.');
-   }catch(error){setStatus('Template replacement blocked: '+error.message);}
+     labelPanel.scrollIntoView?.({block:'nearest',behavior:'smooth'});
+   }catch(error){
+     // Preparation is transactional. A failed preview MUST NOT leave a staged
+     // document that can accidentally be committed by the ordinary Save.
+     draft=previousDraft;candidates=previousCandidates;
+     resetTemplateDialog();renderCompanions();refreshList();
+     updateAssemblySummary();rerender({refit:true});
+     updateTemplateStatus('Could not load '+template.label+': '+error.message,
+       {error:true});
+   }
  }
  useTemplate?.addEventListener('click',stageTemplate);
+ templateSelect?.addEventListener('change',()=>{
+   if(!sourceTemplates.length)return;
+   const selection=sourceTemplates.find(t=>t.id===templateSelect.value);
+   if(useTemplate)useTemplate.disabled=!selection;
+   updateTemplateStatus(selection?
+     'Ready to load '+selection.label+' ('+selection.parts.length+' meshes; '+
+       selection.lights.length+' light(s)).':
+     'Choose an assembly to preview its pieces.');
+ });
  canvas.addEventListener('pointermove',event=>{
    if(!draft||!labelPanel||labelPanel.hidden||transform.dragging)return;
    const rect=canvas.getBoundingClientRect();
@@ -719,7 +777,16 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        .filter(t=>t.id!==partId):[];
      selectOptions(templateSelect||makeEl('select'),
        [['','Choose an array assembly…'],...sourceTemplates.map(t=>[t.id,t.label])]);
-     if(useTemplate)useTemplate.disabled=!sourceTemplates.length;
+     // Do not have an enabled action whose input is the empty placeholder.
+     // Preselect the first valid source: immediately usable with one click.
+     if(templateSelect)templateSelect.value=sourceTemplates[0]?.id||'';
+     if(useTemplate)useTemplate.disabled=!base.repeat||!sourceTemplates.length;
+     updateTemplateStatus(!base.repeat?'Assembly replacement is available for arrays only.':
+       sourceTemplates.length?
+         'Ready to load '+sourceTemplates[0].label+' ('+
+           sourceTemplates[0].parts.length+' meshes; '+
+           sourceTemplates[0].lights.length+' light(s)).':
+         'No compatible assembly templates found in this chapter.');
      selected='root';dragging=false;transform.enabled=true;setMode('translate');
      // Make recognized named assemblies visible immediately. The checkboxes
      // let the editor opt out, and Cancel remains completely non-destructive.
