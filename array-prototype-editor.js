@@ -3,7 +3,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
-import {findMatchingArrays,findArrayCompanions,saveArrayPrototype} from './array-prototype.js';
+import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from './array-prototype.js';
 import {repeatOffsets} from './primitive-schema.js';
 
 const sampleShot='arrayPreview';
@@ -317,6 +317,32 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    if(!options.some(([id])=>id===selected))selected='root';
    partsSelect.value=selected;refreshFields();attachSelected();setMode(operation);
  }
+ function includeCompanion(companion){
+   if(draft.absorbed.has(companion.id))return;
+   const part=structuredClone(companion.part);
+   part.id=uniquePartId(companion.id);
+   draft.parts.objects.push(part);
+   draft.absorbed.set(companion.id,{ids:[...companion.ids],partId:part.id});
+ }
+ function excludeCompanion(companion){
+   const original=draft.absorbed.get(companion.id);
+   if(!original)return;
+   draft.parts.objects=draft.parts.objects.filter(p=>p.id!==original.partId);
+   draft.absorbed.delete(companion.id);
+   if(selected==='object:'+original.partId)selected='root';
+ }
+ function updateAssemblySummary(){
+   if(!draft||!info)return;
+   const base=originalRoot();
+   const copies=linked.reduce((sum,key)=>{
+     const row=source.scenes.find(s=>s.shotId===shotId).objects.find(o=>o.id===key);
+     return sum+repeatOffsets(row.repeat).length;
+   },0);
+   const included=draft.absorbed.size;
+   info.textContent=copies+' instances · '+linked.length+' source array(s) · '+
+     included+' companion array(s) included in the editable preview. '+
+     'Only Save writes the assembled copies.';
+ }
  function renderCompanions(){
    const holder=byId('arrayEditCompanions');
    if(!holder)return;
@@ -333,21 +359,15 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        const row=source.scenes.find(s=>s.shotId===shotId).objects.find(o=>o.id===id);
        return n+repeatOffsets(row.repeat).length;
      },0);
-     line.append(check,makeEl('span',companion.name+' · '+count+' copies'));
+     const label=makeEl('span',(companion.nameMatch?'Named assembly · ':'Nearby array · ')+
+       companion.name+' · '+count+' copies');
+     line.append(check,label);
      check.addEventListener('change',()=>{
        if(check.checked){
-         const part=structuredClone(companion.part);
-         part.id=uniquePartId(companion.id);
-         draft.parts.objects.push(part);
-         draft.absorbed.set(companion.id,{ids:[...companion.ids],partId:part.id});
-         selected='object:'+part.id;
-       }else{
-         const item=draft.absorbed.get(companion.id);
-         draft.parts.objects=draft.parts.objects.filter(p=>p.id!==item?.partId);
-         draft.absorbed.delete(companion.id);
-         if(selected==='object:'+item?.partId)selected='root';
-       }
-       refreshList();rerender({refit:true});
+         includeCompanion(companion);
+         selected='object:'+draft.absorbed.get(companion.id).partId;
+       }else excludeCompanion(companion);
+       updateAssemblySummary();refreshList();rerender({refit:true});
      });
      holder.append(line);
    }
@@ -504,15 +524,18 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      source=structuredClone(doc);shotId=id;objectId=partId;linked=matches;
      candidates=findArrayCompanions(doc,id,partId);
      selected='root';dragging=false;transform.enabled=true;setMode('translate');
-     const copies=matches.reduce((sum,key)=>{
-       const item=scene.objects.find(o=>o.id===key);
-       return sum+repeatOffsets(item.repeat).length;
-     },0);
-     if(info)info.textContent='Editing '+copies+
-       ' instances across '+matches.length+' matching source array(s).'+
-       (candidates.length?' '+candidates.length+' nearby companion group(s) detected.':'');
+     // Make recognized named assemblies visible immediately. The checkboxes
+     // let the editor opt out, and Cancel remains completely non-destructive.
+     for(const candidate of candidates.filter(candidate=>candidate.nameMatch))
+       includeCompanion(candidate);
+     const group=arrayGroupKey(base.name);
+     const title=byId('arrayEditTitle');
+     if(title)title.textContent=group?
+       'Edit '+base.name.trim().split(/\\s+/).slice(0,2).join(' ')+' assembly':
+       'Edit one object, update the array';
      modal.hidden=false;modal.tabIndex=-1;modal.focus();
-     renderCompanions();refreshList();rerender({refit:true});animate();
+     updateAssemblySummary();renderCompanions();
+     refreshList();rerender({refit:true});animate();
      return true;
    },
    close,
