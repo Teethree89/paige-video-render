@@ -11,6 +11,13 @@ import {listAssemblyTemplates,replaceArrayAssembly,saveAssemblyTemplateDraft,ass
 const sampleShot='arrayPreview';
 const finite=value=>Number.isFinite(Number(value))?Number(value):null;
 
+// Never treat a visible, enabled Replace action as a no-op: older projects
+// and browser restorations may leave the select on the blank placeholder.
+export function resolveAssemblyTemplateSelection(templates,selectedId){
+ if(!Array.isArray(templates)||!templates.length)return null;
+ return templates.find(item=>item.id===selectedId)||templates[0];
+}
+
 // getBounds().center is a plain [x,y,z] tuple, NOT a THREE.Vector3.
 // Vector3.copy(array) silently writes undefined X/Y/Z, then the WebGL
 // camera matrix becomes NaN and the viewport draws only its clear color.
@@ -589,7 +596,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      updateTemplateStatus('Select a repeated array before replacing its assembly.',
        {error:true});return;
    }
-   const template=sourceTemplates.find(t=>t.id===templateSelect?.value);
+   const template=resolveAssemblyTemplateSelection(sourceTemplates,templateSelect?.value);
+   if(template&&templateSelect)templateSelect.value=template.id;
    if(!template){
      updateTemplateStatus(sourceTemplates.length?
        'Choose an available assembly from the dropdown first.':
