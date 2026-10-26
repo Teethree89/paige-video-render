@@ -267,6 +267,9 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    }catch(error){setStatus('Save blocked: '+error.message);}
  });
  modal.addEventListener('keydown',event=>{
+   // While editing an isolated prototype, W/E/L/Delete, timeline shortcuts
+   // and the Create wheel must never mutate the underlying live chapter.
+   event.stopPropagation();
    if(event.key==='Escape'){event.preventDefault();close();}
  });
  return {
