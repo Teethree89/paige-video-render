@@ -21,6 +21,7 @@ import {setupArrayPrototypeEditor} from './array-prototype-editor.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
 import {createScenePostprocessor,applyShotEffects,effectsForShot,vignetteStyle} from './scene-effects.js';
+import {createRenderDiagnostics} from './render-diagnostics.js';
 import {editPrimitiveTransform,deletePrimitiveObject,duplicateSceneSelection,setSceneObjectRepeat,editLightTransform,editLightTarget,deleteLightObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
@@ -85,6 +86,12 @@ const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene,{batchRepeats:true});
 const studioPost=createScenePostprocessor(renderer,scene,camera);
 studioPost.setSize(viewport.clientWidth,viewport.clientHeight);
+const renderStats=createRenderDiagnostics({
+  renderer,scene,root:el('renderDiagnostics'),
+  getDocument:()=>sequence?.primitiveScenes,
+  getShotId:()=>sequence?shotAt(playhead)?.id:null,
+  getBatches:id=>primitiveWorld.getRenderBatchStats(id)
+});
 previewQuality.addEventListener('change',()=>{
  renderer.setPixelRatio(previewPixelRatio(previewQuality.value,window.devicePixelRatio));
  studioPost.setSize(viewport.clientWidth,viewport.clientHeight);
@@ -92,7 +99,7 @@ previewQuality.addEventListener('change',()=>{
  try{localStorage.setItem('atoms-ai-preview-quality-v1',previewQuality.value);}catch{}
 });
 const cameraBoundsCache=new Map();
-let sceneEffectsPanel=null,lastEffectsShot=null;
+let sceneEffectsPanel=null,lastEffectsShot=null,lastShadowEnabled=true;
 let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,arrayPrototypeEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function syncPrimitiveWorld(){
@@ -633,6 +640,9 @@ function seek(t,opts={}){if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
 function renderWorld(){requestViewportRender();const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
  world.update(playhead,shot.id,custom);
  const profile=applyShotEffects(scene,renderer,effectsForShot(sequence,shot.id),{review:!!reviewShotId});
+ // Cached static shadow maps must be repainted after restoring master shadows.
+ if(profile.shadows.enabled&&!lastShadowEnabled)primitiveWorld.invalidateShadows(shot.id);
+ lastShadowEnabled=profile.shadows.enabled;
  studioPost.configure(profile);
  const vignette=viewport.querySelector('.vignette');
  if(vignette){vignette.style.opacity='1';vignette.style.background=vignetteStyle(profile);}
@@ -644,12 +654,12 @@ function renderWorld(){requestViewportRender();const shot=shotAt(playhead);const
 function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  // The modal has its own viewport. Avoid rendering the covered full scene
  // at the same time (and doing two sets of lighting/post-processing work).
- if(arrayPrototypeEditor?.active){requestAnimationFrame(animate);return;}
+ if(arrayPrototypeEditor?.active){renderStats.noteIdle(now);requestAnimationFrame(animate);return;}
  if(playing){let next=playhead+dt*speed;if(next>=sequence.duration){next=sequence.duration;setPlaying(false);}seek(next,{fromFrame:true});if(!sequence.referenceSequence&&referenceVideo.readyState>=2&&Math.abs(referenceVideo.currentTime-playhead)>.15){try{referenceVideo.currentTime=playhead;}catch(e){}}}
  if(controls.enabled)controls.update();
  // Paused camera, scene and lighting are unchanged. Keep processing input
  // and orbit damping, but do not keep saturating the GPU with idle frames.
- if(!previewFrames.consume(playing)){requestAnimationFrame(animate);return;}
+ if(!previewFrames.consume(playing)){renderStats.noteIdle(now);requestAnimationFrame(animate);return;}
  // Keep light source/aim markers large enough to see at ANY shot scale;
  // their physical coordinates and directional rays remain untouched.
  if(sceneObjectEditor?.active)primitiveWorld.updateLightVisuals(camera,viewport.clientHeight);
@@ -657,7 +667,10 @@ function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  // after scene rebuilds, and when orbiting; it is never an exported object.
  sceneObjectEditor?.updateHighlight();
  primitiveWorld.prepareRender(shotAt(playhead).id);
- studioPost.render();requestAnimationFrame(animate);
+ renderStats.beginFrame();
+ studioPost.render();
+ renderStats.endFrame(performance.now());
+ requestAnimationFrame(animate);
 }
 function renderShotName(){let shot=shotAt(playhead),i=sequence.shots.indexOf(shot);el('shotTitle').textContent=String(i+1).padStart(2,'0')+' / '+shot.title;el('stageName').textContent=shot.name;el('shotIndex').textContent=String(i+1).padStart(2,'0');for(const node of document.querySelectorAll('.chapter-item'))node.classList.toggle('current',node.dataset.shot===shot.id);}
 function renderOverlays(){for(let item of sequence.text){let dom=overlayEls.get(item.id);if(!dom)continue;let active=playhead>=item.start&&playhead<item.end,fade=.58,fadeOut=.55;let opacity=active?Math.min(1,curveEasing((playhead-item.start)/fade,{mode:item.textFade||'linear'}),curveEasing((item.end-playhead)/fadeOut,{mode:item.textFade||'linear'})):0;dom.style.opacity=String(clamp(opacity,0,1));dom.style.display=opacity>0?'block':'none';dom.style.left=item.x+'%';dom.style.top=item.y+'%';dom.style.textAlign=item.align||'center';dom.className='scene-caption '+(item.size||'medium')+' '+(item.tone||'white');dom.querySelector('.main-copy').textContent=item.value;dom.querySelector('.sub-copy').textContent=item.subtitle||'';}

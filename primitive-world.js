@@ -523,8 +523,12 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
     const at=point=>point.map((n,i)=>n+root.position.getComponent(i));
     return {position:at(entry.camera.position),target:at(entry.camera.target),fov:entry.camera.fov};
   }
+  function getRenderBatchStats(shotId=activeShotId){
+    const batches=renderBatches.get(shotId)||[];
+    return {batches:batches.length,instances:batches.reduce((count,{batch})=>count+batch.count,0)};
+  }
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
   return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,getLightNode,isLightMarkerVisible,getLightTargetMarker,updateLightVisuals,setLightMarkersVisible,getPickableMeshes,
-    getSceneForExport,getDocument,getArrayInstances,invalidateShadows,invalidateGeometry,prepareRender,dispose};
+    getSceneForExport,getDocument,getArrayInstances,getRenderBatchStats,invalidateShadows,invalidateGeometry,prepareRender,dispose};
 }
