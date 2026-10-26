@@ -52,7 +52,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onDeleteLight,onSelect,onStatus,getInitialObjectId
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onSelect,onStatus,getInitialObjectId
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -89,29 +89,34 @@ export function setupSceneObjectEditing({
     move?.setAttribute('aria-pressed',String(operation==='translate'));
     rotate?.setAttribute('aria-pressed',String(operation==='rotate'));
     if(erase)erase.disabled=!active||!selectedId;
-    if(rotate)rotate.disabled=!!selectedId?.startsWith('light::');
+    if(rotate)rotate.disabled=!!selectedId?.startsWith('light::')||
+      !!selectedId?.startsWith('light-target::');
     if(name)name.textContent=selectedId?(()=>{
       const entry=getDocument()?.scenes?.find(s=>s.shotId===selectedShot);
-      return selectedId.startsWith('light::')?
-        entry?.lights?.find(l=>l.id===selectedId.slice(7))?.name||selectedId:
-        entry?.objects?.find(o=>o.id===selectedId)?.name||selectedId;
+      return selectedId.startsWith('light-target::')?
+        (entry?.lights?.find(l=>l.id===selectedId.slice(14))?.name||selectedId)+' · Aim target':
+        selectedId.startsWith('light::')?
+          entry?.lights?.find(l=>l.id===selectedId.slice(7))?.name||selectedId:
+          entry?.objects?.find(o=>o.id===selectedId)?.name||selectedId;
     })():'No object selected';
     if(canvas)canvas.style.cursor=active?'crosshair':'';
   }
   function select(id,notify=true){
     if(!active)return false;
     const shotId=currentShot();
+    const targetId=id?.startsWith('light-target::')?id.slice(14):null;
     const lightId=id?.startsWith('light::')?id.slice(7):null;
-    const node=lightId?world.getLightMarker(shotId,lightId):
+    const node=targetId?world.getLightTargetMarker(shotId,targetId):
+      lightId?world.getLightMarker(shotId,lightId):
       id?world.getObjectNode(shotId,id):null;
     if(id&&!node)return false;
     selectedId=id||null;selectedShot=shotId;
     transform.detach();clearHighlight();
     if(node){
-      if(lightId)setMode('translate');
+      if(lightId||targetId)setMode('translate');
       transform.attach(node);showHighlight(node);
-      message(lightId?
-        'Drag X/Y/Z to move this light. Adjust its color, type and beam in Scene Lights.':
+      message(targetId?'Drag X/Y/Z to aim this light. The direction ray updates as you move the target.':
+        lightId?'Drag X/Y/Z to move this light. Follow its direction ray to the aim target.':
         'Drag X / Y / Z gizmo handles · Orbit on empty space · W move / E rotate · Delete removes');
     }else message('Click an editable shape to select it; drag to orbit and scroll to zoom.');
     updateButtons();if(notify)onSelect?.(selectedId);
@@ -119,7 +124,8 @@ export function setupSceneObjectEditing({
   }
   function setMode(value){
     if(!['translate','rotate'].includes(value))return;
-    if(value==='rotate'&&selectedId?.startsWith('light::'))return;
+    if(value==='rotate'&&(selectedId?.startsWith('light::')||
+      selectedId?.startsWith('light-target::')))return;
     operation=value;transform.setMode(value);
     // World axes for movement; local rings for rotation.
     transform.setSpace(value==='translate'?'world':'local');
@@ -152,7 +158,9 @@ export function setupSceneObjectEditing({
     if(selectedShot!==currentShot()){setActive(false);return;}
     if(selectedId){
       const id=selectedId;
-      if(!(id.startsWith('light::')?world.getLightMarker(selectedShot,id.slice(7)):world.getObjectNode(selectedShot,id))){select(null);return;}
+      if(!(id.startsWith('light-target::')?world.getLightTargetMarker(selectedShot,id.slice(14)):
+        id.startsWith('light::')?world.getLightMarker(selectedShot,id.slice(7)):
+        world.getObjectNode(selectedShot,id))){select(null);return;}
       select(id,false); // reattach to rebuilt geometry after a committed edit
     }
   }
@@ -163,7 +171,10 @@ export function setupSceneObjectEditing({
     const vector=operation==='translate'?node.position.toArray():
       [node.rotation.x,node.rotation.y,node.rotation.z];
     try{
-      if(objectId.startsWith('light::')){
+      if(objectId.startsWith('light-target::')){
+        if(operation!=='translate')throw Error('Aim targets can only translate.');
+        onLightTargetTransform?.(selectedShot,objectId.slice(14),vector);
+      }else if(objectId.startsWith('light::')){
         if(operation!=='translate')throw Error('Use light aim fields for orientation.');
         onLightTransform?.(selectedShot,objectId.slice(7),vector);
       }else onTransform?.(selectedShot,objectId,operation,vector);
@@ -177,7 +188,8 @@ export function setupSceneObjectEditing({
     if(!active||!selectedId)return false;
     const id=selectedId,shot=selectedShot;
     try{
-      if(id.startsWith('light::'))onDeleteLight?.(shot,id.slice(7));
+      if(id.startsWith('light-target::'))onDeleteLight?.(shot,id.slice(14));
+      else if(id.startsWith('light::'))onDeleteLight?.(shot,id.slice(7));
       else onDelete?.(shot,id);
       selectedId=null;
       transform.detach();clearHighlight();
@@ -215,7 +227,8 @@ export function setupSceneObjectEditing({
     ndc(event);raycaster.setFromCamera(pointer,camera);
     const hits=raycaster.intersectObjects(world.getPickableMeshes(currentShot()),false);
     const hit=hits[0]?.object?.userData;
-    select(hit?.primitiveLightId?'light::'+hit.primitiveLightId:hit?.primitiveId||null);
+    select(hit?.primitiveLightTargetId?'light-target::'+hit.primitiveLightTargetId:
+      hit?.primitiveLightId?'light::'+hit.primitiveLightId:hit?.primitiveId||null);
   });
   canvas.addEventListener('pointercancel',()=>{frameStart=null;skipClick=false;});
   view?.addEventListener('click',()=>setActive(false));
