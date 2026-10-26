@@ -137,13 +137,9 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
      }
    }
    const preferredLights=replaceLights||!existingLights.length?sourceLights:existingLights;
-   const seenLights=new Set();
-   const finalLights=preferredLights.filter(l=>{
-     const key=[l.type,...l.position.map(n=>n.toFixed(3)),
-       ...(l.target||[]).map(n=>n.toFixed(3))].join('|');
-     if(seenLights.has(key))return false;
-     seenLights.add(key);return true;
-   }).map((l,index)=>({...l,id:'assembly_light_'+index}));
+   // Never deduplicate authored lights simply because they occupy the same XYZ:
+   // two coincident colored lights may be deliberate. No manual-light limit.
+   const finalLights=preferredLights.map((l,index)=>({...l,id:'assembly_light_'+index}));
    for(const spec of copies){
      const position=xyz(savedPosition).add(spec.local.clone().applyQuaternion(aim)).toArray();
      const rotation=euler(aim.clone().multiply(spec.relative));
