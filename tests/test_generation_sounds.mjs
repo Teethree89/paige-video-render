@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {GENERATION_SOUND_PATHS,createGenerationSounds} from '../generation-sounds.js';
-import {airyParticleOffset} from '../ai-generation-overlay.js';
+import {airyParticleOffset,createArgonOverlay} from '../ai-generation-overlay.js';
 
 test('PAIGE particles float slowly without drifting out of readable letter positions',()=>{
   const seed=37,letter=2;
@@ -79,4 +79,80 @@ test('missing, blocked or unsupported completion audio never rejects or fails a 
     fetchSound:null});
   blocked.arm();
   assert.equal(await blocked.play('success'),false);
+});
+
+
+test('minimized Argon UI remains a live viewport PiP and can expand without restarting work',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
+ const css=await readFile(new URL('../styles.css',import.meta.url),'utf8');
+ const viewport=html.indexOf('<section class="viewport" id="viewport">');
+ const transport=html.indexOf('<section class="transport">',viewport);
+ const pip=html.indexOf('id="argonParticleReopen"',viewport);
+ assert.ok(viewport>=0&&pip>viewport&&pip<transport,'mini-panel belongs to the viewport');
+ for(const id of ['argonMiniStage','argonMiniDetail','argonMiniElapsed'])
+   assert.match(html,new RegExp('id="'+id+'"'));
+ assert.match(css,/\.argon-particle-reopen\{position:absolute/);
+ const ids=['argonParticleOverlay','argonParticleCanvas','argonParticleStage',
+   'argonParticleDetail','argonParticleElapsed','argonParticleMeter',
+   'argonParticleMinimize','argonParticleReopen','argonMiniStage',
+   'argonMiniDetail','argonMiniElapsed'];
+ const nodes=Object.fromEntries(ids.map(id=>[id,{
+   id,hidden:id==='argonParticleOverlay'||id==='argonParticleReopen',
+   style:{},textContent:'',listeners:{},attrs:{},
+   addEventListener(type,fn){this.listeners[type]=fn;},
+   setAttribute(name,value){this.attrs[name]=value;},
+   click(){this.listeners.click?.();}
+ }]));
+ const ctx={
+   setTransform(){},fillText(){},
+   getImageData(){return {data:new Uint8ClampedArray(820*200*4)};}
+ };
+ nodes.argonParticleCanvas.getContext=()=>ctx;
+ const root={
+   getElementById:id=>nodes[id]||null,
+   createElement:name=>name==='canvas'?{getContext:()=>ctx}:null
+ };
+ const keys=['requestAnimationFrame','cancelAnimationFrame','setInterval','clearInterval'];
+ const descriptors=Object.fromEntries(keys.map(key=>[key,
+   Object.getOwnPropertyDescriptor(globalThis,key)]));
+ let nextTick=null,cleared=0,cancelled=0;
+ try{
+   Object.defineProperties(globalThis,{
+     requestAnimationFrame:{value:()=>17,configurable:true,writable:true},
+     cancelAnimationFrame:{value:()=>{cancelled++;},configurable:true,writable:true},
+     setInterval:{value:callback=>{nextTick=callback;return 19;},configurable:true,writable:true},
+     clearInterval:{value:id=>{assert.equal(id,19);cleared++;},configurable:true,writable:true}
+   });
+   const overlay=createArgonOverlay(root);
+   overlay.show({totalStages:3});
+   assert.equal(nodes.argonParticleOverlay.hidden,false);
+   assert.equal(nodes.argonParticleReopen.hidden,true);
+   nodes.argonParticleMinimize.click();
+   assert.equal(nodes.argonParticleOverlay.hidden,true);
+   assert.equal(nodes.argonParticleReopen.hidden,false);
+   assert.equal(cancelled,1,'expensive canvas animation pauses while minimized');
+   overlay.step(2);overlay.phase('geometry');
+   assert.match(nodes.argonMiniStage.textContent,/pass 1 of 2/);
+   assert.equal(nodes.argonMiniDetail.textContent,'Receiving editable geometry');
+   assert.match(nodes.argonParticleReopen.attrs['aria-label'],/step 2 of 3/);
+   const before=nodes.argonMiniElapsed.textContent;
+   assert.equal(typeof nextTick,'function');
+   nextTick();
+   assert.equal(nodes.argonMiniElapsed.textContent,nodes.argonParticleElapsed.textContent);
+   assert.equal(nodes.argonMiniElapsed.textContent,before.slice(0,4)+' elapsed · finish time unknown');
+   nodes.argonParticleReopen.click();
+   assert.equal(nodes.argonParticleOverlay.hidden,false);
+   assert.equal(nodes.argonParticleReopen.hidden,true);
+   overlay.hide();
+   assert.equal(nodes.argonParticleOverlay.hidden,true);
+   assert.equal(nodes.argonParticleReopen.hidden,true);
+   assert.equal(cleared,1,'elapsed timer cleaned up on completion/failure');
+ }finally{
+   for(const key of keys){
+     const descriptor=descriptors[key];
+     if(descriptor)Object.defineProperty(globalThis,key,descriptor);
+     else delete globalThis[key];
+   }
+ }
 });
