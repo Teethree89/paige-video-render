@@ -604,7 +604,9 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const allMappings=swapped.created.map(m=>({...m,partId:localIds.get(m.partId)}));
      if(allMappings.some(m=>!m.partId))
        throw Error('Template meshes did not align across matching destination rows');
-     beforeTemplate=structuredClone(draft);
+     // Selecting another template while labeling must still allow Discard
+     // to restore the destination exactly as it looked before the FIRST try.
+     beforeTemplate=beforeTemplate||structuredClone(draft);
      draft.base=structuredClone(root);
      draft.parts={objects:children,
        lights:structuredClone(root.arrayParts?.lights||[])};
