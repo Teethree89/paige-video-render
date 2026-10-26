@@ -83,11 +83,12 @@ test('preview is wired into Three.js viewport and does not persist camera key ch
   assert.match(primitive,/root\.position\.set\(\.\.\.anchor\)/);
   assert.match(primitive,/new THREE\.Box3\(\)\.setFromObject\(root\)/);
   assert.match(app,/if\(scroll\)viewport\.scrollIntoView/);
-  assert.match(app,/reviewLights\.visible=true/);
+  assert.match(app,/reviewLights\.visible=!editMode/);
+  assert.match(app,/showGeneratedGeometry\(entry.shotId,true\)/);
   assert.match(app,/reviewLights\.visible=false;reviewStage\.visible=false/);
   assert.match(app,/reviewStage\.visible=true/);
   assert.match(app,/reviewGrid\.scale\.setScalar\(stageSize\/40\)/);
-  assert.match(app,/renderer\.toneMappingExposure=1\.65/);
+  assert.match(app,/renderer\.toneMappingExposure=editMode\?1\.35:1\.65/);
   assert.match(app,/renderer\.toneMappingExposure=1\.35/);
   assert.match(app,/onDiscard:\(\)=>\{\s*acceptedCameraSync\?\.reset\(\);\s*acceptedCameraPreview=null;\s*cameraSyncPreview=null;cameraSyncSession=null;\s*endGeometryReview\(\);syncPrimitiveWorld\(\);renderWorld\(\);/);
   assert.match(app,/onCameraSyncReset:\(\)=>\{/);
