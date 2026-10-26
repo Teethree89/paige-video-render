@@ -37,7 +37,7 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,o
    try{
      validateCreateChoice(category,item);
      if(!canCreate()){onStatus('Switch to Edit mode and finish any active AI preview before creating.');hide();return false;}
-     const position=getCreateOrigin(at?.x,at?.y);
+     const position=getCreateOrigin(at?.x,at?.y,category,item);
      const result=onCreate(category,item,position);
      if(result!==false){
        last={category,item};perCategory[category]=item;save();
