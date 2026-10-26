@@ -617,9 +617,14 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        assigned:part.id===primary.id?'root':'object:'+localIds.get(part.id)
      }));
      // Lights also appear, whether preserved from the destination or copied.
-     for(const item of draft.parts.lights)
-       labelRows.push({kind:'light',role:assemblyDescriptor(item.name,template.prefix),
-         assigned:'light:'+item.id});
+     for(const item of draft.parts.lights){
+       // Retained destination lights already have destination-prefixed names;
+       // strip that prefix instead of prepending it a second time.
+       const destinationRole=assemblyDescriptor(item.name,destPrefix);
+       const descriptor=destinationRole===item.name?
+         assemblyDescriptor(item.name,template.prefix):destinationRole;
+       labelRows.push({kind:'light',role:descriptor,assigned:'light:'+item.id});
+     }
      selected='root';
      renderCompanions();refreshList();updateAssemblySummary();
      rerender({refit:true});renderTemplateLabels();
