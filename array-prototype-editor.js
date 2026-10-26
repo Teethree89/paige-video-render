@@ -224,7 +224,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      1-2*(event.clientY-rect.top)/rect.height);
    picker.setFromCamera(mouse,camera);
    const hit=picker.intersectObjects(world.getPickableMeshes(sampleShot),false)[0]?.object;
-   const partId=hit?.userData?.primitiveLightId?'light:'+hit.userData.primitiveLightId:
+   const partId=hit?.userData?.primitiveLightTargetId?'light:'+hit.userData.primitiveLightTargetId:
+     hit?.userData?.primitiveLightId?'light:'+hit.userData.primitiveLightId:
      hit?.userData?.primitiveId===objectId?'root':
      hit?.userData?.primitiveId?'object:'+hit.userData.primitiveId:null;
    if(!partId)return;
