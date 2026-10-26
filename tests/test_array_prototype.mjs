@@ -347,3 +347,55 @@ test('assembly replacement and subsequent edits propagate over multiple destinat
    assert.ok(saved.scenes[0].objects.some(x=>x.id===created.targetId),
      'each sibling preserved after editing one prototype');
 });
+
+
+test('3-part lamp assemblies retain complete descriptors, copies and existing destination lights',async()=>{
+ const {listAssemblyTemplates,replaceArrayAssembly,assemblyDescriptor}
+   =await import('../array-assembly-templates.js');
+ const create=(id,name,type,at)=>({
+   ...makePrimitive(type,id,at),name,repeat:{count:[1,1,7],spacing:[0,0,9]}
+ });
+ const post=create('lamp_post','Right Street Posts','cylinder',[0,3.5,0]);
+ const housing=create('lamp_housing','Right Street Lamp Housings','box',[0,7.3,0]);
+ housing.arrayParts={objects:[],lights:[{
+   id:'source_beam',name:'Right Street Beam Lights',type:'spot',
+   color:'#ffffff',intensity:80,position:[0,0,0],target:[0,-4,0],
+   angle:.7,penumbra:.25,distance:25
+ }]};
+ const glass=create('lamp_glass','Right Street Glass Globes','sphere',[0,7.5,0]);
+ const target=create('south_lamps','South Edge Lamps','box',[20,7.3,50]);
+ target.arrayParts={objects:[],lights:[{
+   id:'existing_light',name:'South Edge Lamp Glow',type:'spot',
+   color:'#ffccaa',intensity:220,position:[0,0,0],target:[0,-5,0],
+   angle:.6,penumbra:.3,distance:32
+ }]};
+ const before={schemaVersion:1,scenes:[{shotId:'a',objects:[post,housing,glass,target]}]};
+ const original=structuredClone(before);
+ const template=listAssemblyTemplates(before,'a').find(t=>t.key==='right street');
+ assert.ok(template,'a light-bearing array must not prevent source template discovery');
+ assert.equal(template.parts.length,3);
+ assert.equal(template.lights.length,1);
+ assert.match(template.label,/Lamp Housings/);
+ assert.match(template.label,/Glass Globes/);
+ assert.equal(assemblyDescriptor('Right Street Light Housing','Right Street'),'Light Housing');
+ const housingComponent=template.parts.find(p=>p.name===housing.name);
+ const result=replaceArrayAssembly(before,['a'],'a','south_lamps',
+   template.id,housingComponent.id);
+ assert.deepEqual(before,original);
+ const after=result.document.scenes[0].objects;
+ const main=after.find(x=>x.id==='south_lamps');
+ assert.equal(main.name,'South Edge Lamp Housings');
+ assert.equal(main.repeat.count[2],7);
+ assert.equal(main.arrayParts.lights.length,1,
+   'the destination existing light must be retained instead of duplicated');
+ assert.equal(main.arrayParts.lights[0].intensity,220);
+ assert.equal(after.find(x=>x.name==='South Edge Posts').repeat.count[2],7);
+ assert.equal(after.find(x=>x.name==='South Edge Glass Globes').repeat.count[2],7);
+ assert.equal(after.length,6,'3 source arrays untouched + 3 target arrays');
+ assert.ok(Math.abs(after.find(x=>x.name==='South Edge Posts').position[1]-3.5)<1e-8);
+ assert.deepEqual(after.find(x=>x.name==='South Edge Glass Globes').repeat,main.repeat);
+ const override=replaceArrayAssembly(before,['a'],'a','south_lamps',
+   template.id,housingComponent.id,undefined,{replaceLights:true});
+ assert.equal(override.document.scenes[0].objects.find(x=>x.id==='south_lamps')
+   .arrayParts.lights[0].intensity,80,'source lights require explicit opt-in');
+});
