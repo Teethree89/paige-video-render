@@ -212,3 +212,63 @@ test('named streetlight array merge is atomic, preserving each light position an
  assert.equal(after.scenes[0].objects.some(o=>o.id==='right_street_lamps'),false);
  assert.equal(after.scenes[0].objects.some(o=>o.id==='right_ave_trunks'),true);
 });
+
+
+test('reusing Right Ave tree assembly replaces South Edge crown and creates aligned South Edge Trunks',async()=>{
+ const {listAssemblyTemplates,replaceArrayAssembly,saveAssemblyTemplateDraft}=
+   await import('../array-assembly-templates.js');
+ const mk=(id,name,primitive,position,count,spacing)=>{
+   const o=makePrimitive(primitive,id,position);
+   o.name=name;o.repeat={count,spacing};return o;
+ };
+ const original={schemaVersion:1,scenes:[{shotId:'exterior',objects:[
+   mk('avenue_trunks','Right Ave Trunks','cylinder',[70.5,1.6,-5],[1,1,14],[0,0,10.5]),
+   mk('avenue_crowns','Right Ave Crowns','sphere',[70.5,4.2,-5],[1,1,14],[0,0,10.5]),
+   mk('south_edge_trees','South Edge Trees','sphere',[-5,4.2,91],[14,1,1],[11,0,0])
+ ]}]};
+ const before=structuredClone(original);
+ const template=listAssemblyTemplates(original,'exterior').find(t=>t.key==='right ave');
+ assert.ok(template);
+ assert.equal(template.parts.length,2);
+ const crown=template.parts.find(x=>x.name==='Right Ave Crowns');
+ const trunk=template.parts.find(x=>x.name==='Right Ave Trunks');
+ const applied=replaceArrayAssembly(original,['exterior'],'exterior',
+   'south_edge_trees',template.id,crown.id,trunk.id);
+ assert.deepEqual(original,before,'template application must be transactional');
+ const src=applied.document.scenes[0].objects;
+ const edge=src.find(x=>x.id==='south_edge_trees');
+ const stem=src.find(x=>x.name==='South Edge Trunks');
+ assert.equal(edge.name,'South Edge Crowns');
+ assert.ok(stem,'sibling trunk array was added with destination convention');
+ assert.deepEqual(edge.repeat,{count:[14,1,1],spacing:[11,0,0]});
+ assert.deepEqual(stem.repeat,edge.repeat);
+ assert.deepEqual(edge.position,[-5,4.2,91]);
+ assert.deepEqual(stem.position,[-5,1.6,91]);
+ assert.deepEqual(src.find(x=>x.id==='avenue_trunks'),before.scenes[0].objects[0],
+   'source assembly unchanged');
+ assert.equal(src.length,4);
+ const local=structuredClone(stem);
+ local.id='draft_trunk';local.position=[0,-2.6,0];local.rotation=[0,0,0];
+ delete local.repeat;delete local.layer;
+ const saved=saveAssemblyTemplateDraft(applied.document,['exterior'],'exterior',
+   edge.id,edge,{objects:[local],lights:[]},
+   [{targetId:stem.id,partId:'draft_trunk'}]);
+ assert.equal(saved.scenes[0].objects.find(x=>x.id===stem.id).name,'South Edge Trunks');
+ assert.equal(saved.scenes[0].objects.length,4);
+ assert.throws(()=>replaceArrayAssembly(original,['exterior'],'exterior',
+   'south_edge_trees',template.id,crown.id,crown.id),/distinct/);
+});
+test('single object groups save local part adjustments without becoming arrays',()=>{
+ const base=makePrimitive('cylinder','tree_trunk',[0,2,0]);
+ base.name='Sample Tree';
+ base.arrayParts={objects:[{...makePrimitive('sphere','crown',[0,3,0]),name:'Sample crown'}],lights:[]};
+ const input={schemaVersion:1,scenes:[{shotId:'grove',objects:[base]}]};
+ const normalized=validatePrimitiveDocument(input,['grove']);
+ assert.equal(normalized.scenes[0].objects[0].repeat,undefined);
+ const changed=saveArrayPrototype(input,['grove'],'grove','tree_trunk',{
+   name:'Sample Tree',material:base.material,scale:base.scale,
+   parts:{objects:[{...base.arrayParts.objects[0],position:[0,4,0]}],lights:[]}
+ },['tree_trunk']);
+ assert.deepEqual(changed.scenes[0].objects[0].arrayParts.objects[0].position,[0,4,0]);
+ assert.equal(changed.scenes[0].objects[0].repeat,undefined);
+});
