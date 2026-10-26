@@ -74,6 +74,47 @@ export function setupSceneObjectEditing({
   let active=false,selectedId=null,selectedShot=null,operation='translate';
   let frameStart=null,draggingHandle=false,skipClick=false,highlight=null;
   let arrayHighlights=[],pendingArray=null;
+  let rotationProxy=null,rotationSource=null;
+  function clearRotationProxy(){
+    transform.detach();
+    if(rotationSource){
+      const record=getDocument()?.scenes?.find(s=>s.shotId===rotationSource.shotId)
+        ?.objects.find(o=>o.id===rotationSource.id);
+      const reset=record?.instanceRotation||[0,0,0];
+      for(const copy of world.getArrayInstances(rotationSource.shotId,rotationSource.id))
+        copy.rotation.set(...reset);
+      world.invalidateShadows?.(rotationSource.shotId);
+    }
+    rotationProxy?.removeFromParent();
+    rotationProxy=null;rotationSource=null;
+  }
+  function attachForMode(node,id){
+    clearRotationProxy();
+    const row=getDocument()?.scenes?.find(s=>s.shotId===currentShot())
+      ?.objects.find(o=>o.id===id);
+    if(node&&operation==='rotate'&&row?.repeat){
+      // A gizmo proxy rotates COPY GEOMETRY, never the group's offset axes.
+      rotationProxy=new THREE.Object3D();
+      rotationProxy.name='Array copy rotation gizmo (editor only)';
+      node.parent.add(rotationProxy);
+      rotationProxy.position.copy(node.position);
+      rotationProxy.quaternion.copy(node.quaternion).multiply(
+        new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(...(row.instanceRotation||[0,0,0]))));
+      rotationSource={id,shotId:currentShot(),holder:node};
+      transform.attach(rotationProxy);
+    }else if(node)transform.attach(node);
+  }
+  function previewCopyRotation(){
+    if(rotationProxy&&rotationSource){
+      const local=rotationSource.holder.quaternion.clone().invert()
+        .multiply(rotationProxy.quaternion);
+      for(const copy of world.getArrayInstances(rotationSource.shotId,rotationSource.id))
+        copy.quaternion.copy(local);
+    }
+    world.invalidateShadows?.(currentShot());
+    updateHighlight();
+  }
   const arrayConfirm=el('arrayEditConfirm');
   const makeArrayDialog=el('sceneMakeArrayDialog');
   let pendingArrayObject=null;
@@ -169,13 +210,16 @@ export function setupSceneObjectEditing({
       id?world.getObjectNode(shotId,id):null;
     if(id&&!node)return false;
     selectedId=id||null;selectedShot=shotId;
-    transform.detach();clearHighlight();
+    clearRotationProxy();clearHighlight();
     if(node){
       if(lightId||targetId)setMode('translate');
-      transform.attach(node);showHighlight(node);
+      attachForMode(node,id);showHighlight(node);
       message(targetId?'Drag X/Y/Z to aim this light. The direction ray updates as you move the target.':
         lightId?'Drag X/Y/Z to move this light. Follow its direction ray to the aim target.':
-        'Drag X / Y / Z gizmo handles · Orbit on empty space · W move / E rotate · Delete removes');
+        'Drag gizmo handles · W move / E rotate'+
+          (getDocument()?.scenes?.find(s=>s.shotId===shotId)?.objects
+            .find(o=>o.id===id)?.repeat?' · E rotates EACH copy in place':'')+
+          ' · Delete removes');
     }else message('Click an editable shape to select it; drag to orbit and scroll to zoom.');
     updateButtons();if(notify)onSelect?.(selectedId);
     return true;
@@ -184,9 +228,19 @@ export function setupSceneObjectEditing({
     if(!['translate','rotate'].includes(value))return;
     if(value==='rotate'&&(selectedId?.startsWith('light::')||
       selectedId?.startsWith('light-target::')))return;
+    const previous=operation;
     operation=value;transform.setMode(value);
     // World axes for movement; local rings for rotation.
     transform.setSpace(value==='translate'?'world':'local');
+    if(active&&selectedId&&previous!==value){
+      const id=selectedId;
+      const targetId=id.startsWith('light-target::')?id.slice(14):null;
+      const lightId=id.startsWith('light::')?id.slice(7):null;
+      const node=targetId?world.getLightTargetMarker(currentShot(),targetId):
+        lightId?world.getLightMarker(currentShot(),lightId):
+        world.getObjectNode(currentShot(),id);
+      if(node)attachForMode(node,id);
+    }
     updateButtons();
   }
   function setActive(next,{skipExit=false}={}){
@@ -203,7 +257,7 @@ export function setupSceneObjectEditing({
       active=false;selectedId=null;selectedShot=null;frameStart=null;
       closeArrayDialog();clearArrayHighlights();
       world.setLightMarkersVisible?.(false);
-      transform.detach();transform.enabled=false;clearHighlight();
+      clearRotationProxy();transform.enabled=false;clearHighlight();
       orbitControls.enabled=true; // onExit restores cinematic state
       updateButtons();
       if(!skipExit)onExit?.();
@@ -242,8 +296,13 @@ export function setupSceneObjectEditing({
     if(!active||!selectedId||!transform.object)return;
     const objectId=selectedId;
     const node=transform.object;
+    const perCopy=operation==='rotate'&&rotationProxy&&rotationSource;
+    const angles=perCopy?
+      new THREE.Euler().setFromQuaternion(
+        rotationSource.holder.quaternion.clone().invert().multiply(node.quaternion)):
+      node.rotation;
     const vector=operation==='translate'?node.position.toArray():
-      [node.rotation.x,node.rotation.y,node.rotation.z];
+      [angles.x,angles.y,angles.z];
     try{
       if(objectId.startsWith('light-target::')){
         if(operation!=='translate')throw Error('Aim targets can only translate.');
@@ -275,7 +334,7 @@ export function setupSceneObjectEditing({
       else if(id.startsWith('light::'))onDeleteLight?.(shot,id.slice(7));
       else onDelete?.(shot,id);
       selectedId=null;
-      transform.detach();clearHighlight();
+      clearRotationProxy();clearHighlight();
       updateButtons();onSelect?.(null);
       message('Deleted '+id+' from this chapter. Export timeline JSON to keep a backup.');
       return true;
@@ -286,7 +345,7 @@ export function setupSceneObjectEditing({
     draggingHandle=true;skipClick=true;
     orbitControls.enabled=false;
   });
-  transform.addEventListener('objectChange',updateHighlight);
+  transform.addEventListener('objectChange',previewCopyRotation);
   transform.addEventListener('mouseUp',()=>{
     if(!active)return;
     orbitControls.enabled=true;
@@ -418,7 +477,7 @@ export function setupSceneObjectEditing({
     },
     get selectedId(){return selectedId;},
     setActive,refresh,select,setMode,duplicateSelected,deleteSelected,updateHighlight,focusSelectionIfOffscreen,clearArrayHighlights,
-    dispose(){setActive(false,{skipExit:true});selectionPanel.restore();
+    dispose(){setActive(false,{skipExit:true});clearRotationProxy();selectionPanel.restore();
       closeMakeArray();transform.dispose?.();scene.remove(helper);clearHighlight();clearArrayHighlights();}
   };
 }

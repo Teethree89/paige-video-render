@@ -10,7 +10,10 @@ export function editPrimitiveTransform(source,allowedShots,shotId,objectId,mode,
   const scene=doc.scenes.find(s=>s.shotId===shotId);
   const item=scene?.objects.find(o=>o.id===objectId);
   if(!item)throw Error('Selected primitive no longer exists in this chapter');
-  item[mode==='translate'?'position':'rotation']=[...vector];
+  // Rotating an array rotates each individual copy in place, leaving the
+  // array center, layout axes, repeat counts and spacing untouched.
+  const key=mode==='translate'?'position':item.repeat?'instanceRotation':'rotation';
+  item[key]=[...vector];
   return validatePrimitiveDocument(doc,allowedShots);
 }
 export function deletePrimitiveObject(source,allowedShots,shotId,objectId){

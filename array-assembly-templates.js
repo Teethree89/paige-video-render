@@ -344,6 +344,10 @@ export function saveAssemblyHierarchy(source,allowedShots,shotId,objectId,
    row.position=xyz(row.position).add(shift).toArray();
    row.rotation=euler(turn.clone().multiply(quat(row.rotation)));
    row.name=base.name;row.primitive='group';row.scale=[1,1,1];
+   // The prototype faces the same way in each copy. Row rotation remains
+   // independent because it determines placement axes and spacing.
+   if(base.instanceRotation)row.instanceRotation=[...base.instanceRotation];
+   else delete row.instanceRotation;
    row.material={color:'#888888',metalness:0,roughness:1};
    delete row.points;
    row.arrayParts=structuredClone(parts);

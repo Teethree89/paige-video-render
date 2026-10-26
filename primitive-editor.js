@@ -1,5 +1,6 @@
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
-import {blankPrimitiveDocument,validatePrimitiveDocument,makePrimitive,makeExampleBlockout} from './primitive-schema.js';
+import {blankPrimitiveDocument,validatePrimitiveDocument,makePrimitive,makeExampleBlockout,
+  radiansToDegrees,degreesToRadians,lightCastsShadow} from './primitive-schema.js';
 import {insertCreatedAsset} from './scene-asset-catalog.js';
 
 const el=id=>document.getElementById(id);
@@ -109,9 +110,16 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveMetalness').value=selected.material.metalness;
       el('primitiveRoughness').value=selected.material.roughness;
       el('primitiveShapeReadOnly').textContent=shapeSummary(selected);
+      const label=el('primitiveRotationLabel');
+      if(label)label.textContent=selected.repeat?
+        'Rotation of each copy (degrees °) · positions unchanged':
+        'Rotation (degrees °)';
       for(const input of fieldInputs('[data-prim]')){
         const [field,index]=input.dataset.prim.split('.');
-        input.value=selected[field][Number(index)];
+        const vector=field==='rotation'&&selected.repeat?
+          selected.instanceRotation||[0,0,0]:selected[field];
+        const value=vector[Number(index)];
+        input.value=field==='rotation'?radiansToDegrees(value):value;
       }
     }else {selectedId=null;objectSelect.value='';}
     editable.hidden=!selected;
@@ -136,11 +144,17 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveLightColor').value=chosen.color;
       el('primitiveLightIntensity').value=chosen.intensity;
       el('primitiveLightIntensity').max=chosen.type==='directional'?10:500;
+      el('primitiveLightCastShadow').checked=lightCastsShadow(chosen);
+      const shadowStatus=el('primitiveLightShadowStatus');
+      if(shadowStatus)shadowStatus.textContent=lightCastsShadow(chosen)&&
+        world.getLightNode?.(shot.id,chosen.id)?.castShadow===false?
+        'Shadow slots are in use. Turn off shadows on another light to use this one.':
+        'Turn off shadows to keep illumination with faster rendering. Up to 4 lights cast shadows per chapter.';
       el('primitiveLightTargetWrap').hidden=chosen.type==='point';
       el('primitiveLightRangeWrap').hidden=chosen.type==='directional';
       el('primitiveLightSpotWrap').hidden=chosen.type!=='spot';
       el('primitiveLightDistance').value=chosen.distance??0;
-      el('primitiveLightAngle').value=chosen.angle??.6;
+      el('primitiveLightAngle').value=radiansToDegrees(chosen.angle??.6);
       el('primitiveLightPenumbra').value=chosen.penumbra??.3;
       for(const input of fieldInputs('[data-light]')){
         const [key,index]=input.dataset.light.split('.');
@@ -231,7 +245,11 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     input.addEventListener('change',event=>apply(entry=>{
       const item=entry.objects.find(o=>o.id===selectedId);if(!item)return;
       const [field,index]=input.dataset.prim.split('.');
-      item[field][Number(index)]=Number(event.target.value);
+      const key=field==='rotation'&&item.repeat?'instanceRotation':field;
+      if(key==='instanceRotation'&&!item.instanceRotation)
+        item.instanceRotation=[0,0,0];
+      item[key][Number(index)]=field==='rotation'?
+        degreesToRadians(Number(event.target.value)):Number(event.target.value);
     }));
   }
   el('primitiveDelete').addEventListener('click',()=>{
@@ -280,12 +298,14 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     primitiveLightColor:(v,l)=>{l.color=v;},
     primitiveLightIntensity:(v,l)=>{l.intensity=Number(v);},
     primitiveLightDistance:(v,l)=>{l.distance=Number(v);},
-    primitiveLightAngle:(v,l)=>{l.angle=Number(v);},
+    primitiveLightAngle:(v,l)=>{l.angle=degreesToRadians(Number(v));},
     primitiveLightPenumbra:(v,l)=>{l.penumbra=Number(v);}
   };
   for(const [id,change] of Object.entries(lightFields)){
     el(id).addEventListener('change',e=>editLight(l=>change(e.target.value,l)));
   }
+  el('primitiveLightCastShadow').addEventListener('change',event=>
+    editLight(light=>{light.castShadow=event.target.checked;}));
   el('primitiveLightType').addEventListener('change',event=>editLight(light=>{
     light.type=event.target.value;
     if(light.type==='directional'){light.intensity=Math.min(10,light.intensity);delete light.distance;}

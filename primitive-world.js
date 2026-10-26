@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {validatePrimitiveDocument,repeatOffsets} from './primitive-schema.js';
+import {validatePrimitiveDocument,repeatOffsets,lightCastsShadow} from './primitive-schema.js';
 
 // A unit-depth prism along local Z from a profile in the XY plane; like every
 // primitive it fills the unit cube centered on the origin, scaled by `scale`.
@@ -47,17 +47,22 @@ const surface = material => new THREE.MeshStandardMaterial({
 // Limit shadow *casters*, not lights: all authored/array lights still shine,
 // remain editable and survive GLB export. A scene may have many light nodes.
 export const MAX_PRIMITIVE_SHADOW_MAPS=4;
-const light = (spec,castShadow=false) => {
+const light = (spec,castShadow=false,cacheShadow=false) => {
   const color=new THREE.Color(spec.color);
   const node=spec.type==='directional'?new THREE.DirectionalLight(color,spec.intensity)
     :spec.type==='spot'?new THREE.SpotLight(color,spec.intensity,spec.distance,spec.angle,spec.penumbra)
     :new THREE.PointLight(color,spec.intensity,spec.distance);
   node.name=spec.name;
   node.userData.primitiveLight=spec.type;
-  // Shadow maps are enabled for aimed lights, not every point light: a point
-  // light requires six renders per shadow map and eight are allowed per shot.
-  node.castShadow=castShadow&&spec.type!=='point';
+  // Keep the authored choice in GLB extras even if the chapter shadow budget
+  // is full. Point shadows are opt-in because a cube map takes six renders.
+  node.userData.castShadow=lightCastsShadow(spec);
+  node.castShadow=castShadow;
   if(node.castShadow){
+    // Accepted primitive geometry is static between edits; orbiting or
+    // playing a camera move does not change its light-space shadow map.
+    node.shadow.autoUpdate=!cacheShadow;
+    node.shadow.needsUpdate=true;
     node.shadow.mapSize.set(512,512);
     node.shadow.bias=-0.0002;
     node.shadow.normalBias=0.025;
@@ -89,25 +94,30 @@ export function createPrimitiveWorld(scene) {
   const groups=new Map();
   // Saved primitive ID -> top-level transform node (repeat arrays share one holder).
   const objectNodes=new Map(),arrayInstances=new Map(),lightNodes=new Map(),lightMarkers=new Map(),lightTargets=new Map(),lightGuides=new Map(),lightMarkerGroups=new Map();
+  const shadowLights=new Map();
   let markersEnabled=false;
   let document={schemaVersion:1,scenes:[]};
   let activeShotId=null;
 
   function clear() {
+    const geometries=new Set(),materials=new Set();
+    const disposeResources=node=>{
+      if(node.geometry&&!geometries.has(node.geometry)){
+        geometries.add(node.geometry);node.geometry.dispose();
+      }
+      for(const material of node.material?[node.material].flat():[]){
+        if(!materials.has(material)){materials.add(material);material.dispose();}
+      }
+      if(node.isLight)node.dispose();
+    };
     for(const group of groups.values()){
       scene.remove(group);
-      group.traverse(item=>{
-        if(item.isMesh){item.geometry.dispose();item.material.dispose();}
-        if(item.isLight)item.dispose();
-      });
+      group.traverse(disposeResources);
     }
-    groups.clear();objectNodes.clear();arrayInstances.clear();lightNodes.clear();
+    groups.clear();objectNodes.clear();arrayInstances.clear();lightNodes.clear();shadowLights.clear();
     for(const root of lightMarkerGroups.values()){
       scene.remove(root);
-      root.traverse(node=>{
-        if(node.geometry)node.geometry.dispose();
-        if(node.material)node.material.dispose();
-      });
+      root.traverse(disposeResources);
     }
     lightMarkerGroups.clear();lightMarkers.clear();lightTargets.clear();lightGuides.clear();
   }
@@ -125,10 +135,11 @@ export function createPrimitiveWorld(scene) {
       const layerGroups=new Map(),nodes=new Map(),arrays=new Map();
       // Reserve up to two of four maps for explicit chapter lights; repeated
       // lamps use the rest without making the renderer exceed 16 samplers.
-      const authoredShadows=(entry.lights||[]).filter(l=>l.type!=='point').length;
+      const authoredShadows=(entry.lights||[]).filter(lightCastsShadow).length;
       const reserved=Math.min(2,authoredShadows);
       let arrayShadowSlots=MAX_PRIMITIVE_SHADOW_MAPS-reserved;
       let usedShadowSlots=0;
+      const casters=[];
       for(const item of entry.objects){
         const key=item.layer||'manual';
         if(!layerGroups.has(key)){
@@ -152,6 +163,15 @@ export function createPrimitiveWorld(scene) {
         // transform holding one plain mesh per copy (shared geometry and
         // material), so GLB/After Effects see ordinary nodes, not instancing.
         const hasParts=groupOnly||!!(item.arrayParts?.objects?.length||item.arrayParts?.lights?.length);
+        // Copies share immutable prototype geometry/materials while keeping
+        // ordinary Mesh nodes for independent picking, editing and export.
+        const objects=item.arrayParts?.objects||[],lights=item.arrayParts?.lights||[];
+        const members=new Map([
+          ...objects.map(part=>['object:'+part.id,{kind:'object',part,
+            shape:geometry(part),material:surface(part.material)}]),
+          ...lights.map(part=>['light:'+part.id,{kind:'light',part}])
+        ]);
+        const order=item.arrayParts?.order||[...members.keys()];
         // Composite single assets also need a transform holder so moving the
         // selection moves every part; only actual repeats are indexed arrays.
         const holder=offsets.length===1&&!hasParts?null:tag(new THREE.Group());
@@ -174,19 +194,15 @@ export function createPrimitiveWorld(scene) {
             instance.name=item.name+' instance '+(index+1);
             instance.userData.primitiveArrayIndex=item.repeat?index:null;
             instance.position.set(...offset);
+            // Rotate each copy's prototype in place, NOT the row's offset axes.
+            instance.rotation.set(...(item.instanceRotation||[0,0,0]));
             if(mesh)instance.add(mesh);
-            const objects=item.arrayParts?.objects||[],lights=item.arrayParts?.lights||[];
-            const members=new Map([
-              ...objects.map(part=>['object:'+part.id,{kind:'object',part}]),
-              ...lights.map(part=>['light:'+part.id,{kind:'light',part}])
-            ]);
-            const order=item.arrayParts?.order||[...members.keys()];
             for(const id of order){
               const member=members.get(id);
               if(!member)continue;
               const {kind,part}=member;
               if(kind==='object'){
-                const extra=new THREE.Mesh(geometry(part),surface(part.material));
+                const extra=new THREE.Mesh(member.shape,member.material);
                 extra.name=part.name+' '+(index+1);
                 extra.userData.primitiveId=item.id;
                 extra.userData.primitiveArrayIndex=item.repeat?index:null;
@@ -197,17 +213,23 @@ export function createPrimitiveWorld(scene) {
                 extra.castShadow=true;extra.receiveShadow=true;
                 instance.add(extra);
               }else{
-                const shadows=part.type!=='point'&&arrayShadowSlots>0;
+                const shadows=lightCastsShadow(part)&&arrayShadowSlots>0;
                 if(shadows){arrayShadowSlots--;usedShadowSlots++;}
-                const node=light(part,shadows);
+                const node=light(part,shadows,true);
+                if(shadows)casters.push(node);
                 node.userData.primitiveArrayPartId=part.id;
                 instance.add(node);
               }
             }
             holder.add(instance);instances.push(instance);
           }else{
-            if(holder)mesh.position.set(...offset);
-            else{mesh.position.set(...item.position);mesh.rotation.set(...item.rotation);}
+            if(holder){
+              mesh.position.set(...offset);
+              mesh.rotation.set(...(item.instanceRotation||[0,0,0]));
+            }else{
+              mesh.position.set(...item.position);
+              mesh.rotation.set(...item.rotation);
+            }
             (holder||layerGroups.get(key)).add(mesh);
             if(holder)instances.push(mesh);
           }
@@ -224,13 +246,15 @@ export function createPrimitiveWorld(scene) {
       const actualLights=new Map();
       (entry.lights||[]).forEach((spec,index)=>{
         const id=spec.id||'light_'+(index+1);
-        const shadows=spec.type!=='point'&&
+        const shadows=lightCastsShadow(spec)&&
           usedShadowSlots<MAX_PRIMITIVE_SHADOW_MAPS;
         if(shadows)usedShadowSlots++;
-        const source=light(spec,shadows);
+        const source=light(spec,shadows,entry.objects.length>0);
+        if(shadows)casters.push(source);
         root.add(source);actualLights.set(id,source);
       });
       lightNodes.set(entry.shotId,actualLights);
+      shadowLights.set(entry.shotId,casters);
       root.visible=false;
       // Editor-only light markers stay OUTSIDE the model root, so GLB,
       // Three.js flythrough and After Effects packages never contain gizmos.
@@ -331,10 +355,14 @@ export function createPrimitiveWorld(scene) {
     return {center:sphere.center.toArray(),radius:sphere.radius};
   }
   function showShot(shotId){
+    if(activeShotId!==shotId)invalidateShadows(shotId);
     activeShotId=shotId;
     for(const [id,root] of groups)root.visible=id===shotId;
     for(const [id,root] of lightMarkerGroups)
       root.visible=markersEnabled&&id===shotId;
+  }
+  function invalidateShadows(shotId=activeShotId){
+    for(const node of shadowLights.get(shotId)||[])node.shadow.needsUpdate=true;
   }
   function setLightMarkersVisible(visible){
     markersEnabled=!!visible;
@@ -347,12 +375,15 @@ export function createPrimitiveWorld(scene) {
     return !!(marker?.visible&&marker.parent?.visible&&activeShotId===shotId);
   }
   function getLightTargetMarker(shotId,id){return lightTargets.get(shotId)?.get(id)||null;}
+  const _source=new THREE.Vector3(),_target=new THREE.Vector3(),_delta=new THREE.Vector3();
+  const _orientation=new THREE.Quaternion(),up=new THREE.Vector3(0,1,0);
   function updateLightVisuals(camera,viewportHeight=720){
     if(!markersEnabled||!camera)return;
     const shot=activeShotId;
     const sources=lightMarkers.get(shot),targets=lightTargets.get(shot),guides=lightGuides.get(shot);
     const actual=lightNodes.get(shot);
     if(!sources)return;
+    let shadowsChanged=false;
     const height=Math.max(1,viewportHeight);
     const worldPerPixel=node=>{
       node.getWorldPosition(_source);
@@ -361,15 +392,15 @@ export function createPrimitiveWorld(scene) {
         Math.abs(camera.top-camera.bottom)/height:
         2*Math.tan(THREE.MathUtils.degToRad(camera.fov)*.5)*distance/height;
     };
-    const _source=new THREE.Vector3(),_target=new THREE.Vector3(),_delta=new THREE.Vector3();
-    const up=new THREE.Vector3(0,1,0);
     for(const [id,source] of sources){
       source.scale.setScalar(Math.max(.0001,worldPerPixel(source)*10/.2));
       // While a transform handle is dragged the authored light follows the
       // source marker immediately, instead of illuminating the old location
       // until the gesture is committed and the scene is rebuilt.
       const node=actual?.get(id);
-      if(node)node.position.copy(source.position);
+      if(node&&!node.position.equals(source.position)){
+        node.position.copy(source.position);shadowsChanged=true;
+      }
     }
     for(const target of targets?.values()||[])
       target.scale.setScalar(Math.max(.0001,worldPerPixel(target)*7/.15));
@@ -381,7 +412,9 @@ export function createPrimitiveWorld(scene) {
       if(node&&length>.01){
         // lookAt receives world coordinates. The shot root is anchored away
         // from local origin, so convert target from shot-local -> world.
-        node.lookAt(node.parent.localToWorld(target.position.clone()));
+        _orientation.copy(node.quaternion);
+        node.lookAt(node.parent.localToWorld(_target.copy(target.position)));
+        if(!node.quaternion.equals(_orientation))shadowsChanged=true;
         node.target?.position.set(0,0,-1);
       }
       const positions=line.geometry.attributes.position;
@@ -395,6 +428,7 @@ export function createPrimitiveWorld(scene) {
       const arrowSize=Math.min(length*.09,worldPerPixel(arrow)*5);
       arrow.scale.setScalar(Math.max(.001,arrowSize));
     }
+    if(shadowsChanged)invalidateShadows(shot);
   }
   function getObjectNode(shotId,objectId){
     return objectNodes.get(shotId)?.get(objectId)||null;
@@ -437,5 +471,5 @@ export function createPrimitiveWorld(scene) {
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
   return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,getLightNode,isLightMarkerVisible,getLightTargetMarker,updateLightVisuals,setLightMarkersVisible,getPickableMeshes,
-    getSceneForExport,getDocument,getArrayInstances,dispose};
+    getSceneForExport,getDocument,getArrayInstances,invalidateShadows,dispose};
 }

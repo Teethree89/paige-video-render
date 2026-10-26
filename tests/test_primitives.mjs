@@ -2,12 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PRIMITIVE_TYPES,LIMITS,blankPrimitiveDocument,
-  validatePrimitiveDocument,makePrimitive,makeExampleBlockout,repeatOffsets
+  validatePrimitiveDocument,makePrimitive,makeExampleBlockout,repeatOffsets,lightCastsShadow
 } from '../primitive-schema.js';
 
 const doc=(shotId='draft_001')=>({schemaVersion:1,scenes:[{
   shotId,objects:[makePrimitive('box','rack_1')]
 }]});
+test('per-light shadow choice is optional, strict, and survives JSON for every light type',()=>{
+ for(const type of ['point','spot','directional']){
+   const light={id:'lamp',type,color:'#ffffff',intensity:2,position:[0,5,0]};
+   const source={schemaVersion:1,scenes:[{shotId:'shot',objects:[],lights:[light]}]};
+   const legacy=validatePrimitiveDocument(source).scenes[0].lights[0];
+   assert.equal('castShadow' in legacy,false,'older scenes are not rewritten');
+   assert.equal(lightCastsShadow(legacy),type!=='point');
+   for(const enabled of [false,true]){
+     light.castShadow=enabled;
+     const result=validatePrimitiveDocument(JSON.parse(JSON.stringify(source))).scenes[0].lights[0];
+     assert.equal(result.castShadow,enabled);
+     assert.equal(lightCastsShadow(result),enabled);
+     assert.equal(result.intensity,legacy.intensity,'shadow toggle does not dim the light');
+   }
+   for(const invalid of [null,'false',0,1]){
+     light.castShadow=invalid;
+     assert.throws(()=>validatePrimitiveDocument(source),/castShadow must be boolean/);
+   }
+ }
+});
 test('an empty scene document is valid and backward compatible',()=>{
   assert.deepEqual(validatePrimitiveDocument(undefined),blankPrimitiveDocument());
   assert.deepEqual(validatePrimitiveDocument(null),blankPrimitiveDocument());
@@ -183,4 +203,36 @@ test('scene light types and values remain bounded but light count is unlimited',
     [[{...point,position:[0,Infinity,0]}],/position/],
     ['bright',/array/]
   ])assert.throws(()=>lit(lights),pattern);
+});
+
+
+
+test('degree-only editor controls round-trip exact quarter turns without rewriting legacy saved rotations',async()=>{
+ const {radiansToDegrees,degreesToRadians}=await import('../primitive-schema.js');
+ assert.equal(radiansToDegrees(Math.PI/2),90);
+ assert.equal(radiansToDegrees(-Math.PI/4),-45);
+ assert.ok(Math.abs(degreesToRadians(90)-Math.PI/2)<1e-12);
+ const legacy=makePrimitive('box','legacy');
+ legacy.rotation=[0,1.5708,0];
+ legacy.repeat={count:[3,1,1],spacing:[3,0,0]};
+ const saved=validatePrimitiveDocument({schemaVersion:1,scenes:[
+   {shotId:'draft_001',objects:[legacy]}
+ ]});
+ assert.equal(saved.scenes[0].objects[0].rotation[1],1.5708);
+ assert.equal(saved.scenes[0].objects[0].instanceRotation,undefined);
+ const rotated=structuredClone(saved);
+ rotated.scenes[0].objects[0].instanceRotation=[0,degreesToRadians(90),0];
+ const after=validatePrimitiveDocument(rotated,['draft_001']).scenes[0].objects[0];
+ assert.equal(after.rotation[1],1.5708);
+ assert.equal(radiansToDegrees(after.instanceRotation[1]),90);
+ const {readFile}=await import('node:fs/promises');
+ const html=await readFile(new URL('../index.html',import.meta.url),'utf8');
+ const inspector=await readFile(new URL('../primitive-editor.js',import.meta.url),'utf8');
+ const mini=await readFile(new URL('../array-prototype-editor.js',import.meta.url),'utf8');
+ assert.match(html,/Rotation \(degrees °\)/);
+ assert.match(html,/Cone angle \(degrees °\)/);
+ assert.match(inspector,/item\.repeat\?'instanceRotation'/);
+ assert.match(inspector,/degreesToRadians\(Number\(event\.target\.value\)\)/);
+ assert.match(mini,/Rotation of each copy \(°\)/);
+ assert.match(mini,/Local rotation \(°\)/);
 });

@@ -7,6 +7,9 @@ export const PRIMITIVE_TYPES = Object.freeze(['box','sphere','cylinder','plane',
 export const ENVIRONMENT_LAYERS = Object.freeze(['structures','ground','vegetation','details']);
 // glTF's KHR_lights_punctual types, so every light also exports to GLB.
 export const LIGHT_TYPES = Object.freeze(['directional','point','spot']);
+// Preserve the legacy look when loading older files: aimed lights request
+// shadows, point lights do not. An explicit choice works for every light type.
+export const lightCastsShadow = light => light.castShadow ?? (light.type !== 'point');
 // A repeat array renders every copy as its own mesh, so copies are capped per
 // object and per scene to keep mobile WebGL, GLB and After Effects responsive.
 export const LIMITS = Object.freeze({scenes:120, objectsPerScene:240, totalObjects:2000,
@@ -90,6 +93,10 @@ const sceneLights=(value,shotId)=>{
       color:hexColor(light.color,label+' color'),
       intensity:finite(light.intensity,label+' intensity',0,light.type==='directional'?10:500),
       position:vec(light.position,label+' position',-10000,10000)};
+    if(light.castShadow!==undefined){
+      if(typeof light.castShadow!=='boolean')fail(label+' castShadow must be boolean');
+      out.castShadow=light.castShadow;
+    }
     if(light.type!=='point'){
       out.target=light.target==null?[0,0,0]:vec(light.target,label+' target',-10000,10000);
       if(Math.hypot(...out.position.map((n,k)=>n-out.target[k]))<.01)fail(label+' must aim at a distinct target');
@@ -177,6 +184,10 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       if(!PRIMITIVE_TYPES.includes(item.primitive))fail(id+' has unsupported primitive type');
       const position=vec(item.position,'position',-10000,10000);
       const rotation=vec(item.rotation,'rotation',-1000,1000);
+      // Orientation of each repeated prototype independently of row spacing/layout.
+      // Stored in radians for backward compatibility; the inspector shows degrees.
+      const instanceRotation=item.instanceRotation==null?undefined:
+        vec(item.instanceRotation,'instanceRotation',-1000,1000);
       // Up to 2 km: a full scene's ground or road can exceed 500 m.
       const scale=vec(item.scale,'scale',.01,2000);
       const m=item.material;
@@ -236,7 +247,8 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
         arrayParts={objects,lights,...(order?{order}:{})};
       }
       return {id,name:displayName(item.name,item.primitive+' '+id),
-        primitive:item.primitive,position,rotation,scale,
+        primitive:item.primitive,position,rotation,
+        ...(instanceRotation?{instanceRotation}:{}),scale,
         ...(points?{points}:{}),
         ...(repeat?{repeat}:{}),
         ...(arrayParts?{arrayParts}:{}),
@@ -280,3 +292,8 @@ export function makeExampleBlockout(shotId) {
   }
   return {shotId,objects};
 }
+
+// User-facing rotation controls use degrees; the on-disk scene schema and
+// Three.js continue using radians so existing project files remain valid.
+export const radiansToDegrees=value=>Math.round(value*180/Math.PI*1000)/1000;
+export const degreesToRadians=value=>value*Math.PI/180;

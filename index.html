@@ -186,11 +186,11 @@
               <label>Y<input type="number" step="0.1" data-prim="position.1" /></label>
               <label>Z<input type="number" step="0.1" data-prim="position.2" /></label>
             </div>
-            <div class="input-group-title">Rotation (radians)</div>
+            <div class="input-group-title" id="primitiveRotationLabel">Rotation (degrees °)</div>
             <div class="triple-input">
-              <label>X<input type="number" step="0.05" data-prim="rotation.0" /></label>
-              <label>Y<input type="number" step="0.05" data-prim="rotation.1" /></label>
-              <label>Z<input type="number" step="0.05" data-prim="rotation.2" /></label>
+              <label>X (°)<input type="number" step="1" data-prim="rotation.0" /></label>
+              <label>Y (°)<input type="number" step="1" data-prim="rotation.1" /></label>
+              <label>Z (°)<input type="number" step="1" data-prim="rotation.2" /></label>
             </div>
             <div class="input-group-title">Dimensions (x, y, z)</div>
             <div class="triple-input">
@@ -228,6 +228,8 @@
               </label>
               <label class="field">Light color <input id="primitiveLightColor" type="color" value="#ffffff"></label>
               <label class="field">Intensity <input id="primitiveLightIntensity" type="number" min="0" max="500" step="0.1"></label>
+              <label class="check-field"><input id="primitiveLightCastShadow" type="checkbox"> Cast shadows</label>
+              <p id="primitiveLightShadowStatus" class="field-help" role="status"></p>
               <div class="input-group-title">Light position (x, y, z)</div>
               <div class="triple-input">
                 <label>X<input data-light="position.0" type="number" step="0.1"></label>
@@ -243,8 +245,8 @@
               <label id="primitiveLightRangeWrap" class="field">Range (0 = infinite)
                 <input id="primitiveLightDistance" type="number" min="0" max="1000" step="0.5"></label>
               <div id="primitiveLightSpotWrap">
-                <label class="field">Cone angle (radians)
-                  <input id="primitiveLightAngle" type="number" min="0.05" max="1.5" step="0.05"></label>
+                <label class="field">Cone angle (degrees °)
+                  <input id="primitiveLightAngle" type="number" min="2.865" max="85.944" step="1"></label>
                 <label class="field">Penumbra (0–1)
                   <input id="primitiveLightPenumbra" type="number" min="0" max="1" step="0.05"></label>
               </div>
