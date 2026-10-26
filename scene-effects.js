@@ -10,6 +10,7 @@ import {validateSceneEffects} from './primitive-schema.js';
 export const DEFAULT_EFFECTS=Object.freeze({
  fog:{mode:'default',color:'#526779',density:.008},
  bloom:{enabled:false,strength:.45,threshold:.8,radius:.35},
+ shadows:{enabled:true},
  exposure:1.35,vignette:.45
 });
 export function effectsForShot(sequence,shotId){
@@ -33,6 +34,9 @@ export function applyShotEffects(scene,renderer,effects,{
    }
  }
  renderer.toneMappingExposure=review?Math.max(1.65,profile.exposure):profile.exposure;
+ // Renderer-level gate skips every shadow-map pass without mutating the
+ // saved castShadow flag or the light's color/intensity/illumination.
+ renderer.shadowMap.enabled=profile.shadows.enabled;
  return profile;
 }
 export function createScenePostprocessor(renderer,scene,camera){

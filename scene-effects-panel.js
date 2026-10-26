@@ -6,6 +6,7 @@ const fields={
  fogColor:['sceneFogColor',v=>v],
  fogDensity:['sceneFogDensity',Number],
  bloomEnabled:['sceneBloomEnabled',Boolean],
+ shadowsEnabled:['sceneShadowsEnabled',Boolean],
  bloomStrength:['sceneBloomStrength',Number],
  bloomThreshold:['sceneBloomThreshold',Number],
  bloomRadius:['sceneBloomRadius',Number],
@@ -29,6 +30,7 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
    $('sceneFogColor').value=profile.fog.color;
    $('sceneFogDensity').value=profile.fog.density;
    $('sceneBloomEnabled').checked=profile.bloom.enabled;
+   $('sceneShadowsEnabled').checked=profile.shadows.enabled;
    $('sceneBloomStrength').value=profile.bloom.strength;
    $('sceneBloomThreshold').value=profile.bloom.threshold;
    $('sceneBloomRadius').value=profile.bloom.radius;
@@ -59,13 +61,14 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
  }
  for(const [key,[id,cast]] of Object.entries(fields)){
    $(id).addEventListener('change',event=>{
-     const value=id==='sceneBloomEnabled'?event.target.checked:cast(event.target.value);
+     const value=id==='sceneBloomEnabled'||id==='sceneShadowsEnabled'?event.target.checked:cast(event.target.value);
      const profile=structuredClone(current());
      switch(key){
       case 'fogMode':profile.fog.mode=value;break;
       case 'fogColor':profile.fog.color=value;break;
       case 'fogDensity':profile.fog.density=value;break;
       case 'bloomEnabled':profile.bloom.enabled=value;break;
+      case 'shadowsEnabled':profile.shadows.enabled=value;break;
       case 'bloomStrength':profile.bloom.strength=value;break;
       case 'bloomThreshold':profile.bloom.threshold=value;break;
       case 'bloomRadius':profile.bloom.radius=value;break;

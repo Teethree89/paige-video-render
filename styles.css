@@ -484,3 +484,13 @@ html,body{font-size:14px}
 .array-editor-controls .array-property input[type=checkbox]{width:auto;min-width:0;accent-color:#7ae0d7}
 .preview-quality{position:absolute;top:59px;right:22px;z-index:3;display:flex;align-items:center;gap:7px;padding:5px 7px;background:#0b1725dc;border:1px solid #35495d;border-radius:4px;font-size:10px;color:#b8c8d7}
 .preview-quality select{font-size:11px;color:#e5f5fa;background:#142738;border:1px solid #456177;border-radius:3px;padding:3px}
+
+/* Lightweight, opt-in expanded GPU draw-call diagnostics. Does not schedule draws. */
+.render-diagnostics{position:absolute;z-index:28;right:15px;bottom:55px;width:min(248px,calc(100% - 30px));padding:7px 10px;border:1px solid #31566a;border-radius:7px;color:#cadfe9;background:rgba(7,17,26,.91);box-shadow:0 5px 20px #0005;font:10px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;pointer-events:auto}
+.render-diagnostics>summary{cursor:pointer;color:#9dccd8;letter-spacing:.4px;font-weight:700;display:list-item}
+.render-diagnostics>summary strong{float:right;color:#b7f7e7;font-size:11px;letter-spacing:0}
+.render-stats-grid{display:grid;grid-template-columns:1fr auto;gap:2px 9px;padding:9px 0 5px}
+.render-stats-grid output{color:#e1f2ff;text-align:right;font-variant-numeric:tabular-nums}
+.render-stats-foot{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #315064;padding-top:6px;color:#8ba9b9;font-size:9px}
+.render-stats-foot button{border:1px solid #41677b;border-radius:4px;padding:3px 5px;background:#172e3c;color:#b9e7e6;font:inherit;cursor:pointer}
+@media(max-width:680px){.render-diagnostics{bottom:50px;right:7px;width:220px}.render-stats-grid{font-size:9px}}

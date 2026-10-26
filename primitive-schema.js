@@ -119,12 +119,16 @@ export function validateSceneEffects(value){
  if(!['default','off','custom'].includes(fog.mode))fail('invalid fog mode');
  const bloom=value.bloom||{enabled:false,strength:.45,threshold:.8,radius:.35};
  if(typeof bloom.enabled!=='boolean')fail('bloom enabled must be boolean');
+ const shadows=value.shadows||{enabled:true};
+ if(!shadows||typeof shadows!=='object'||Array.isArray(shadows)||typeof shadows.enabled!=='boolean')
+   fail('shadows enabled must be boolean');
  return {
    fog:{mode:fog.mode,color:hexColor(fog.color||'#526779','fog color'),
      density:finite(fog.density??.008,'fog density',0,.15)},
    bloom:{enabled:bloom.enabled,strength:finite(bloom.strength??.45,'bloom strength',0,4),
      threshold:finite(bloom.threshold??.8,'bloom threshold',0,1),
      radius:finite(bloom.radius??.35,'bloom radius',0,1)},
+   shadows:{enabled:shadows.enabled},
    exposure:finite(value.exposure??1.35,'scene exposure',.2,5),
    vignette:finite(value.vignette??.45,'vignette strength',0,1)
  };

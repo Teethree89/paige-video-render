@@ -56,6 +56,7 @@ function render(t){
  const custom=primitiveWorld.hasObjects(currentShot.id);world.update(t,currentShot.id,custom);primitiveWorld.showShot(currentShot.id);draftWorld.update(currentShot,custom);
  primitiveWorld.prepareRender(currentShot.id);
  const profile=applyShotEffects(scene,renderer,effectsForShot(seq,currentShot.id));
+ // Shared chapter effects gate shadow maps in the MP4 renderer too.
  post.configure(profile);post.render();ctx.drawImage(source,0,0,out.width,out.height);
  // Match the saved chapter vignette while omitting editor controls.
  paintVignette(ctx,out.width,out.height,profile);
