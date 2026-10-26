@@ -167,6 +167,7 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
 .scene-edit-tools .scene-edit-note{color:#759aa8}
 .scene-edit-fields:not([hidden]){border-top:1px solid #335568;margin-top:12px;padding-top:10px}
 .scene-edit-fields #primitiveFields,.scene-edit-fields #primitiveLightFields{display:flex;flex-direction:column;gap:6px}
+.scene-edit-fields [hidden]{display:none!important}
 .scene-edit-fields .field{font-size:11px;margin-bottom:8px}
 .scene-edit-fields .input-group-title{font-size:10px;margin:8px 0 1px}
 .scene-edit-fields .triple-input{margin:0 0 5px;gap:7px}
