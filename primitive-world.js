@@ -138,32 +138,34 @@ export function createPrimitiveWorld(scene) {
         // One copy is the object itself. An array is a group at the object's
         // transform holding one plain mesh per copy (shared geometry and
         // material), so GLB/After Effects see ordinary nodes, not instancing.
-        const holder=offsets.length===1?null:tag(new THREE.Group());
         const hasParts=!!(item.arrayParts?.objects?.length||item.arrayParts?.lights?.length);
+        // Composite single assets also need a transform holder so moving the
+        // selection moves every part; only actual repeats are indexed arrays.
+        const holder=offsets.length===1&&!hasParts?null:tag(new THREE.Group());
         const instances=[];
         let directMesh=null;
         offsets.forEach((offset,index)=>{
           const mesh=tag(new THREE.Mesh(shape,material));
           mesh.castShadow=true;
           mesh.receiveShadow=true;
-          mesh.userData.primitiveArrayIndex=holder?index:null;
+          mesh.userData.primitiveArrayIndex=item.repeat?index:null;
           if(!holder)directMesh=mesh;
           mesh.name=holder?item.name+' '+(index+1):item.name;
           mesh.scale.set(...item.scale);
           // With prototype components, this is an actual repeated assembly:
           // a shared instance group carries the source mesh, additions and
           // shot-local punctual lights in exactly the same local frame.
-          if(holder&&hasParts){
+          if(hasParts){
             const instance=tag(new THREE.Group());
             instance.name=item.name+' instance '+(index+1);
-            instance.userData.primitiveArrayIndex=index;
+            instance.userData.primitiveArrayIndex=item.repeat?index:null;
             instance.position.set(...offset);
             instance.add(mesh);
             for(const part of item.arrayParts.objects){
               const extra=new THREE.Mesh(geometry(part),surface(part.material));
               extra.name=part.name+' '+(index+1);
               extra.userData.primitiveId=item.id;
-              extra.userData.primitiveArrayIndex=index;
+              extra.userData.primitiveArrayIndex=item.repeat?index:null;
               extra.userData.primitiveArrayPartId=part.id;
               extra.position.set(...part.position);
               extra.rotation.set(...part.rotation);
@@ -184,7 +186,7 @@ export function createPrimitiveWorld(scene) {
             if(holder)instances.push(mesh);
           }
         });
-        if(holder)arrays.set(item.id,instances);
+        if(item.repeat)arrays.set(item.id,instances);
         if(holder){
           holder.name=item.name;
           holder.position.set(...item.position);
