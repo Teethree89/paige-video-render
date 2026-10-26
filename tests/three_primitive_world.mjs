@@ -470,3 +470,51 @@ test('double-clicking one array mesh outlines all repeats and asks before openin
    editor.dispose();
  }finally{globalThis.document=oldDocument;world.dispose();}
 });
+
+
+test('array prototype mini viewport frames the saved mesh with finite camera coordinates',async()=>{
+ const {framePrototypeCamera,createPrototypeGuides}=
+   await import('../array-prototype-editor.js');
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+ const prototype={...unit('right_ave_crowns','sphere'),name:'Right Ave Crowns',
+   scale:[3.8,4.2,3.8],position:[0,0,0]};
+ world.setDocument({schemaVersion:1,scenes:[{
+   shotId:'arrayPreview',objects:[prototype]}]},['arrayPreview']);
+ world.showShot('arrayPreview');
+ const bounds=world.getBounds('arrayPreview');
+ assert.ok(Array.isArray(bounds.center),'primitive-world emits an XYZ tuple');
+ const camera=new THREE.PerspectiveCamera(46,629/729,.1,2000);
+ const orbit={target:new THREE.Vector3(),update(){
+   camera.lookAt(this.target);camera.updateMatrixWorld(true);
+ }};
+ const radius=framePrototypeCamera(camera,orbit,bounds);
+ assert.ok(radius>=3);
+ for(const value of [...camera.position.toArray(),...orbit.target.toArray(),
+   ...camera.projectionMatrix.elements,...camera.matrixWorld.elements])
+   assert.ok(Number.isFinite(value),'camera never contains NaN / undefined from XYZ bounds');
+ assert.deepEqual(orbit.target.toArray(),bounds.center);
+ const source=world.getObjectNode('arrayPreview','right_ave_crowns');
+ assert.ok(source?.isMesh);
+ const projected=source.getWorldPosition(new THREE.Vector3()).project(camera);
+ assert.ok(Math.abs(projected.x)<.9&&Math.abs(projected.y)<.9,
+   'source must be within the visible camera framing');
+ assert.ok(projected.z>-1&&projected.z<1,'source must be between near and far planes');
+
+ const {grid,axes}=createPrototypeGuides(scene);
+ assert.equal(grid.type,'GridHelper');
+ assert.equal(grid.visible,true);
+ assert.equal(axes.type,'AxesHelper');
+ const box=new THREE.Box3().setFromObject(source);
+ grid.position.set(bounds.center[0],box.min.y-.035,bounds.center[2]);
+ grid.scale.setScalar(Math.max(.5,Math.min(50,radius*4/20)));
+ assert.ok(grid.position.y<box.min.y,'grid must sit below the sample object');
+ assert.ok(grid.parent===scene && axes.parent===scene,
+   'viewport guides must not be children of the exported 3D scene');
+ const exportRoot=world.getSceneForExport('arrayPreview');
+ assert.equal(exportRoot.getObjectByName(grid.name),undefined);
+ assert.equal(exportRoot.getObjectByName(axes.name),undefined);
+ assert.throws(()=>framePrototypeCamera(camera,orbit,{center:[NaN,0,0],radius:4}),
+   /valid XYZ/);
+ world.dispose();grid.geometry.dispose();grid.material.dispose();
+ axes.geometry.dispose();axes.material.dispose();
+});
