@@ -36,10 +36,16 @@ export function applyShotEffects(scene,renderer,effects,{
  return profile;
 }
 export function createScenePostprocessor(renderer,scene,camera){
- let composer=null,bloom=null,enabled=false,width=1,height=1;
+ let composer=null,bloom=null,enabled=false,width=1,height=1,pixelRatio=renderer.getPixelRatio();
+ function syncPixelRatio(){
+   if(!composer)return;
+   const next=renderer.getPixelRatio();
+   if(next!==pixelRatio){pixelRatio=next;composer.setPixelRatio(next);}
+ }
  function ensure(){
    if(composer)return;
    composer=new EffectComposer(renderer);
+   pixelRatio=renderer.getPixelRatio();
    composer.addPass(new RenderPass(scene,camera));
    bloom=new UnrealBloomPass(new THREE.Vector2(width,height),.45,.35,.8);
    composer.addPass(bloom);
@@ -48,7 +54,7 @@ export function createScenePostprocessor(renderer,scene,camera){
  }
  function setSize(w,h){
    width=Math.max(1,Math.floor(w));height=Math.max(1,Math.floor(h));
-   if(composer)composer.setSize(width,height);
+   if(composer){syncPixelRatio();composer.setSize(width,height);}
  }
  function configure(profile){
    enabled=!!profile?.bloom?.enabled&&profile.bloom.strength>0;
@@ -59,7 +65,7 @@ export function createScenePostprocessor(renderer,scene,camera){
    bloom.threshold=profile.bloom.threshold;
  }
  function render(){
-   if(enabled){ensure();composer.render();}
+   if(enabled){ensure();syncPixelRatio();composer.render();}
    else renderer.render(scene,camera);
  }
  return {setSize,configure,render,get enabled(){return enabled;}};

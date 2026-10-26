@@ -15,7 +15,7 @@ export function createSelectionOutline(object){
   const relative=new THREE.Matrix4(),localBounds=new THREE.Box3();
   let found=false;
   object.traverse(node=>{
-    if(!node.isMesh||!node.geometry)return;
+    if(!node.isMesh||!node.geometry||node.userData.previewBatch)return;
     if(!node.geometry.boundingBox)node.geometry.computeBoundingBox();
     if(!node.geometry.boundingBox)return;
     relative.multiplyMatrices(inverse,node.matrixWorld);
@@ -55,7 +55,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onSelect,onStatus,onArrayEdit,getInitialObjectId
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{}
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -71,6 +71,7 @@ export function setupSceneObjectEditing({
   scene.add(helper);
   transform.enabled=false;
   transform.detach();
+  transform.addEventListener('change',onVisualChange);
   let active=false,selectedId=null,selectedShot=null,operation='translate';
   let frameStart=null,draggingHandle=false,skipClick=false,highlight=null;
   let arrayHighlights=[],pendingArray=null;
@@ -83,7 +84,7 @@ export function setupSceneObjectEditing({
       const reset=record?.instanceRotation||[0,0,0];
       for(const copy of world.getArrayInstances(rotationSource.shotId,rotationSource.id))
         copy.rotation.set(...reset);
-      world.invalidateShadows?.(rotationSource.shotId);
+      world.invalidateGeometry?.(rotationSource.shotId);
     }
     rotationProxy?.removeFromParent();
     rotationProxy=null;rotationSource=null;
@@ -112,7 +113,7 @@ export function setupSceneObjectEditing({
       for(const copy of world.getArrayInstances(rotationSource.shotId,rotationSource.id))
         copy.quaternion.copy(local);
     }
-    world.invalidateShadows?.(currentShot());
+    world.invalidateGeometry?.(currentShot());
     updateHighlight();
   }
   const arrayConfirm=el('arrayEditConfirm');
@@ -163,10 +164,12 @@ export function setupSceneObjectEditing({
   const currentShot=()=>getActiveShot()?.id||null;
   function clearHighlight(){
     highlight?.dispose();highlight=null;
+    onVisualChange();
   }
   function clearArrayHighlights(){
     for(const outline of arrayHighlights)outline.dispose();
     arrayHighlights=[];pendingArray=null;
+    onVisualChange();
   }
   function updateHighlight(){highlight?.update();
     for(const outline of arrayHighlights)outline.update();}

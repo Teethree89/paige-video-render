@@ -53,6 +53,109 @@ const vertices=mesh=>{
 const near=(a,b)=>Math.abs(a-b)<1e-6;
 const round=n=>Math.round(n*1e4)/1e4+0; // +0 turns -0 into 0 for deepEqual
 
+const batchFixture=()=>({schemaVersion:1,scenes:[{shotId:'array',objects:[
+ unit('lamps','group',{position:[4,3,-2],rotation:[0,.3,0],instanceRotation:[0,.8,0],
+   repeat:{count:[4,1,1],spacing:[5,0,0]},arrayParts:{objects:[
+     unit('stem','cylinder',{name:'Stem',scale:[.2,5,.2]}),
+     unit('head','sphere',{name:'Head',position:[1,3,0],scale:[2,.5,1]}),
+     unit('glass','box',{name:'Glass',position:[0,2,0],material:{...mat,opacity:.4}})
+   ],lights:[{...lights[2],id:'beam'}]}})
+]}]});
+
+test('GPU arrays batch opaque parts while preserving every pickable copy, light and transparent mesh',()=>{
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const source=batchFixture(),snapshot=structuredClone(source);
+ try{
+   world.setDocument(source,null,{array:[100,0,-30]});world.showShot('array');world.prepareRender('array');
+   const visible=[],foundLights=[];
+   scene.traverseVisible(n=>{if(n.isMesh)visible.push(n);if(n.isLight)foundLights.push(n);});
+   assert.equal(visible.length,6,'12 mesh submissions become 2 instanced batches plus 4 sorted glass meshes');
+   assert.equal(visible.filter(n=>n.isInstancedMesh).length,2);
+   assert.equal(visible.reduce((sum,n)=>sum+(n.isInstancedMesh?n.count:1),0),12);
+   assert.equal(foundLights.length,4,'instancing never caps or merges punctual lights');
+   const pickables=world.getPickableMeshes('array');
+   assert.equal(pickables.length,12);assert.ok(pickables.every(n=>!n.isInstancedMesh));
+   assert.equal(pickables.filter(n=>n.visible).length,4,'glass retains its ordinary draw/sort behavior');
+   assert.equal(world.getArrayInstances('array','lamps').length,4);
+   assert.deepEqual(source,snapshot,'source scene data is not mutated');
+ }finally{world.dispose();}
+});
+
+test('instanced matrices follow copy-local rotation and holder transforms; light-only edits keep uploads cached',()=>{
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ try{
+   world.setDocument(batchFixture(),null,{array:[100,0,-30]});world.showShot('array');world.prepareRender('array');
+   const holder=world.getObjectNode('array','lamps'),batches=holder.children.filter(n=>n.isInstancedMesh);
+   const assertMatrices=()=>{
+     scene.updateMatrixWorld(true);
+     for(const batch of batches){
+       const originals=world.getPickableMeshes('array').filter(n=>n.geometry===batch.geometry&&n.material===batch.material);
+       originals.forEach((mesh,i)=>{
+         const matrix=new THREE.Matrix4();batch.getMatrixAt(i,matrix);matrix.premultiply(batch.matrixWorld);
+         matrix.elements.forEach((n,j)=>assert.ok(Math.abs(n-mesh.matrixWorld.elements[j])<1e-4));
+       });
+     }
+   };
+   assertMatrices();
+   for(const copy of world.getArrayInstances('array','lamps'))copy.rotation.y+=Math.PI/2;
+   holder.position.x+=8;holder.rotation.z=.2;
+   world.invalidateGeometry('array');world.prepareRender('array');assertMatrices();
+   const versions=batches.map(n=>n.instanceMatrix.version);
+   world.invalidateShadows('array');world.prepareRender('array');
+   assert.deepEqual(batches.map(n=>n.instanceMatrix.version),versions,'light changes do not re-upload geometry');
+   const disposals=batches.map(()=>0);
+   batches.forEach((batch,i)=>batch.addEventListener('dispose',()=>disposals[i]++));
+   world.dispose();assert.deepEqual(disposals,[1,1]);
+ }finally{world.dispose();}
+});
+
+test('hidden picking meshes still raycast and GLB exports every ordinary copy without preview instances',async()=>{
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ try{
+   const array=unit('boxes','box',{position:[0,0,0],repeat:{count:[3,1,1],spacing:[3,0,0]}});
+   world.setDocument({schemaVersion:1,scenes:[{shotId:'array',objects:[array]}]},null,{array:[100,0,20]});
+   world.showShot('array');world.prepareRender('array');scene.updateMatrixWorld(true);
+   const [hit]=new THREE.Raycaster(new THREE.Vector3(97,0,30),new THREE.Vector3(0,0,-1))
+     .intersectObjects(world.getPickableMeshes('array'),false);
+   assert.ok(hit,'render-hidden ordinary mesh remains pickable');
+   assert.equal(hit.object.userData.primitiveArrayIndex,0);
+   const exported=world.getSceneForExport('array'),nodes=[];
+   exported.traverse(n=>{assert.equal(!!n.userData.previewBatch,false);assert.equal(!!n.userData.previewSource,false);if(n.isMesh)nodes.push(n);});
+   assert.equal(nodes.length,3);assert.ok(nodes.every(n=>n.visible&&!n.isInstancedMesh));
+   const gltf=await new GLTFExporter().parseAsync(exported,{binary:false,onlyVisible:true,trs:true});
+   assert.equal(gltf.nodes.filter(n=>n.mesh!==undefined).length,3);
+   assert.equal(gltf.meshes.length,1);
+   assert.ok(!gltf.extensionsUsed?.includes('EXT_mesh_gpu_instancing'));
+   const {createSelectionOutline}=await import('../scene-object-edit.js');
+   const outline=createSelectionOutline(world.getObjectNode('array','boxes'));
+   assert.ok(outline);
+   assert.equal(outline.line.matrix.elements[0],7);
+   assert.equal(outline.line.matrix.elements[5],1);
+   assert.equal(outline.line.matrix.elements[10],1);
+   assert.deepEqual(outline.line.matrix.elements.slice(12,15),[100,0,20]);
+   outline.dispose();
+ }finally{world.dispose();}
+});
+
+test('bloom render targets follow preview pixel-ratio changes instead of staying at full retina resolution',async()=>{
+ const {createScenePostprocessor}=await import('../scene-effects.js');
+ const original=THREE.WebGLRenderTarget.prototype.setSize,targets=[];
+ let ratio=2;
+ THREE.WebGLRenderTarget.prototype.setSize=function(w,h,...args){
+   const result=original.call(this,w,h,...args);
+   if(this.texture.name==='EffectComposer.rt1')targets.push([this.width,this.height]);
+   return result;
+ };
+ try{
+   const renderer={getPixelRatio:()=>ratio,getSize:target=>target.set(800,600)};
+   const post=createScenePostprocessor(renderer,new THREE.Scene(),new THREE.PerspectiveCamera());
+   post.setSize(800,600);post.configure({bloom:{enabled:true,strength:.1,radius:0,threshold:.8}});
+   assert.deepEqual(targets.at(-1),[1600,1200]);
+   ratio=.75;post.setSize(800,600);
+   assert.deepEqual(targets.at(-1),[600,450]);
+ }finally{THREE.WebGLRenderTarget.prototype.setSize=original;}
+});
+
 test('shadow toggles preserve illumination, support opt-in point shadows and free shadow slots',async()=>{
  const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
  const specs=Array.from({length:5},(_,i)=>({...lights[2],id:'spot_'+i,
