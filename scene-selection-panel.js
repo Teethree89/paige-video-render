@@ -5,7 +5,10 @@ export function setupSceneSelectionPanel(root=globalThis.document){
  const slot=root?.getElementById?.('sceneEditFields');
  const object=root?.getElementById?.('primitiveFields');
  const light=root?.getElementById?.('primitiveLightFields');
- if(!slot||!object||!light)return {sync(){},restore(){}};
+ if(!slot||!object||!light||typeof root.createComment!=='function'||
+   typeof object.parentNode?.insertBefore!=='function'||
+   typeof light.parentNode?.insertBefore!=='function')
+   return {sync(){},restore(){}};
  const nodes=[object,light];
  const homes=nodes.map(node=>{
    const placeholder=root.createComment('Original home of '+node.id);
