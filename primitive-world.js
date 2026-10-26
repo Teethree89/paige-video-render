@@ -84,7 +84,7 @@ const light = spec => {
 export function createPrimitiveWorld(scene) {
   const groups=new Map();
   // Saved primitive ID -> top-level transform node (repeat arrays share one holder).
-  const objectNodes=new Map(),lightMarkers=new Map(),lightTargets=new Map(),lightGuides=new Map(),lightMarkerGroups=new Map();
+  const objectNodes=new Map(),lightNodes=new Map(),lightMarkers=new Map(),lightTargets=new Map(),lightGuides=new Map(),lightMarkerGroups=new Map();
   let markersEnabled=false;
   let document={schemaVersion:1,scenes:[]};
   let activeShotId=null;
@@ -97,7 +97,7 @@ export function createPrimitiveWorld(scene) {
         if(item.isLight)item.dispose();
       });
     }
-    groups.clear();objectNodes.clear();
+    groups.clear();objectNodes.clear();lightNodes.clear();
     for(const root of lightMarkerGroups.values()){
       scene.remove(root);
       root.traverse(node=>{
@@ -159,7 +159,13 @@ export function createPrimitiveWorld(scene) {
         }
         nodes.set(item.id,holder||directMesh);
       }
-      for(const spec of entry.lights||[])root.add(light(spec));
+      const actualLights=new Map();
+      (entry.lights||[]).forEach((spec,index)=>{
+        const id=spec.id||'light_'+(index+1);
+        const source=light(spec);
+        root.add(source);actualLights.set(id,source);
+      });
+      lightNodes.set(entry.shotId,actualLights);
       root.visible=false;
       // Editor-only light markers stay OUTSIDE the model root, so GLB,
       // Three.js flythrough and After Effects packages never contain gizmos.
@@ -274,6 +280,7 @@ export function createPrimitiveWorld(scene) {
     if(!markersEnabled||!camera)return;
     const shot=activeShotId;
     const sources=lightMarkers.get(shot),targets=lightTargets.get(shot),guides=lightGuides.get(shot);
+    const actual=lightNodes.get(shot);
     if(!sources)return;
     const height=Math.max(1,viewportHeight);
     const worldPerPixel=node=>{
@@ -285,14 +292,27 @@ export function createPrimitiveWorld(scene) {
     };
     const _source=new THREE.Vector3(),_target=new THREE.Vector3(),_delta=new THREE.Vector3();
     const up=new THREE.Vector3(0,1,0);
-    for(const source of sources.values())
+    for(const [id,source] of sources){
       source.scale.setScalar(Math.max(.0001,worldPerPixel(source)*10/.2));
+      // While a transform handle is dragged the authored light follows the
+      // source marker immediately, instead of illuminating the old location
+      // until the gesture is committed and the scene is rebuilt.
+      const node=actual?.get(id);
+      if(node)node.position.copy(source.position);
+    }
     for(const target of targets?.values()||[])
       target.scale.setScalar(Math.max(.0001,worldPerPixel(target)*7/.15));
     for(const guide of guides?.values()||[]){
       const {source,target,line,arrow}=guide;
       _delta.subVectors(target.position,source.position);
       const length=_delta.length();
+      const node=actual?.get([...guides].find(([,item])=>item===guide)?.[0]);
+      if(node&&length>.01){
+        // lookAt receives world coordinates. The shot root is anchored away
+        // from local origin, so convert target from shot-local -> world.
+        node.lookAt(node.parent.localToWorld(target.position.clone()));
+        node.target?.position.set(0,0,-1);
+      }
       const positions=line.geometry.attributes.position;
       positions.setXYZ(0,source.position.x,source.position.y,source.position.z);
       positions.setXYZ(1,target.position.x,target.position.y,target.position.z);
