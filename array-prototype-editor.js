@@ -54,7 +54,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave}){
        const bounds=world.getBounds(sampleShot);
        const center=bounds?.center||new THREE.Vector3();
        const radius=Math.max(3,bounds?.radius||3);
-       orbit.target.copy(center);
+       orbit.target.fromArray(center);
        camera.position.copy(center).add(new THREE.Vector3(radius*1.9,radius*1.4,radius*2.7));
        camera.near=.05;camera.far=Math.max(1500,radius*100);camera.updateProjectionMatrix();
        orbit.update();
