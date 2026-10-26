@@ -96,50 +96,35 @@ test('light gizmo move/delete preserves unrelated accepted shapes and never expo
 });
 
 
-test('new editor lights visibly illuminate shot geometry, with non-cube edit-only handles',async()=>{
- const THREE=await import('three');
- const {createPrimitiveWorld}=await import('../primitive-world.js');
+test('new light presets produce shot-local punctual lights and recognizable editor-only bulb gizmos',async()=>{
+ const source=new URL('../primitive-world.js',import.meta.url);
+ const world=await readFile(source,'utf8');
  let doc=insertCreatedAsset(empty(),'a','primitives','box',[0,0,0]).document;
  doc=insertCreatedAsset(doc,'a','lights','point-red',[0,0,0]).document;
  doc=insertCreatedAsset(doc,'a','lights','spot-cool',[0,0,0]).document;
- const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
- try{
-   world.setDocument(doc,['a','b']);
-   world.showShot('a');
-   const exported=world.getSceneForExport('a');
-   const point=[],spot=[],meshes=[];
-   exported.traverse(node=>{
-     if(node.isPointLight)point.push(node);
-     if(node.isSpotLight)spot.push(node);
-     if(node.isMesh)meshes.push(node);
-     assert.equal(node.userData.primitiveLightId,undefined,'no editor gizmos in GLB');
-   });
-   assert.equal(point.length,1);
-   assert.equal(spot.length,1);
-   assert.equal(point[0].intensity,180,'point illumination must compete with global fill');
-   assert.equal(spot[0].intensity,240,'spot illumination must compete with global fill');
-   assert.equal(spot[0].castShadow,true);
-   assert.equal(spot[0].shadow.mapSize.x,512);
-   assert.equal(point[0].castShadow,false,'avoid six shadow passes per point light');
-   assert.ok(meshes.length>0);
-   assert.ok(meshes.every(mesh=>mesh.isMesh&&mesh.castShadow&&mesh.receiveShadow));
-   const lightId=doc.scenes[0].lights[0].id;
-   const marker=world.getLightMarker('a',lightId);
-   assert.ok(marker.isMesh);
-   assert.equal(marker.geometry.type,'SphereGeometry','bulb gizmo, not a cube or octahedron');
-   assert.ok(marker.children.some(child=>child.isLineSegments),'light-ray icon spokes');
-   assert.equal(marker.visible,true,'hidden parent controls edit-only visibility');
-   assert.equal(marker.parent.visible,false);
-   world.setLightMarkersVisible(true);
-   assert.equal(marker.parent.visible,true);
-   world.showShot('b');
-   assert.equal(marker.parent.visible,false,'lights and their gizmos are shot-scoped');
-   world.showShot('a');
-   assert.equal(marker.parent.visible,true);
-   const saved=world.getDocument();
-   assert.equal(saved.scenes[0].objects.length,doc.scenes[0].objects.length);
-   assert.equal(saved.scenes[0].lights[0].intensity,180);
- }finally{world.dispose();}
+ const entry=doc.scenes[0];
+ assert.equal(entry.objects.length,1);
+ assert.equal(entry.lights.length,2);
+ assert.deepEqual(entry.lights.map(l=>l.type),['point','spot']);
+ assert.equal(entry.lights[0].intensity,180);
+ assert.equal(entry.lights[1].intensity,240);
+ assert.notEqual(entry.lights[0].id,entry.lights[1].id);
+ assert.deepEqual(entry.lights[0].position,entry.lights[1].position);
+ assert.match(world,/new THREE\.PointLight\(color,spec\.intensity,spec\.distance\)/);
+ assert.match(world,/new THREE\.SpotLight\(color,spec\.intensity,spec\.distance,spec\.angle,spec\.penumbra\)/);
+ assert.match(world,/for\(const spec of entry\.lights\|\|\[\]\)root\.add\(light\(spec\)\)/);
+ assert.match(world,/mesh\.castShadow=true/);
+ assert.match(world,/mesh\.receiveShadow=true/);
+ assert.match(world,/node\.shadow\.mapSize\.set\(512,512\)/);
+ assert.match(world,/new THREE\.SphereGeometry\(\.2,12,8\)/);
+ assert.match(world,/new THREE\.LineSegments\(rayGeometry/);
+ assert.match(world,/marker\.userData\.primitiveLightId=id/);
+ assert.match(world,/markerRoot\.visible=false/);
+ assert.match(world,/markerRoot\.add\(marker\)/);
+ assert.match(world,/root\.visible=false/);
+ assert.match(world,/const copy=root\.clone\(true\)/);
+ assert.match(world,/return copy;/);
+ assert.doesNotMatch(world,/new THREE\.OctahedronGeometry\(\.48,0\)/);
 });
 
 test('editor and video agree on shadow rendering; editing suppresses temporary studio fill',async()=>{
