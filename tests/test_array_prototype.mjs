@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {register} from 'node:module';
 import {pathToFileURL} from 'node:url';
 if(process.env.THREE_NODE_MODULES){
- const parent=pathToFileURL(process.env.THREE_NODE_MODULES.replace(/\\/?$/,'/')+'resolver.js').href;
+ const dir=process.env.THREE_NODE_MODULES;
+ const parent=pathToFileURL(dir+(dir.endsWith('/')?'':'/')+'resolver.js').href;
  register('data:text/javascript,'+encodeURIComponent(`export async function resolve(s,c,next){
    return next(s,s==='three'||s.startsWith('three/')?{...c,parentURL:${JSON.stringify(parent)}}:c);}`));
 }
