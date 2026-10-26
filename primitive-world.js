@@ -50,6 +50,23 @@ const light = spec => {
     :new THREE.PointLight(color,spec.intensity,spec.distance);
   node.name=spec.name;
   node.userData.primitiveLight=spec.type;
+  // Shadow maps are enabled for aimed lights, not every point light: a point
+  // light requires six renders per shadow map and eight are allowed per shot.
+  node.castShadow=spec.type!=='point';
+  if(node.castShadow){
+    node.shadow.mapSize.set(512,512);
+    node.shadow.bias=-0.0002;
+    node.shadow.normalBias=0.025;
+    if(spec.type==='directional'){
+      const span=40;
+      node.shadow.camera.left=-span;node.shadow.camera.right=span;
+      node.shadow.camera.top=span;node.shadow.camera.bottom=-span;
+      node.shadow.camera.near=0.1;node.shadow.camera.far=400;
+    }else{
+      node.shadow.camera.near=0.1;
+      node.shadow.camera.far=spec.distance||100;
+    }
+  }
   node.position.set(...spec.position);
   if(node.target){
     const target=new THREE.Vector3(...spec.target);
@@ -84,7 +101,8 @@ export function createPrimitiveWorld(scene) {
     for(const root of lightMarkerGroups.values()){
       scene.remove(root);
       root.traverse(node=>{
-        if(node.isMesh){node.geometry.dispose();node.material.dispose();}
+        if(node.geometry)node.geometry.dispose();
+        if(node.material)node.material.dispose();
       });
     }
     lightMarkerGroups.clear();lightMarkers.clear();
@@ -124,6 +142,8 @@ export function createPrimitiveWorld(scene) {
         let directMesh=null;
         offsets.forEach((offset,index)=>{
           const mesh=tag(new THREE.Mesh(shape,material));
+          mesh.castShadow=true;
+          mesh.receiveShadow=true;
           if(!holder)directMesh=mesh;
           mesh.name=holder?item.name+' '+(index+1):item.name;
           mesh.scale.set(...item.scale);
@@ -149,11 +169,26 @@ export function createPrimitiveWorld(scene) {
       const markers=new Map();
       (entry.lights||[]).forEach((spec,index)=>{
         const id=spec.id||'light_'+(index+1);
+        // Light markers are editor-only, unlit/pickable bulb icons; do not
+        // suggest a solid geometric cube or block light rays.
         const marker=new THREE.Mesh(
-          new THREE.OctahedronGeometry(.48,0),
+          new THREE.SphereGeometry(.2,12,8),
           new THREE.MeshBasicMaterial({color:spec.color,depthTest:false,depthWrite:false,
-            transparent:true,opacity:.88}));
+            transparent:true,opacity:.96}));
         marker.name='Editor light '+spec.name;
+        const rays=[];
+        for(let axis=0;axis<3;axis++)for(const sign of [-1,1]){
+          const inner=[0,0,0],outer=[0,0,0];
+          inner[axis]=sign*.29;outer[axis]=sign*.48;
+          rays.push(...inner,...outer);
+        }
+        const rayGeometry=new THREE.BufferGeometry();
+        rayGeometry.setAttribute('position',
+          new THREE.Float32BufferAttribute(rays,3));
+        const rayGlyph=new THREE.LineSegments(rayGeometry,new THREE.LineBasicMaterial({
+          color:spec.color,depthTest:false,depthWrite:false,transparent:true,opacity:.9}));
+        rayGlyph.renderOrder=995;
+        marker.add(rayGlyph);
         marker.position.set(...spec.position);
         marker.userData.primitiveLightId=id;
         marker.renderOrder=994;

@@ -30,7 +30,8 @@ const lightSpec=(id,p,origin)=>({
  name:id.replaceAll('-',' ')+' light',
  color:id.includes('warm')?'#ffd2a0':id.includes('blue')?'#80bcff':id.includes('red')?'#ff655c':
   id.includes('cool')?'#c9e9ff':'#ffffff',
- intensity:id==='sun'?2.1:id.startsWith('spot')?36:28,
+ // Candela values must be high enough to compete with the base hemisphere/sun fill.
+ intensity:id==='sun'?2.1:id.startsWith('spot')?240:180,
  position:[origin[0],origin[1]+4,origin[2]+3],
  target:[origin[0],origin[1],origin[2]],
  distance:28,angle:.53,penumbra:.35

@@ -94,3 +94,49 @@ test('light gizmo move/delete preserves unrelated accepted shapes and never expo
  assert.match(editor,/primitiveLightId/);
  assert.throws(()=>editLightTransform(deleted,['a'],'a',light.id,[0,0,0]),/no longer exists/);
 });
+
+
+test('new light presets produce shot-local punctual lights and recognizable editor-only bulb gizmos',async()=>{
+ const source=new URL('../primitive-world.js',import.meta.url);
+ const world=await readFile(source,'utf8');
+ let doc=insertCreatedAsset(empty(),'a','primitives','box',[0,0,0]).document;
+ doc=insertCreatedAsset(doc,'a','lights','point-red',[0,0,0]).document;
+ doc=insertCreatedAsset(doc,'a','lights','spot-cool',[0,0,0]).document;
+ const entry=doc.scenes[0];
+ assert.equal(entry.objects.length,1);
+ assert.equal(entry.lights.length,2);
+ assert.deepEqual(entry.lights.map(l=>l.type),['point','spot']);
+ assert.equal(entry.lights[0].intensity,180);
+ assert.equal(entry.lights[1].intensity,240);
+ assert.notEqual(entry.lights[0].id,entry.lights[1].id);
+ assert.deepEqual(entry.lights[0].position,entry.lights[1].position);
+ assert.match(world,/new THREE\.PointLight\(color,spec\.intensity,spec\.distance\)/);
+ assert.match(world,/new THREE\.SpotLight\(color,spec\.intensity,spec\.distance,spec\.angle,spec\.penumbra\)/);
+ assert.match(world,/for\(const spec of entry\.lights\|\|\[\]\)root\.add\(light\(spec\)\)/);
+ assert.match(world,/mesh\.castShadow=true/);
+ assert.match(world,/mesh\.receiveShadow=true/);
+ assert.match(world,/node\.shadow\.mapSize\.set\(512,512\)/);
+ assert.match(world,/new THREE\.SphereGeometry\(\.2,12,8\)/);
+ assert.match(world,/new THREE\.LineSegments\(rayGeometry/);
+ assert.match(world,/marker\.userData\.primitiveLightId=id/);
+ assert.match(world,/markerRoot\.visible=false/);
+ assert.match(world,/markerRoot\.add\(marker\)/);
+ assert.match(world,/root\.visible=false/);
+ assert.match(world,/const copy=root\.clone\(true\)/);
+ assert.match(world,/return copy;/);
+ assert.doesNotMatch(world,/new THREE\.OctahedronGeometry\(\.48,0\)/);
+});
+
+test('editor and video agree on shadow rendering; editing suppresses temporary studio fill',async()=>{
+ const root=new URL('../',import.meta.url);
+ const [app,render,world,assets]=await Promise.all(
+  ['app.js','render.js','primitive-world.js','scene-asset-catalog.js']
+    .map(path=>readFile(new URL(path,root),'utf8')));
+ assert.match(app,/renderer\.shadowMap\.enabled=true/);
+ assert.match(render,/renderer\.shadowMap\.enabled=true/);
+ assert.match(app,/reviewLights\.visible=!editMode/);
+ assert.match(app,/showGeneratedGeometry\(shot\.id,false,\{editMode:true\}\)/);
+ assert.match(world,/node\.castShadow=spec\.type!=='point'/);
+ assert.match(world,/mesh\.receiveShadow=true/);
+ assert.match(assets,/id\.startsWith\('spot'\)\?240:180/);
+});
