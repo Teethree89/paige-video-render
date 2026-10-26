@@ -366,7 +366,7 @@ async function boot(){
      if(ready){applyCamera();renderWorld();}
    }
  });
- setupRadialCreate({
+ const radialCreate=setupRadialCreate({
     viewport,
     canCreate:()=>ready&&sceneObjectEditor?.active&&
       !aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
@@ -385,14 +385,18 @@ async function boot(){
         // Ordinary geometry keeps its existing ground-plane placement.
         const surface=category==='lights'
           ?ray.intersectObjects(primitiveWorld.getPickableMeshes(id).filter(
-            node=>!node.userData.primitiveLightId),false)[0]:null;
+            node=>!!node.userData.primitiveId),false)[0]:null;
         if(surface)target=surface.point;
         else if(ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),0),hit))
           target=hit;
       }
       return target.toArray().map((v,i)=>Math.max(-9000,Math.min(9000,v-anchor[i])));
     },
-    onCreate:(category,item,origin)=>primitiveEditor.createAsset(category,item,origin),
+    onCreate:(category,item,origin)=>{
+      const created=primitiveEditor.createAsset(category,item,origin);
+      if(created&&category==='lights')sceneObjectEditor?.focusSelectionIfOffscreen();
+      return created;
+    },
     onStatus:message=>{el('primitiveStatus').textContent=message;el('sceneEditStatus').textContent=message;}
   });
  el('primitiveCleanupSaved')?.addEventListener('click',()=>{
