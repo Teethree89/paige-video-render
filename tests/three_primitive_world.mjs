@@ -691,3 +691,51 @@ test('mesh-free scene-graph assembly emits exactly its ordered children and punc
    assert.equal(gltf.extensions.KHR_lights_punctual.lights.length,3);
  }finally{world.dispose();}
 });
+
+
+
+test('rotating every array copy preserves world XYZ centers and authored repeat layout',async()=>{
+ const layout=[0,Math.PI/3,0],spin=[0,Math.PI/2,0];
+ const parent=unit('lamps','group',{
+   name:'Row of lights',position:[15,3,-4],rotation:layout,
+   instanceRotation:spin,repeat:{count:[3,1,1],spacing:[8,0,0]},
+   arrayParts:{objects:[
+     unit('pole','cylinder',{name:'Pole',position:[0,3,0]}),
+     unit('head','box',{name:'Lamp head',position:[1,7,0]})
+   ],lights:[]}
+ });
+ const plain=unit('cars','box',{
+   name:'Repeated cars',position:[2,0,10],rotation:[0,.25,0],
+   instanceRotation:spin,repeat:{count:[1,1,3],spacing:[0,0,9]}
+ });
+ const input={schemaVersion:1,scenes:[{shotId:'road',objects:[parent,plain]}]};
+ const world=createPrimitiveWorld(new THREE.Scene());
+ try{
+   world.setDocument(input,['road']);world.showShot('road');
+   const rows=world.getArrayInstances('road','lamps');
+   assert.equal(rows.length,3);
+   const expected=parent.repeat.count[0],root=world.getObjectNode('road','lamps');
+   assert.equal(root.rotation.y,layout[1]);
+   for(let i=0;i<expected;i++){
+     const offset=(i-(expected-1)/2)*8;
+     assert.ok(Math.abs(rows[i].position.x-offset)<1e-10);
+     assert.ok(Math.abs(rows[i].position.z)<1e-10);
+     assert.ok(Math.abs(rows[i].rotation.y-spin[1])<1e-10);
+   }
+   const vehicle=world.getObjectNode('road','cars');
+   assert.ok(Math.abs(vehicle.rotation.y-.25)<1e-10);
+   for(const copy of world.getArrayInstances('road','cars')){
+     assert.ok(Math.abs(copy.rotation.y-spin[1])<1e-10);
+   }
+   const changed=structuredClone(input);
+   changed.scenes[0].objects[0].instanceRotation=[0,0,Math.PI/2];
+   world.setDocument(changed,['road']);world.showShot('road');
+   const next=world.getArrayInstances('road','lamps');
+   assert.deepEqual(next.map(c=>c.position.toArray()),rows.map((_,i)=>
+     [(i-1)*8,0,0]),'copy positions are unchanged by per-object spin');
+   assert.equal(world.getObjectNode('road','lamps').rotation.y,layout[1]);
+   const gltf=await new GLTFExporter().parseAsync(world.getSceneForExport('road'),
+     {binary:false,onlyVisible:false});
+   assert.ok(gltf.nodes.some(node=>node.name?.includes('Lamp head')));
+ }finally{world.dispose();}
+});
