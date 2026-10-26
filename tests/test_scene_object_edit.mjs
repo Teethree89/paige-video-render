@@ -85,3 +85,23 @@ test('light/aim duplication shifts both source and target without mutating origi
  assert.throws(()=>duplicateSceneSelection(input,['exterior','second'],'second','light::spot'),
    /no longer exists/);
 });
+
+test('Make Array uses centered XYZ repetition and keeps previously authored child pieces',async()=>{
+ const {setSceneObjectRepeat}=await import('../scene-object-operations.js');
+ const base=makePrimitive('cylinder','tree',[0,2,3]);
+ base.arrayParts={objects:[{...makePrimitive('sphere','crown',[0,3,0]),
+   name:'Tree crown'}],lights:[]};
+ const original={schemaVersion:1,scenes:[{shotId:'exterior',objects:[base]}]};
+ const before=structuredClone(original);
+ const made=setSceneObjectRepeat(original,['exterior'],'exterior','tree',[1,1,12],[0,0,9]);
+ assert.deepEqual(original,before);
+ const obj=made.scenes[0].objects[0];
+ assert.deepEqual(obj.repeat.count,[1,1,12]);
+ assert.deepEqual(obj.repeat.spacing,[0,0,9]);
+ assert.equal(obj.arrayParts.objects.length,1);
+ assert.deepEqual(obj.position,[0,2,3]);
+ assert.throws(()=>setSceneObjectRepeat(original,['exterior'],'exterior','tree',
+   [1,1,12],[0,0,0]),/nonzero spacing/);
+ assert.throws(()=>setSceneObjectRepeat(original,['exterior'],'exterior','tree',
+   [100,100,100],[1,1,1]),/more than|too many/);
+});
