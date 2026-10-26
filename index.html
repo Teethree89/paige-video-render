@@ -137,6 +137,8 @@
             <label class="field">Fog color <input id="sceneFogColor" type="color" value="#526779"></label>
             <label class="field">Fog density <input id="sceneFogDensity" type="number" min="0" max="0.15" step="0.001" value="0.008"></label>
           </div>
+          <label class="checkbox-field"><input id="sceneLightsEnabled" type="checkbox" checked> Enable lights in this chapter</label>
+          <p class="field-help">Off disables lighting while preserving individual light settings.</p>
           <label class="checkbox-field"><input id="sceneShadowsEnabled" type="checkbox" checked> Enable shadows in this chapter (all lights)</label>
           <p class="field-help">Off skips all shadow-map rendering for this chapter while lights keep illuminating objects. Each light's own Cast shadows choice is preserved.</p>
           <label class="checkbox-field"><input id="sceneBloomEnabled" type="checkbox"> Enable bloom</label>
