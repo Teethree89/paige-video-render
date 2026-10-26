@@ -164,7 +164,9 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
  if(removed.size)entry.objects=entry.objects.filter(o=>!removed.has(o.id));
  return {document:validatePrimitiveDocument(doc,allowedShots),
    primaryId:dest.id,created,source:sourceTemplate,primaryComponent:primary.id,
-   secondaryComponent:secondary.id};
+   // The visual labeler transfers every mesh without selecting a mandatory
+   // second component. Older two-role callers can still provide one.
+   secondaryComponent:secondary?.id??null};
 }
 // Save the preview after a template operation. Template children are held as
 // editable local parts but retained as independent named sibling arrays in
