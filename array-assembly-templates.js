@@ -169,7 +169,7 @@ export function replaceArrayAssembly(source,allowedShots,shotId,destinationId,te
  if(removed.size)entry.objects=entry.objects.filter(o=>!removed.has(o.id));
  return {document:validatePrimitiveDocument(doc,allowedShots),
    primaryId:dest.id,created,source:sourceTemplate,primaryComponent:primary.id,
-   secondaryComponent:secondary.id};
+   secondaryComponent:secondary?.id??null};
 }
 // Save the preview after a template operation. Template children are held as
 // editable local parts but retained as independent named sibling arrays in
@@ -183,7 +183,7 @@ export function saveAssemblyTemplateDraft(staged,allowedShots,shotId,rootId,base
  const turn=quat(base.rotation).multiply(quat(initial.rotation).invert());
  const mapped=new Set(mappings.map(x=>x.partId));
  const extras=parts.objects.filter(part=>!mapped.has(part.id));
- const rows=new Set([rootId,...mappings.map(m=>m.rootId)]);
+ const rows=new Set([rootId,...mappings.map(m=>m.rootId).filter(Boolean)]);
  for(const id of rows){
    const row=entry.objects.find(o=>o.id===id&&o.repeat);
    if(!row)throw Error('Linked template array row no longer exists');
@@ -198,7 +198,7 @@ export function saveAssemblyTemplateDraft(staged,allowedShots,shotId,rootId,base
  }
  for(const map of mappings){
    const row=entry.objects.find(o=>o.id===map.targetId);
-   const owner=entry.objects.find(o=>o.id===map.rootId);
+   const owner=entry.objects.find(o=>o.id===(map.rootId||rootId));
    const edit=parts.objects.find(o=>o.id===map.partId);
    if(!row||!owner)throw Error('Template sibling array is missing');
    if(!edit){entry.objects=entry.objects.filter(x=>x.id!==map.targetId);continue;}
