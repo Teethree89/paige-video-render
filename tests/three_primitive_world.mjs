@@ -340,3 +340,28 @@ test('L-style created light survives validation and becomes a real Three.js ligh
      'hiding edit widgets must not delete the authored light');
  }finally{world.dispose();}
 });
+
+
+test('more than 32 manually created lights are real Three.js lights and remain GLB-exportable',async()=>{
+  const {insertCreatedAsset}=await import('../scene-asset-catalog.js');
+  let doc={schemaVersion:1,scenes:[]};
+  for(let i=0;i<36;i++)
+    doc=insertCreatedAsset(doc,'manual','lights',i%2?'point-blue':'point-white',
+      [i*2,0,0]).document;
+  const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+  try{
+    world.setDocument(doc,['manual'],{manual:[100,0,20]});
+    world.showShot('manual');
+    world.setLightMarkersVisible(true);
+    assert.equal(doc.scenes[0].lights.length,36);
+    for(const light of doc.scenes[0].lights){
+      assert.ok(world.getLightNode('manual',light.id)?.isPointLight,light.id+' exists in real Three scene');
+      assert.ok(world.getLightMarker('manual',light.id)?.isMesh,light.id+' has an editor gizmo');
+      assert.equal(world.isLightMarkerVisible('manual',light.id),true);
+    }
+    const copy=world.getSceneForExport('manual');
+    const gltf=await new GLTFExporter().parseAsync(copy,{binary:false,onlyVisible:false});
+    assert.equal(gltf.extensions.KHR_lights_punctual.lights.length,36,
+      'all manually added lights survive GLB export');
+  }finally{world.dispose();}
+});
