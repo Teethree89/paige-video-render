@@ -346,6 +346,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    }
    const deleteButton=byId('arrayEditDeletePart');
    if(deleteButton)deleteButton.disabled=root;
+   const duplicateButton=byId('arrayEditDuplicatePart');
+   if(duplicateButton)duplicateButton.disabled=root;
  }
  function orderedKeys(){
    const actual=[...draft.parts.objects.map(x=>'object:'+x.id),
@@ -568,17 +570,40 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const oldScene=old.scenes[0],nextScene=created.document.scenes[0],t=pose();
      const existingObjects=new Set(oldScene.objects.map(o=>o.id));
      const existingLights=new Set((oldScene.lights||[]).map(l=>l.id));
+     let lastKey=null;
+     const addShape=obj=>{
+       const piece=structuredClone(obj);
+       delete piece.repeat;delete piece.arrayParts;delete piece.layer;
+       piece.id=uniquePartId(piece.id);
+       piece.position=asLocalPosition(obj.position,t);
+       piece.rotation=asLocalRotation(obj.rotation,t);
+       draft.parts.objects.push(piece);lastKey='object:'+piece.id;
+     };
+     const addLight=light=>{
+       const piece=structuredClone(light);
+       piece.id=uniquePartId(piece.id);
+       piece.position=asLocalPosition(light.position,t);
+       if(light.target)piece.target=asLocalPosition(light.target,t);
+       draft.parts.lights.push(piece);lastKey='light:'+piece.id;
+     };
      for(const obj of nextScene.objects.filter(o=>!existingObjects.has(o.id))){
-       obj.position=asLocalPosition(obj.position,t);
-       obj.rotation=asLocalRotation(obj.rotation,t);
-       draft.parts.objects.push(obj);
+       if(obj.primitive!=='group'){addShape(obj);continue;}
+       const quat=new THREE.Quaternion().setFromEuler(new THREE.Euler(...obj.rotation));
+       const worldPoint=point=>new THREE.Vector3(...point).applyQuaternion(quat)
+         .add(new THREE.Vector3(...obj.position)).toArray();
+       const worldRotation=angles=>new THREE.Euler().setFromQuaternion(
+         quat.clone().multiply(new THREE.Quaternion().setFromEuler(
+           new THREE.Euler(...angles)))).toArray().slice(0,3);
+       for(const child of obj.arrayParts?.objects||[])
+         addShape({...child,position:worldPoint(child.position),
+           rotation:worldRotation(child.rotation)});
+       for(const child of obj.arrayParts?.lights||[])
+         addLight({...child,position:worldPoint(child.position),
+           ...(child.target?{target:worldPoint(child.target)}:{})});
      }
-     for(const light of (nextScene.lights||[]).filter(l=>!existingLights.has(l.id))){
-       light.position=asLocalPosition(light.position,t);
-       if(light.target)light.target=asLocalPosition(light.target,t);
-       draft.parts.lights.push(light);
-     }
-     selected=(created.selected.kind==='light'?'light:':'object:')+created.selected.id;
+     for(const light of (nextScene.lights||[]).filter(l=>!existingLights.has(l.id)))
+       addLight(light);
+     if(lastKey)selected=lastKey;
      refreshList();rerender({refit:true});
    }catch(error){setStatus('Cannot add component: '+error.message);}
  });
@@ -586,13 +611,11 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    if(!draft)return;
    const current=itemRef();if(!current?.value)return;
    const root=current.kind==='base';
+   if(root){setStatus('Choose a child mesh or light to duplicate.');return;}
    const copy=structuredClone(current.value);
    copy.id=uniquePartId(copy.id);
    copy.name=(copy.name+' copy').slice(0,100);
-   if(root){
-     delete copy.repeat;delete copy.arrayParts;
-     copy.position=[0.9,0,0];copy.rotation=[0,0,0];
-   }else copy.position=[copy.position[0]+.9,copy.position[1],copy.position[2]];
+   copy.position=[copy.position[0]+.9,copy.position[1],copy.position[2]];
    if(current.kind==='light'){
      if(copy.target)copy.target=[copy.target[0]+.9,copy.target[1],copy.target[2]];
      draft.parts.lights.push(copy);
