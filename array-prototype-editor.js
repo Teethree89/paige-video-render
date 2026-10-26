@@ -539,7 +539,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        mappings.push({...mapping,partId:part.id});
      }
      draft.base=structuredClone(root);
-     draft.parts={objects:children,lights:[]};
+     draft.parts={objects:children,lights:structuredClone(root.arrayParts?.lights||[])};
      draft.absorbed.clear();
      draft.templatePlan={document:swapped.document,mappings};
      candidates=[];
