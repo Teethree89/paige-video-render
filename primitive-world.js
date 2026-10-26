@@ -174,6 +174,8 @@ export function createPrimitiveWorld(scene) {
             instance.name=item.name+' instance '+(index+1);
             instance.userData.primitiveArrayIndex=item.repeat?index:null;
             instance.position.set(...offset);
+            // Rotate each copy's prototype in place, NOT the row's offset axes.
+            instance.rotation.set(...(item.instanceRotation||[0,0,0]));
             if(mesh)instance.add(mesh);
             const objects=item.arrayParts?.objects||[],lights=item.arrayParts?.lights||[];
             const members=new Map([
@@ -206,8 +208,13 @@ export function createPrimitiveWorld(scene) {
             }
             holder.add(instance);instances.push(instance);
           }else{
-            if(holder)mesh.position.set(...offset);
-            else{mesh.position.set(...item.position);mesh.rotation.set(...item.rotation);}
+            if(holder){
+              mesh.position.set(...offset);
+              mesh.rotation.set(...(item.instanceRotation||[0,0,0]));
+            }else{
+              mesh.position.set(...item.position);
+              mesh.rotation.set(...item.rotation);
+            }
             (holder||layerGroups.get(key)).add(mesh);
             if(holder)instances.push(mesh);
           }
