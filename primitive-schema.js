@@ -3,7 +3,7 @@
 // schemaVersion 1 grows additively: every field after the original five
 // primitives is optional, and v1 input validates to exactly the same output.
 export const PRIMITIVE_TYPES = Object.freeze(['box','sphere','cylinder','plane','torus',
-  'cone','wedge','gable','extrude']);
+  'cone','wedge','gable','extrude','group']);
 export const ENVIRONMENT_LAYERS = Object.freeze(['structures','ground','vegetation','details']);
 // glTF's KHR_lights_punctual types, so every light also exports to GLB.
 export const LIGHT_TYPES = Object.freeze(['directional','point','spot']);
@@ -196,10 +196,12 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       const repeat=item.repeat==null?undefined:repeatSpec(item.repeat,id);
       const arrayCopies=repeat?repeat.count[0]*repeat.count[1]*repeat.count[2]:1;
       const partCount=item.arrayParts?.objects?.length||0;
-      instances+=arrayCopies*(1+partCount);
+      instances+=arrayCopies*((item.primitive==='group'?0:1)+partCount);
       if(instances>LIMITS.instancesPerScene)
         fail(shotId+' has more than '+LIMITS.instancesPerScene+' rendered copies');
       const points=item.primitive==='extrude'?footprint(item.points,id):undefined;
+      if(item.primitive==='group'&&item.arrayParts==null)
+        fail(id+' group requires arrayParts of meshes and lights');
       // Components describe ONE array prototype, stored in its local axes.
       // Every repeated copy gets its own rendered children and lights.
       // A nested array, or recursively nested prototype, is intentionally
@@ -217,7 +219,21 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
         const sceneParts=validatePrimitiveDocument({schemaVersion:1,scenes:[
           {shotId:'array_parts',objects:raw.objects,lights:raw.lights}
         ]},['array_parts']).scenes[0];
-        arrayParts={objects:sceneParts.objects,lights:sceneParts.lights||[]};
+        const objects=sceneParts.objects,lights=sceneParts.lights||[];
+        let order;
+        if(raw.order!=null){
+          if(!Array.isArray(raw.order))fail(id+' arrayParts.order must be a list');
+          const permitted=[
+            ...objects.map(part=>'object:'+part.id),
+            ...lights.map(part=>'light:'+part.id)
+          ];
+          if(raw.order.length!==permitted.length||
+            new Set(raw.order).size!==permitted.length||
+            raw.order.some(key=>!permitted.includes(key)))
+            fail(id+' arrayParts.order must contain each component exactly once');
+          order=[...raw.order];
+        }
+        arrayParts={objects,lights,...(order?{order}:{})};
       }
       return {id,name:displayName(item.name,item.primitive+' '+id),
         primitive:item.primitive,position,rotation,scale,
@@ -238,7 +254,7 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
 
 export function makePrimitive(type, id, position=[0,1,0]) {
   if(!PRIMITIVE_TYPES.includes(type))fail('unsupported type');
-  const scales={box:[2,2,2],sphere:[2,2,2],cylinder:[2,3,2],plane:[12,12,1],torus:[2,2,.6],
+  const scales={group:[1,1,1],box:[2,2,2],sphere:[2,2,2],cylinder:[2,3,2],plane:[12,12,1],torus:[2,2,.6],
     cone:[2,3,2],wedge:[3,2,3],gable:[4,2,6],extrude:[6,3,6]};
   const item={id,name:type+' '+id,primitive:type,position,rotation:[0,0,0],
     scale:scales[type],material:{color:'#72c9db',metalness:.25,roughness:.6},
