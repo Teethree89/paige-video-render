@@ -77,3 +77,23 @@ export function duplicateSceneSelection(source,allowedShots,shotId,selectedId){
  return {document:validatePrimitiveDocument(doc,allowedShots),
    selectedId:(isLight?'light::':'')+copyId};
 }
+
+// Convert an existing object or composite single-object group into an editable
+// centered repeat. Existing XYZ remains the array center; child parts remain
+// local to each copy. Editing an existing repeat changes only its distribution.
+export function setSceneObjectRepeat(source,allowedShots,shotId,objectId,count,spacing){
+ const doc=validatePrimitiveDocument(source,allowedShots);
+ const object=doc.scenes.find(s=>s.shotId===shotId)?.objects.find(o=>o.id===objectId);
+ if(!object)throw Error('Selected scene object no longer exists');
+ if(!Array.isArray(count)||count.length!==3||
+    count.some(x=>!Number.isInteger(x)||x<1||x>100))
+    throw Error('Copy counts must be integers between 1 and 100');
+ if(!Array.isArray(spacing)||spacing.length!==3||
+    spacing.some(x=>typeof x!=='number'||!Number.isFinite(x)||Math.abs(x)>1000))
+    throw Error('XYZ spacing must be finite and within ±1000');
+ if(count.every(x=>x===1))throw Error('Choose at least two copies on one axis');
+ if(count.some((n,i)=>n>1&&spacing[i]===0))
+    throw Error('Each repeated axis must have nonzero spacing');
+ object.repeat={count:[...count],spacing:[...spacing]};
+ return validatePrimitiveDocument(doc,allowedShots);
+}
