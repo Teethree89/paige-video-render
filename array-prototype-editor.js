@@ -260,7 +260,11 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    fields.append(makeEl('h3',isLight?'Light settings':root?'Prototype source':'Component settings'));
    property('Name',item.name,v=>{item.name=v;refreshList();},{type:'text'});
    if(!isLight){
-     if(root)fields.append(makeEl('p','Edits to the source mesh are applied to all matching array copies.'));
+     if(root){
+       fields.append(makeEl('p','The mini viewport stays centered on the array. XYZ and rotation change its saved placement in the scene while retaining the other matching rows.'));
+       xyz('Array center XYZ (scene)',item.position,v=>item.position=v);
+       xyz('Array rotation radians',item.rotation,v=>item.rotation=v);
+     }
      xyz('Dimensions',item.scale,v=>item.scale=v);
      if(!root){
        xyz('Local XYZ',item.position,v=>item.position=v);
@@ -311,18 +315,54 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      ...draft.parts.lights.map(l=>['light:'+l.id,'Light · '+l.name])];
    selectOptions(partsSelect,options);
    if(!options.some(([id])=>id===selected))selected='root';
-   partsSelect.value=selected;refreshFields();
+   partsSelect.value=selected;refreshFields();attachSelected();setMode(operation);
  }
- partsSelect.addEventListener('change',()=>{selected=partsSelect.value;refreshFields();});
+ function renderCompanions(){
+   const holder=byId('arrayEditCompanions');
+   if(!holder)return;
+   holder.replaceChildren();
+   if(!candidates.length){
+     holder.append(makeEl('p','No other arrays with safely aligned repeat positions were found.'));
+     return;
+   }
+   for(const companion of candidates){
+     const line=makeEl('label','',{class:'array-companion'});
+     const check=makeEl('input');check.type='checkbox';
+     check.checked=draft.absorbed.has(companion.id);
+     const count=companion.ids.reduce((n,id)=>{
+       const row=source.scenes.find(s=>s.shotId===shotId).objects.find(o=>o.id===id);
+       return n+repeatOffsets(row.repeat).length;
+     },0);
+     line.append(check,makeEl('span',companion.name+' · '+count+' copies'));
+     check.addEventListener('change',()=>{
+       if(check.checked){
+         const part=structuredClone(companion.part);
+         part.id=uniquePartId(companion.id);
+         draft.parts.objects.push(part);
+         draft.absorbed.set(companion.id,{ids:[...companion.ids],partId:part.id});
+         selected='object:'+part.id;
+       }else{
+         const item=draft.absorbed.get(companion.id);
+         draft.parts.objects=draft.parts.objects.filter(p=>p.id!==item?.partId);
+         draft.absorbed.delete(companion.id);
+         if(selected==='object:'+item?.partId)selected='root';
+       }
+       refreshList();rerender({refit:true});
+     });
+     holder.append(line);
+   }
+ }
+ partsSelect.addEventListener('change',()=>{selected=partsSelect.value;refreshFields();attachSelected();setMode(operation);});
  // Clicking a prototype mesh or light selects the same editable fields as the
  // component dropdown. A drag remains an orbit operation, not selection.
  const picker=new THREE.Raycaster(),mouse=new THREE.Vector2();
  let pointerStart=null;
  canvas.addEventListener('pointerdown',event=>{
-   if(event.button===0)pointerStart={x:event.clientX,y:event.clientY};
+   if(event.button===0&&!transform.axis)pointerStart={x:event.clientX,y:event.clientY};
+   else pointerStart=null;
  });
  canvas.addEventListener('pointerup',event=>{
-   if(!draft||event.button!==0||!pointerStart)return;
+   if(!draft||event.button!==0||!pointerStart||dragging||transform.dragging)return;
    const start=pointerStart;pointerStart=null;
    if(Math.hypot(event.clientX-start.x,event.clientY-start.y)>5)return;
    const rect=canvas.getBoundingClientRect();
@@ -338,17 +378,78 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    selected=partId;refreshList();
  });
  canvas.addEventListener('pointercancel',()=>{pointerStart=null;});
+ function commitGizmo(){
+   if(!draft||!transform.object)return;
+   const node=transform.object,current=itemRef();
+   if(!current?.value)return;
+   const original=originalRoot(),t=pose(),item=current.value;
+   if(current.kind==='base'){
+     draft.base.position=node.position.toArray().map((n,i)=>n+original.position[i]);
+     draft.base.rotation=[node.rotation.x,node.rotation.y,node.rotation.z]
+       .map((n,i)=>n+original.rotation[i]);
+   }else if(current.kind==='light'){
+     item.position=asLocalPosition(node.position.toArray(),t);
+   }else{
+     item.position=asLocalPosition(node.position.toArray(),t);
+     item.rotation=asLocalRotation([node.rotation.x,node.rotation.y,node.rotation.z],t);
+   }
+   refreshFields();rerender();
+ }
+ transform.addEventListener('mouseDown',()=>{
+   if(!draft)return;dragging=true;orbit.enabled=false;pointerStart=null;
+ });
+ transform.addEventListener('mouseUp',()=>{
+   if(!draft)return;
+   orbit.enabled=true;
+   if(dragging){dragging=false;commitGizmo();}
+ });
+ transform.addEventListener('objectChange',()=>{
+   if(draft)world.updateLightVisuals(camera,canvas.clientHeight||320);
+ });
  byId('arrayEditAdd')?.addEventListener('click',()=>{
    if(!draft)return;
    try{
      const old=previewDocument();
-     const created=insertCreatedAsset(old,sampleShot,category.value,preset.value,[0,0,0]);
-     draft.parts.objects=created.document.scenes[0].objects.filter(o=>o.id!==objectId);
-     draft.parts.lights=created.document.scenes[0].lights||[];
+     const created=insertCreatedAsset(old,sampleShot,category.value,preset.value,pose().center.toArray());
+     const oldScene=old.scenes[0],nextScene=created.document.scenes[0],t=pose();
+     const existingObjects=new Set(oldScene.objects.map(o=>o.id));
+     const existingLights=new Set((oldScene.lights||[]).map(l=>l.id));
+     for(const obj of nextScene.objects.filter(o=>!existingObjects.has(o.id))){
+       obj.position=asLocalPosition(obj.position,t);
+       obj.rotation=asLocalRotation(obj.rotation,t);
+       draft.parts.objects.push(obj);
+     }
+     for(const light of (nextScene.lights||[]).filter(l=>!existingLights.has(l.id))){
+       light.position=asLocalPosition(light.position,t);
+       if(light.target)light.target=asLocalPosition(light.target,t);
+       draft.parts.lights.push(light);
+     }
      selected=(created.selected.kind==='light'?'light:':'object:')+created.selected.id;
      refreshList();rerender({refit:true});
    }catch(error){setStatus('Cannot add component: '+error.message);}
  });
+ function duplicatePart(){
+   if(!draft)return;
+   const current=itemRef();if(!current?.value)return;
+   const root=current.kind==='base';
+   const copy=structuredClone(current.value);
+   copy.id=uniquePartId(copy.id);
+   copy.name=(copy.name+' copy').slice(0,100);
+   if(root){
+     delete copy.repeat;delete copy.arrayParts;
+     copy.position=[0.9,0,0];copy.rotation=[0,0,0];
+   }else copy.position=[copy.position[0]+.9,copy.position[1],copy.position[2]];
+   if(current.kind==='light'){
+     if(copy.target)copy.target=[copy.target[0]+.9,copy.target[1],copy.target[2]];
+     draft.parts.lights.push(copy);
+     selected='light:'+copy.id;
+   }else{
+     draft.parts.objects.push(copy);
+     selected='object:'+copy.id;
+   }
+   refreshList();rerender({refit:true});
+ }
+ byId('arrayEditDuplicatePart')?.addEventListener('click',duplicatePart);
  byId('arrayEditDeletePart')?.addEventListener('click',()=>{
    if(!draft||selected==='root')return;
    const [kind,id]=selected.split(':');
@@ -358,7 +459,9 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    selected='root';refreshList();rerender();
  });
  function close(){
-   stop();draft=null;source=null;shotId=null;objectId=null;linked=[];
+   stop();transform.detach();transform.enabled=false;dragging=false;
+   orbit.enabled=true;
+   draft=null;source=null;shotId=null;objectId=null;linked=[];candidates=[];
    modal.hidden=true;world.setDocument({schemaVersion:1,scenes:[]},[]);
    onClose();
  }
@@ -367,8 +470,9 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    if(!draft)return;
    try{
      const document=saveArrayPrototype(source,getShotIds(),shotId,objectId,{
-       name:draft.base.name,material:draft.base.material,scale:draft.base.scale,parts:draft.parts
-     },linked);
+       name:draft.base.name,material:draft.base.material,scale:draft.base.scale,
+       position:draft.base.position,rotation:draft.base.rotation,parts:draft.parts
+     },linked,[...draft.absorbed.values()].flatMap(x=>x.ids));
      onSave(document);
      close();
    }catch(error){setStatus('Save blocked: '+error.message);}
@@ -377,7 +481,12 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    // While editing an isolated prototype, W/E/L/Delete, timeline shortcuts
    // and the Create wheel must never mutate the underlying live chapter.
    event.stopPropagation();
-   if(event.key==='Escape'){event.preventDefault();close();}
+   if(event.key==='Escape'){event.preventDefault();close();return;}
+   if(event.target?.closest?.('input,textarea,select,[contenteditable]'))return;
+   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='d'){
+     event.preventDefault();duplicatePart();
+   }else if(event.key.toLowerCase()==='w')setMode('translate');
+   else if(event.key.toLowerCase()==='e')setMode('rotate');
  });
  return {
    open(id,partId){
@@ -390,20 +499,25 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const base=scene?.objects?.find(o=>o.id===partId&&o.repeat);
      if(!base)return false;
      const matches=findMatchingArrays(doc,id,partId);
-     draft={base:structuredClone(base),parts:structuredClone(base.arrayParts||{objects:[],lights:[]})};
+     draft={base:structuredClone(base),
+       parts:structuredClone(base.arrayParts||{objects:[],lights:[]}),absorbed:new Map()};
      source=structuredClone(doc);shotId=id;objectId=partId;linked=matches;
-     selected='root';
+     candidates=findArrayCompanions(doc,id,partId);
+     selected='root';dragging=false;transform.enabled=true;setMode('translate');
      const copies=matches.reduce((sum,key)=>{
        const item=scene.objects.find(o=>o.id===key);
        return sum+repeatOffsets(item.repeat).length;
      },0);
-     if(info)info.textContent='Editing 1 prototype · '+copies+
-       ' instances across '+matches.length+' matching array group(s). Save applies to all.';
-     modal.hidden=false;refreshList();rerender({refit:true});animate();
+     if(info)info.textContent='Editing '+copies+
+       ' instances across '+matches.length+' matching source array(s).'+
+       (candidates.length?' '+candidates.length+' nearby companion group(s) detected.':'');
+     modal.hidden=false;modal.tabIndex=-1;modal.focus();
+     renderCompanions();refreshList();rerender({refit:true});animate();
      return true;
    },
    close,
    get active(){return !!draft;},
-   dispose(){close();world.dispose();renderer?.dispose();orbit.dispose();}
+   dispose(){close();world.dispose();renderer?.dispose();orbit.dispose();
+     transform.dispose?.();scene.remove(helper);}
  };
 }
