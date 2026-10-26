@@ -347,13 +347,105 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    const deleteButton=byId('arrayEditDeletePart');
    if(deleteButton)deleteButton.disabled=root;
  }
+ function orderedKeys(){
+   return draft.parts.order||[
+     ...draft.parts.objects.map(x=>'object:'+x.id),
+     ...draft.parts.lights.map(x=>'light:'+x.id)];
+ }
+ function itemForKey(key){
+   if(key==='root')return draft.base;
+   const [kind,id]=key.split(':');
+   return (kind==='light'?draft.parts.lights:draft.parts.objects)
+     .find(x=>x.id===id);
+ }
+ function reorderChild(key,before){
+   if(key==='root'||before==='root'||key===before)return;
+   const order=[...orderedKeys()],from=order.indexOf(key),to=order.indexOf(before);
+   if(from<0||to<0)return;
+   order.splice(from,1);order.splice(to,0,key);
+   draft.parts.order=order;
+   refreshList();rerender();
+ }
+ function clearOutlinerHighlight(){
+   for(const outline of hoverOutlines){
+     outline.removeFromParent();outline.geometry.dispose();outline.material.dispose();
+   }
+   hoverOutlines=[];
+ }
+ function highlightOutliner(key){
+   clearOutlinerHighlight();
+   const node=partNode(key);
+   if(!node)return;
+   node.traverse(mesh=>{
+     if(!mesh.isMesh||!mesh.geometry||mesh.name==='Outliner light handle')return;
+     const outline=new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry),
+       new THREE.LineBasicMaterial({color:0xffd276,depthTest:false,depthWrite:false}));
+     outline.renderOrder=1005;mesh.add(outline);hoverOutlines.push(outline);
+   });
+   if(node.isLight){
+     // The light's bulb handle is an editor-only mesh.
+     const marker=node.children.find(mesh=>mesh.name==='Outliner light handle');
+     if(marker)marker.material.color.set('#ffd276');
+   }
+ }
  function refreshList(){
-   const options=[['root','Source · '+draft.base.name],
-     ...draft.parts.objects.map(o=>['object:'+o.id,'Shape · '+o.name]),
-     ...draft.parts.lights.map(l=>['light:'+l.id,'Light · '+l.name])];
-   selectOptions(partsSelect,options);
-   if(!options.some(([id])=>id===selected))selected='root';
-   partsSelect.value=selected;refreshFields();attachSelected();setMode(operation);
+   if(!draft)return;
+   if(selected!=='root'&&!itemForKey(selected))selected='root';
+   outliner.replaceChildren();
+   const makeRow=(key,depth=0)=>{
+     const item=itemForKey(key),root=key==='root',light=key.startsWith('light:');
+     if(!item)return;
+     const row=makeEl('div','',{class:'array-outliner-row'});
+     row.setAttribute('role','treeitem');
+     row.setAttribute('aria-selected',String(key===selected));
+     row.style.paddingLeft=(8+depth*20)+'px';
+     row.dataset.nodeKey=key;
+     const pick=makeEl('button',(root?'▾ ◇':light?'☀':'▱'),{class:'array-node-pick'});
+     pick.type='button';pick.title='Select '+item.name;
+     pick.addEventListener('click',()=>{
+       selected=key;refreshList();rerender();
+     });
+     const name=makeEl('input');name.type='text';name.maxLength=100;
+     name.value=item.name;name.title='Rename this node';
+     name.setAttribute('aria-label','Rename '+item.name);
+     name.addEventListener('focus',()=>{
+       selected=key;attachSelected();refreshFields();
+       outliner.querySelectorAll('.array-outliner-row').forEach(line=>
+         line.setAttribute('aria-selected',String(line.dataset.nodeKey===key)));
+     });
+     name.addEventListener('change',()=>{
+       item.name=name.value.trim()||item.name;
+       name.value=item.name;rerender();
+     });
+     row.addEventListener('mouseenter',()=>highlightOutliner(key));
+     row.addEventListener('mouseleave',clearOutlinerHighlight);
+     row.append(pick,name);
+     if(!root){
+       const keys=orderedKeys(),index=keys.indexOf(key);
+       for(const [symbol,step] of [['↑',-1],['↓',1]]){
+         const button=makeEl('button',symbol,{class:'array-node-order'});
+         button.type='button';button.title=step<0?'Move up':'Move down';
+         button.disabled=index+step<0||index+step>=keys.length;
+         button.addEventListener('click',()=>reorderChild(key,keys[index+step]));
+         row.append(button);
+       }
+       row.draggable=true;
+       row.addEventListener('dragstart',event=>{
+         event.dataTransfer?.setData('text/plain',key);
+         if(event.dataTransfer)event.dataTransfer.effectAllowed='move';
+       });
+       row.addEventListener('dragover',event=>event.preventDefault());
+       row.addEventListener('drop',event=>{
+         event.preventDefault();
+         const from=event.dataTransfer?.getData('text/plain');
+         if(from)reorderChild(from,key);
+       });
+     }
+     outliner.append(row);
+   };
+   makeRow('root');
+   for(const key of orderedKeys())makeRow(key,1);
+   refreshFields();attachSelected();setMode(operation);
  }
  function includeCompanion(companion){
    if(draft.absorbed.has(companion.id))return;
@@ -409,7 +501,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      holder.append(line);
    }
  }
- partsSelect.addEventListener('change',()=>{selected=partsSelect.value;refreshFields();attachSelected();setMode(operation);});
+
  // Clicking a prototype mesh or light selects the same editable fields as the
  // component dropdown. A drag remains an orbit operation, not selection.
  const picker=new THREE.Raycaster(),mouse=new THREE.Vector2();
@@ -427,10 +519,9 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      1-2*(event.clientY-rect.top)/rect.height);
    picker.setFromCamera(mouse,camera);
    const hit=picker.intersectObjects(world.getPickableMeshes(sampleShot),false)[0]?.object;
-   const partId=hit?.userData?.primitiveLightTargetId?'light:'+hit.userData.primitiveLightTargetId:
-     hit?.userData?.primitiveLightId?'light:'+hit.userData.primitiveLightId:
-     hit?.userData?.primitiveId===objectId?'root':
-     hit?.userData?.primitiveId?'object:'+hit.userData.primitiveId:null;
+   const component=hit?.userData?.primitiveArrayPartId;
+   const partId=component?(hit.name==='Outliner light handle'?'light:':'object:')+component:
+     hit?.userData?.primitiveId===objectId?'root':null;
    if(!partId)return;
    selected=partId;refreshList();
  });
