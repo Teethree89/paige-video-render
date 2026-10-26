@@ -272,3 +272,34 @@ test('single object groups save local part adjustments without becoming arrays',
  assert.deepEqual(changed.scenes[0].objects[0].arrayParts.objects[0].position,[0,4,0]);
  assert.equal(changed.scenes[0].objects[0].repeat,undefined);
 });
+
+
+test('array template replacement carries real prototype spotlights with local XYZ aim',async()=>{
+ const {replaceArrayAssembly,listAssemblyTemplates}=await import('../array-assembly-templates.js');
+ const mk=(id,name,primitive,position,count,spacing)=>{
+   const o=makePrimitive(primitive,id,position);o.name=name;o.repeat={count,spacing};return o;
+ };
+ const trunk=mk('front_trunks','Front Ave Trunks','cylinder',[0,1.6,0],[4,1,1],[10,0,0]);
+ trunk.arrayParts={objects:[],lights:[{
+   id:'lamp',name:'Canopy uplight',type:'spot',position:[0,4,0],
+   target:[0,0,0],color:'#ffffff',intensity:120,distance:30,angle:.5,penumbra:.2
+ }]};
+ const doc={schemaVersion:1,scenes:[{shotId:'a',objects:[trunk,
+   mk('front_crowns','Front Ave Crowns','sphere',[0,4.2,0],[4,1,1],[10,0,0]),
+   mk('south_trees','South Edge Trees','sphere',[30,4.2,10],[1,1,4],[0,0,9])
+ ]}]};
+ const template=listAssemblyTemplates(doc,'a').find(x=>x.key==='front ave');
+ assert.ok(template);
+ assert.equal(template.lights.length,1);
+ const output=replaceArrayAssembly(doc,['a'],'a','south_trees',template.id,
+   template.parts.find(p=>p.name==='Front Ave Crowns').id,
+   template.parts.find(p=>p.name==='Front Ave Trunks').id);
+ const dst=output.document.scenes[0].objects.find(o=>o.id==='south_trees');
+ assert.equal(dst.arrayParts.lights.length,1);
+ const moved=dst.arrayParts.lights[0];
+ assert.ok(Math.abs(moved.position[1]-1.4)<1e-8);
+ assert.ok(Math.abs(moved.target[1]+2.6)<1e-8);
+ assert.equal(moved.type,'spot');
+ assert.equal(moved.intensity,120);
+ assert.equal(doc.scenes[0].objects.find(x=>x.id==='front_trunks').arrayParts.lights.length,1);
+});
