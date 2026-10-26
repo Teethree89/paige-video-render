@@ -43,7 +43,11 @@ const surface = material => new THREE.MeshStandardMaterial({
 // Lights live in their shot's group, so they shine only while it is shown.
 // Directional and spot lights aim along their own -Z at the target, which is
 // kept as a child at (0,0,-1): glTF exports that direction exactly.
-const light = spec => {
+// Shader samplers for shadow maps consume the GPU's texture-unit limit.
+// Limit shadow *casters*, not lights: all authored/array lights still shine,
+// remain editable and survive GLB export. A scene may have many light nodes.
+export const MAX_PRIMITIVE_SHADOW_MAPS=4;
+const light = (spec,castShadow=false) => {
   const color=new THREE.Color(spec.color);
   const node=spec.type==='directional'?new THREE.DirectionalLight(color,spec.intensity)
     :spec.type==='spot'?new THREE.SpotLight(color,spec.intensity,spec.distance,spec.angle,spec.penumbra)
@@ -52,7 +56,7 @@ const light = spec => {
   node.userData.primitiveLight=spec.type;
   // Shadow maps are enabled for aimed lights, not every point light: a point
   // light requires six renders per shadow map and eight are allowed per shot.
-  node.castShadow=spec.type!=='point';
+  node.castShadow=castShadow&&spec.type!=='point';
   if(node.castShadow){
     node.shadow.mapSize.set(512,512);
     node.shadow.bias=-0.0002;
@@ -119,6 +123,12 @@ export function createPrimitiveWorld(scene) {
       const anchor=anchors[entry.shotId]||[0,0,0];
       root.position.set(...anchor);
       const layerGroups=new Map(),nodes=new Map(),arrays=new Map();
+      // Reserve up to two of four maps for explicit chapter lights; repeated
+      // lamps use the rest without making the renderer exceed 16 samplers.
+      const authoredShadows=(entry.lights||[]).filter(l=>l.type!=='point').length;
+      const reserved=Math.min(2,authoredShadows);
+      let arrayShadowSlots=MAX_PRIMITIVE_SHADOW_MAPS-reserved;
+      let usedShadowSlots=0;
       for(const item of entry.objects){
         const key=item.layer||'manual';
         if(!layerGroups.has(key)){
@@ -174,7 +184,9 @@ export function createPrimitiveWorld(scene) {
               instance.add(extra);
             }
             for(const spec of item.arrayParts.lights){
-              const node=light(spec);
+              const shadows=spec.type!=='point'&&arrayShadowSlots>0;
+              if(shadows){arrayShadowSlots--;usedShadowSlots++;}
+              const node=light(spec,shadows);
               node.userData.primitiveArrayPartId=spec.id;
               instance.add(node);
             }
@@ -198,7 +210,10 @@ export function createPrimitiveWorld(scene) {
       const actualLights=new Map();
       (entry.lights||[]).forEach((spec,index)=>{
         const id=spec.id||'light_'+(index+1);
-        const source=light(spec);
+        const shadows=spec.type!=='point'&&
+          usedShadowSlots<MAX_PRIMITIVE_SHADOW_MAPS;
+        if(shadows)usedShadowSlots++;
+        const source=light(spec,shadows);
         root.add(source);actualLights.set(id,source);
       });
       lightNodes.set(entry.shotId,actualLights);

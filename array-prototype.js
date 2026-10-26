@@ -101,7 +101,7 @@ const points=o=>{
  const q=quat(o.rotation);
  return repeatOffsets(o.repeat).map(offset=>plus(o.position,rotate(q,offset)));
 };
-const relative=(base,other)=>{
+const relative=(base,other,maxOffset=6)=>{
  if(!base.repeat||!other.repeat)return null;
  const bp=points(base),cp=points(other);
  if(bp.length!==cp.length||bp.length<2)return null;
@@ -109,7 +109,7 @@ const relative=(base,other)=>{
  // Reversed / reordered repeats cannot safely be collapsed with this layout.
  const q=quat(base.rotation),cq=quat(other.rotation);
  const local=rotate(inverse(q),subtract(cp[0],bp[0]));
- if(distance(local,[0,0,0])>6)return null;
+ if(distance(local,[0,0,0])>maxOffset)return null;
  for(let i=1;i<bp.length;i++)
    if(distance(rotate(inverse(q),subtract(cp[i],bp[i])),local)>.08)return null;
  const orientation=multiply(inverse(q),cq);
@@ -120,7 +120,7 @@ const sameRelative=(a,b)=>distance(a.position,b.position)<.08&&
 
 // Return only companions with a one-to-one, compatible array beside EVERY
 // matching source row. Candidate selection is explicit in the mini editor.
-export function findArrayCompanions(source,shotId,objectId){
+export function findArrayCompanions(source,shotId,objectId,{includeComposites=false}={}){
  const doc=validatePrimitiveDocument(source);
  const entry=doc.scenes.find(s=>s.shotId===shotId);
  const base=entry?.objects.find(o=>o.id===objectId&&o.repeat);
@@ -136,9 +136,13 @@ export function findArrayCompanions(source,shotId,objectId){
    Number(!(rootKey&&arrayGroupKey(b.name)===rootKey)));
  const result=[],used=new Set(roots);
  for(const other of ranked){
-   if(!other.repeat||used.has(other.id)||other.arrayParts?.objects.length||
-     other.arrayParts?.lights.length)continue;
-   const origin=relative(base,other);
+   if(!other.repeat||used.has(other.id)||(!includeComposites&&
+     (other.arrayParts?.objects.length||other.arrayParts?.lights.length)))continue;
+   const named=!!(rootKey&&arrayGroupKey(other.name)===rootKey);
+   // Real lamp assemblies can be taller than the ordinary proximity
+   // threshold. Only explicitly named templates receive this wider search.
+   const maxOffset=includeComposites&&named?30:6;
+   const origin=relative(base,other,maxOffset);
    if(!origin)continue;
    const typeMatches=findMatchingArrays(doc,shotId,other.id);
    if(typeMatches.length!==roots.length||typeMatches.some(id=>rootSet.has(id)))continue;
@@ -148,7 +152,7 @@ export function findArrayCompanions(source,shotId,objectId){
      const row=all.find(o=>o.id===baseId);
      const pairs=typeMatches.filter(id=>!companions.includes(id)).map(id=>{
        const candidate=all.find(o=>o.id===id);
-       return {candidate,placement:relative(row,candidate)};
+       return {candidate,placement:relative(row,candidate,maxOffset)};
      }).filter(x=>x.placement&&sameRelative(x.placement,origin));
      if(pairs.length!==1){okay=false;break;}
      companions.push(pairs[0].candidate.id);

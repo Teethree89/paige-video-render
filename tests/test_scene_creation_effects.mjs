@@ -131,7 +131,7 @@ test('new light presets produce shot-local punctual lights and recognizable edit
  assert.deepEqual(entry.lights[1].target,[0,0,0]);
  assert.match(world,/new THREE\.PointLight\(color,spec\.intensity,spec\.distance\)/);
  assert.match(world,/new THREE\.SpotLight\(color,spec\.intensity,spec\.distance,spec\.angle,spec\.penumbra\)/);
- assert.match(world,/const source=light\(spec\)/);
+ assert.match(world,/const source=light\(spec,shadows\)/);
  assert.match(world,/root\.add\(source\);actualLights\.set\(id,source\)/);
  assert.match(world,/mesh\.castShadow=true/);
  assert.match(world,/mesh\.receiveShadow=true/);
@@ -156,7 +156,8 @@ test('editor and video agree on shadow rendering; editing suppresses temporary s
  assert.match(render,/renderer\.shadowMap\.enabled=true/);
  assert.match(app,/reviewLights\.visible=!editMode/);
  assert.match(app,/showGeneratedGeometry\(shot\.id,false,\{editMode:true\}\)/);
- assert.match(world,/node\.castShadow=spec\.type!=='point'/);
+ assert.match(world,/node\.castShadow=castShadow&&spec\.type!=='point'/);
+ assert.match(world,/MAX_PRIMITIVE_SHADOW_MAPS=4/);
  assert.match(world,/mesh\.receiveShadow=true/);
  assert.match(assets,/intensity:directional\?2\.1:spot\?320:180/);
 });

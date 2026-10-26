@@ -465,8 +465,20 @@
           <label class="field">Choose an existing assembly to copy
             <select id="arrayEditTemplate"></select>
           </label>
-          <button id="arrayEditUseTemplate" class="wide secondary" type="button">↳ Replace with selected assembly…</button>
-          <p class="field-help">Keep this array's positions, copies and spacing. Choose the crown/main piece and trunk/support in the confirmation prompts. Preview before Save.</p>
+          <label class="checkbox-field"><input id="arrayEditReplaceLights" type="checkbox" />
+            Replace existing destination lights with template lights (otherwise keep destination lights)
+          </label>
+          <button id="arrayEditUseTemplate" class="wide secondary" type="button">↳ Load all assembly meshes and label…</button>
+          <p class="field-help">Keep the destination's XYZ and repeat spacing. Every mesh is loaded into the 3D preview first; name its role by hovering before confirming. Cancel makes no changes.</p>
+          <section id="arrayTemplateLabelPanel" class="array-template-label-panel" aria-label="Identify template components" hidden>
+            <div class="section-label">IDENTIFY EACH OBJECT</div>
+            <p class="field-help">Hover a row or a 3D mesh to highlight it. Match each descriptor to the correct mesh, then confirm the labels. All meshes are already in the preview.</p>
+            <div id="arrayTemplateLabelRows"></div>
+            <div class="array-template-label-actions">
+              <button id="arrayTemplateLabelCancel" class="ghost" type="button">Discard template</button>
+              <button id="arrayTemplateLabelConfirm" class="primary" type="button">Confirm all labels</button>
+            </div>
+          </section>
           <div class="divider"></div>
           <div class="section-label">GROUP RELATED ARRAYS</div>
           <div id="arrayEditCompanions" class="array-companions"></div>
@@ -509,15 +521,6 @@
     <div class="confirm-actions">
       <button id="sceneMakeArrayCancel" class="ghost" type="button">Cancel</button>
       <button id="sceneMakeArraySave" class="primary" type="button">Create / update copies</button>
-    </div>
-  </dialog>
-  <dialog id="arrayTemplateRoles" class="confirm-dialog" aria-labelledby="arrayTemplateRoleTitle">
-    <h3 id="arrayTemplateRoleTitle" class="section-label">WHICH OBJECT IS THE CROWN?</h3>
-    <p id="arrayTemplateRoleHelp">Choose the primary component to place at the destination array centers.</p>
-    <label class="field">Assembly component<select id="arrayTemplateRoleSelect"></select></label>
-    <div class="confirm-actions">
-      <button id="arrayTemplateRoleCancel" class="ghost" type="button">Cancel</button>
-      <button id="arrayTemplateRoleConfirm" class="primary" type="button">Yes, use this component</button>
     </div>
   </dialog>
   <dialog id="aiConfirm" class="confirm-dialog" aria-labelledby="aiConfirmTitle">

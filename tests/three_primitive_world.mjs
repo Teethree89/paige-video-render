@@ -592,3 +592,36 @@ test('composite pine is one movable object, editable child meshes and exports al
      'all crown meshes survive glTF export');
  }finally{world.dispose();}
 });
+
+
+test('many repeated spotlights still shine and export without exceeding GPU shadow sampler budget',async()=>{
+ const {MAX_PRIMITIVE_SHADOW_MAPS}=await import('../primitive-world.js');
+ const cylinder=unit('streetlamp','cylinder',{name:'Streetlamp',scale:[.2,6,.2],
+   repeat:{count:[8,1,4],spacing:[12,0,12]},
+   arrayParts:{objects:[],lights:[{
+     id:'lamp_spot',type:'spot',name:'Streetlamp Downlight',color:'#ffffff',
+     intensity:180,position:[0,3,0],target:[0,0,0],angle:.55,penumbra:.2,distance:35
+   }]}});
+ const topLights=Array.from({length:9},(_,i)=>({
+   type:'spot',name:'Editor spotlight '+i,color:'#fffddd',
+   intensity:80,position:[i*3,10,0],target:[i*3,0,0],
+   angle:.6,penumbra:.2,distance:35
+ }));
+ const doc={schemaVersion:1,scenes:[{shotId:'street',
+   objects:[cylinder],lights:topLights}]};
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
+ try{
+   world.setDocument(doc,['street']);world.showShot('street');
+   const root=world.getSceneForExport('street'),lights=[];
+   root.traverse(x=>{if(x.isLight)lights.push(x);});
+   assert.equal(lights.filter(x=>x.isSpotLight).length,41,
+     'no manually authored or repeated lights are discarded');
+   assert.ok(lights.filter(x=>x.castShadow).length<=MAX_PRIMITIVE_SHADOW_MAPS,
+     'no excess shadow-map samplers can make WebGL shader fail validation');
+   const exportData=await new GLTFExporter().parseAsync(root,{
+     binary:false,onlyVisible:false});
+   assert.ok(exportData.extensions.KHR_lights_punctual.lights.length>=2);
+   assert.equal(exportData.nodes.filter(x=>x.name?.startsWith('Streetlamp Downlight')).length,32,
+     'all 32 real lights remain in the exported GLTF nodes');
+ }finally{world.dispose();}
+});
