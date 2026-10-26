@@ -90,11 +90,12 @@ const light = (spec,castShadow=false,cacheShadow=false) => {
   return node;
 };
 
-export function createPrimitiveWorld(scene) {
+export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
   const groups=new Map();
   // Saved primitive ID -> top-level transform node (repeat arrays share one holder).
   const objectNodes=new Map(),arrayInstances=new Map(),lightNodes=new Map(),lightMarkers=new Map(),lightTargets=new Map(),lightGuides=new Map(),lightMarkerGroups=new Map();
   const shadowLights=new Map();
+  const renderBatches=new Map();
   let markersEnabled=false;
   let document={schemaVersion:1,scenes:[]};
   let activeShotId=null;
@@ -109,12 +110,13 @@ export function createPrimitiveWorld(scene) {
         if(!materials.has(material)){materials.add(material);material.dispose();}
       }
       if(node.isLight)node.dispose();
+      if(node.isInstancedMesh)node.dispose();
     };
     for(const group of groups.values()){
       scene.remove(group);
       group.traverse(disposeResources);
     }
-    groups.clear();objectNodes.clear();arrayInstances.clear();lightNodes.clear();shadowLights.clear();
+    groups.clear();objectNodes.clear();arrayInstances.clear();lightNodes.clear();shadowLights.clear();renderBatches.clear();
     for(const root of lightMarkerGroups.values()){
       scene.remove(root);
       root.traverse(disposeResources);
@@ -140,6 +142,7 @@ export function createPrimitiveWorld(scene) {
       let arrayShadowSlots=MAX_PRIMITIVE_SHADOW_MAPS-reserved;
       let usedShadowSlots=0;
       const casters=[];
+      const batches=[];
       for(const item of entry.objects){
         const key=item.layer||'manual';
         if(!layerGroups.has(key)){
@@ -242,6 +245,30 @@ export function createPrimitiveWorld(scene) {
           layerGroups.get(key).add(holder);
         }
         nodes.set(item.id,holder||directMesh);
+        if(batchRepeats&&item.repeat&&holder){
+          const bins=new Map();
+          holder.traverse(node=>{
+            // Transparent copies retain their normal depth sorting.
+            if(!node.isMesh||node.material.transparent)return;
+            const key=node.geometry.uuid+':'+node.material.uuid;
+            if(!bins.has(key))bins.set(key,[]);
+            bins.get(key).push(node);
+          });
+          for(const sources of bins.values()){
+            if(sources.length<2)continue;
+            const first=sources[0];
+            const batch=new THREE.InstancedMesh(first.geometry,first.material,sources.length);
+            batch.name='Preview batch '+item.name;
+            batch.userData.previewBatch=true;
+            batch.castShadow=true;batch.receiveShadow=true;
+            batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            holder.add(batch);
+            for(const source of sources){
+              source.visible=false;source.userData.previewSource=true;
+            }
+            batches.push({holder,batch,sources,dirty:true});
+          }
+        }
       }
       const actualLights=new Map();
       (entry.lights||[]).forEach((spec,index)=>{
@@ -255,6 +282,7 @@ export function createPrimitiveWorld(scene) {
       });
       lightNodes.set(entry.shotId,actualLights);
       shadowLights.set(entry.shotId,casters);
+      renderBatches.set(entry.shotId,batches);
       root.visible=false;
       // Editor-only light markers stay OUTSIDE the model root, so GLB,
       // Three.js flythrough and After Effects packages never contain gizmos.
@@ -338,6 +366,7 @@ export function createPrimitiveWorld(scene) {
     return document.scenes.some(s=>s.shotId===shotId&&(s.objects.length>0||(s.lights?.length||0)>0));
   }
   function getBounds(shotId){
+    prepareRender(shotId);
     const root=groups.get(shotId);
     if(!root)return null;
     // Include the shot anchor and every rotated/scaled primitive.
@@ -363,6 +392,26 @@ export function createPrimitiveWorld(scene) {
   }
   function invalidateShadows(shotId=activeShotId){
     for(const node of shadowLights.get(shotId)||[])node.shadow.needsUpdate=true;
+  }
+  function invalidateGeometry(shotId=activeShotId){
+    invalidateShadows(shotId);
+    for(const record of renderBatches.get(shotId)||[])record.dirty=true;
+  }
+  const _batchInverse=new THREE.Matrix4(),_batchMatrix=new THREE.Matrix4();
+  function prepareRender(shotId=activeShotId){
+    for(const record of renderBatches.get(shotId)||[]){
+      if(!record.dirty)continue;
+      const {holder,batch,sources}=record;
+      holder.updateWorldMatrix(true,true);
+      _batchInverse.copy(holder.matrixWorld).invert();
+      sources.forEach((source,index)=>{
+        _batchMatrix.multiplyMatrices(_batchInverse,source.matrixWorld);
+        batch.setMatrixAt(index,_batchMatrix);
+      });
+      batch.instanceMatrix.needsUpdate=true;
+      batch.computeBoundingBox();batch.computeBoundingSphere();
+      record.dirty=false;
+    }
   }
   function setLightMarkersVisible(visible){
     markersEnabled=!!visible;
@@ -449,12 +498,18 @@ export function createPrimitiveWorld(scene) {
     const root=groups.get(shotId);
     if(!root)throw Error('No primitive scene for '+shotId);
     const copy=root.clone(true);
+    const batches=[];
     // Cloning a light copies its target as a detached object; point it back
     // at the cloned child so the exported direction is the node's -Z.
     copy.traverse(node=>{
+      if(node.userData.previewBatch)batches.push(node);
+      if(node.userData.previewSource){
+        node.visible=true;delete node.userData.previewSource;
+      }
       const target=node.isLight&&node.children.find(child=>child.userData.lightTarget);
       if(target)node.target=target;
     });
+    for(const batch of batches)batch.removeFromParent();
     copy.visible=true;
     copy.name='Editable_primitives_'+shotId;
     return copy;
@@ -471,5 +526,5 @@ export function createPrimitiveWorld(scene) {
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
   return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,getLightNode,isLightMarkerVisible,getLightTargetMarker,updateLightVisuals,setLightMarkersVisible,getPickableMeshes,
-    getSceneForExport,getDocument,getArrayInstances,invalidateShadows,dispose};
+    getSceneForExport,getDocument,getArrayInstances,invalidateShadows,invalidateGeometry,prepareRender,dispose};
 }

@@ -585,7 +585,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  transform.addEventListener('objectChange',()=>{
    if(draft){
      world.updateLightVisuals(camera,canvas.clientHeight||320);
-     world.invalidateShadows(sampleShot);
+     world.invalidateGeometry(sampleShot);
    }
  });
  byId('arrayEditAdd')?.addEventListener('click',()=>{

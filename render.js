@@ -14,7 +14,7 @@ const source=document.createElement('canvas');
 const renderer=new THREE.WebGLRenderer({canvas:source,antialias:true,preserveDrawingBuffer:true,powerPreference:'high-performance'});
 renderer.setPixelRatio(1);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.35;
 renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(50,16/9,.35,500);const world=buildWorld(scene),draftWorld=createDraftWorld(scene),primitiveWorld=createPrimitiveWorld(scene);
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(50,16/9,.35,500);const world=buildWorld(scene),draftWorld=createDraftWorld(scene),primitiveWorld=createPrimitiveWorld(scene,{batchRepeats:true});
 let seq,modelCount=0,frameRequest=0,previewing=false,recording=false,previewStart=0,previewTime=0,recorder=null;
 const renderBoundsCache=new Map();
 const post=createScenePostprocessor(renderer,scene,cam);
@@ -54,6 +54,7 @@ function render(t){
  cam.position.set(...c.p);cam.lookAt(...c.t);cam.fov=c.fov;cam.aspect=16/9;
  cam.near=planes.near;cam.far=planes.far;cam.updateProjectionMatrix();
  const custom=primitiveWorld.hasObjects(currentShot.id);world.update(t,currentShot.id,custom);primitiveWorld.showShot(currentShot.id);draftWorld.update(currentShot,custom);
+ primitiveWorld.prepareRender(currentShot.id);
  const profile=applyShotEffects(scene,renderer,effectsForShot(seq,currentShot.id));
  post.configure(profile);post.render();ctx.drawImage(source,0,0,out.width,out.height);
  // Match the saved chapter vignette while omitting editor controls.

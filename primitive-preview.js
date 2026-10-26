@@ -3,6 +3,23 @@
 // Never change saved primitive positions or cinematic camera keyframes.
 // A bad saved scene must not replace the working project with the starter
 // timeline. Keep the source intact for export/repair and clear partial meshes.
+export function createPreviewRenderState(){
+  let dirty=true;
+  return {
+    invalidate(){dirty=true;},
+    consume(playing=false){
+      if(!playing&&!dirty)return false;
+      dirty=false;return true;
+    }
+  };
+}
+// Editor display quality only. Saved scenes and fixed-size video/AE exports
+// retain their authored geometry, lights, effects and output dimensions.
+export function previewPixelRatio(quality='balanced',deviceRatio=1){
+  const device=Number.isFinite(deviceRatio)&&deviceRatio>0?deviceRatio:1;
+  const limit=quality==='full'?1.7:quality==='fast'?.75:1;
+  return Math.min(device,limit);
+}
 export function restoreSavedPrimitiveWorld(world,sequence,anchors={}) {
   const allowed=sequence.shots.map(shot=>shot.id);
   try{

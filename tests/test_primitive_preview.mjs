@@ -1,8 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld} from '../primitive-preview.js';
+import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld,createPreviewRenderState,previewPixelRatio} from '../primitive-preview.js';
 import {validatePrimitiveDocument,makePrimitive} from '../primitive-schema.js';
+
+test('paused preview renders once per camera/scene invalidation and playback stays continuous',()=>{
+ const frames=createPreviewRenderState();
+ assert.equal(frames.consume(),true);
+ for(let i=0;i<100;i++)assert.equal(frames.consume(),false);
+ frames.invalidate();frames.invalidate();
+ assert.equal(frames.consume(),true,'several input events can share one frame');
+ assert.equal(frames.consume(),false);
+ for(let i=0;i<100;i++)assert.equal(frames.consume(true),true);
+ assert.equal(frames.consume(false),false,'stopping playback releases idle GPU work');
+ frames.invalidate();assert.equal(frames.consume(false),true);
+});
+test('preview quality bounds display pixels without changing scene or export settings',()=>{
+ assert.equal(previewPixelRatio('balanced',2),1);
+ assert.equal(previewPixelRatio('full',2),1.7);
+ assert.equal(previewPixelRatio('fast',1),.75);
+ assert.equal(previewPixelRatio('full',1),1);
+ assert.equal(previewPixelRatio('unknown',3),1);
+ for(const bad of [NaN,0,-1,Infinity])assert.equal(previewPixelRatio('balanced',bad),1);
+});
 
 test('restoring an old unlayered timeline keeps geometry and applies its chapter anchor',()=>{
   const sequence={title:'Saved AI project',shots:[{id:'hall'}],
