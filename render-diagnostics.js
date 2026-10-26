@@ -92,6 +92,6 @@ export function createRenderDiagnostics({renderer,scene,root,getDocument,getShot
    ...chapterGeometryStats(getDocument(),getShotId()),
    ...getBatches(getShotId()),...latest
  }));
- update(performance.now(),true);
+ // Initialization precedes app.js's sequence variable; first real frame updates the panel.
  return {beginFrame,endFrame,noteIdle,getSnapshot:()=>({...latest}),dispose:counter.dispose};
 }
