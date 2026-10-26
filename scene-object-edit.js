@@ -83,6 +83,7 @@ export function setupSceneObjectEditing({
       const reset=record?.instanceRotation||[0,0,0];
       for(const copy of world.getArrayInstances(rotationSource.shotId,rotationSource.id))
         copy.rotation.set(...reset);
+      world.invalidateShadows?.(rotationSource.shotId);
     }
     rotationProxy?.removeFromParent();
     rotationProxy=null;rotationSource=null;
@@ -111,6 +112,7 @@ export function setupSceneObjectEditing({
       for(const copy of world.getArrayInstances(rotationSource.shotId,rotationSource.id))
         copy.quaternion.copy(local);
     }
+    world.invalidateShadows?.(currentShot());
     updateHighlight();
   }
   const arrayConfirm=el('arrayEditConfirm');

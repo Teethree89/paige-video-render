@@ -622,6 +622,9 @@ function renderWorld(){const shot=shotAt(playhead);const custom=primitiveWorld.h
  if(lastPrimitiveShotId!==shot.id){lastPrimitiveShotId=shot.id;primitiveEditor?.refresh();}
  let cuts=sequence.camera.filter(k=>k.cut&&k.at>0).map(k=>k.at);let alpha=0;for(let cut of cuts){let diff=Math.abs(playhead-cut);if(diff<.17)alpha=Math.max(alpha,(1-diff/.17)*.72);}el('cutFlash').style.opacity=String(alpha);}
 function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
+ // The modal has its own viewport. Avoid rendering the covered full scene
+ // at the same time (and doing two sets of lighting/post-processing work).
+ if(arrayPrototypeEditor?.active){requestAnimationFrame(animate);return;}
  if(playing){let next=playhead+dt*speed;if(next>=sequence.duration){next=sequence.duration;setPlaying(false);}seek(next,{fromFrame:true});if(!sequence.referenceSequence&&referenceVideo.readyState>=2&&Math.abs(referenceVideo.currentTime-playhead)>.15){try{referenceVideo.currentTime=playhead;}catch(e){}}}
  if(controls.enabled)controls.update();
  // Keep light source/aim markers large enough to see at ANY shot scale;

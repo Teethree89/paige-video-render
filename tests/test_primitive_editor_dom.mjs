@@ -124,6 +124,18 @@ test('primitive inspector initializes and adds editable scene geometry without c
     sequence.primitiveScenes.scenes[0].lights=[{type:'point',color:'#ffcc88',intensity:20,position:[0,4,0]}];
     editor.refresh();
     assert.match(dom.getElementById('primitiveShotLabel').textContent,/· 4 object\(s\) · 1 light\(s\)$/);
+    // The checkbox changes only shadow intent, through the real inspector
+    // save/validate/refresh path; point shadows are explicitly opt-in.
+    assert.equal(editor.selectLight('light_1'),true);
+    const shadow=dom.getElementById('primitiveLightCastShadow');
+    assert.equal(shadow.checked,false);
+    const lampBefore=structuredClone(sequence.primitiveScenes.scenes[0].lights[0]);
+    shadow.checked=true;await shadow.fire('change');
+    assert.equal(sequence.primitiveScenes.scenes[0].lights[0].castShadow,true);
+    assert.equal(shadow.checked,true);
+    shadow.checked=false;await shadow.fire('change');
+    assert.deepEqual(sequence.primitiveScenes.scenes[0].lights[0],
+      {...lampBefore,id:'light_1',name:'point light 1',distance:0,castShadow:false});
     // Loading/filtering older saved generations must not hide unlayered or
     // explicitly manual objects, or write a replacement scene to the timeline.
     sequence.primitiveScenes={schemaVersion:1,scenes:[{shotId:'draft_001',objects:[
