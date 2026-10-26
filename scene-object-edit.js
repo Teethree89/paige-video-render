@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {setupSceneSelectionPanel} from './scene-selection-panel.js';
-import {findMatchingArrays} from './array-prototype.js';
+import {findMatchingArrays,findArrayCompanions} from './array-prototype.js';
 import {repeatOffsets} from './primitive-schema.js';
 
 // Construct the bounds in the selected object's LOCAL coordinates. A world
@@ -282,9 +282,12 @@ export function setupSceneObjectEditing({
     if(!base)return;
     const matching=findMatchingArrays(source,shotId,objectId);
     if(!matching.length)return;
+    const named=findArrayCompanions(source,shotId,objectId)
+      .filter(candidate=>candidate.nameMatch);
+    const all=[...new Set([...matching,...named.flatMap(candidate=>candidate.ids)])];
     clearArrayHighlights();
     let count=0;
-    for(const id of matching){
+    for(const id of all){
       for(const [i,instance] of world.getArrayInstances(shotId,id).entries()){
         const outline=createSelectionOutline(instance);
         if(!outline)continue;
@@ -300,8 +303,9 @@ export function setupSceneObjectEditing({
     if(el('arrayEditConfirmText'))
       el('arrayEditConfirmText').textContent=
         'Edit '+base.name+'? The chosen copy and all '+count+
-        ' matching copies in '+matching.length+' array group(s) are highlighted. '+
-        'Saving the prototype will update all of them.';
+        ' matching copies across '+all.length+' array group(s) are highlighted'+
+        (named.length?', including '+named.map(x=>x.name).join(', '):'')+'. '+
+        'The named companions open together in the prototype editor; only Save applies edits.';
     if(arrayConfirm){
       arrayConfirm.hidden=false;
       if(typeof arrayConfirm.showModal==='function'&&!arrayConfirm.open)
