@@ -259,7 +259,8 @@ export function makePrimitive(type, id, position=[0,1,0]) {
   const item={id,name:type+' '+id,primitive:type,position,rotation:[0,0,0],
     scale:scales[type],material:{color:'#72c9db',metalness:.25,roughness:.6},
     // An L-shaped footprint shows what extrusion is for; edit points in JSON.
-    ...(type==='extrude'?{points:[[-.5,-.5],[.5,-.5],[.5,0],[0,0],[0,.5],[-.5,.5]]}:{})};
+    ...(type==='extrude'?{points:[[-.5,-.5],[.5,-.5],[.5,0],[0,0],[0,.5],[-.5,.5]]}:{}),
+    ...(type==='group'?{arrayParts:{objects:[],lights:[]}}:{})};
   return validatePrimitiveDocument({schemaVersion:1,scenes:[{shotId:'preview',objects:[item]}]}).scenes[0].objects[0];
 }
 
