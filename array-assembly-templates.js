@@ -51,7 +51,8 @@ export function listAssemblyTemplates(source,shotId){
  for(const item of entry.objects.filter(x=>
    x.repeat||x.arrayParts?.objects?.length||x.arrayParts?.lights?.length)){
    const key=arrayGroupKey(item.name)||
-     (item.primitive==='group'?item.name.trim().toLowerCase():null);
+     (item.arrayParts?.objects?.length||item.arrayParts?.lights?.length?
+       item.name.trim().toLowerCase():null);
    if(!key)continue;
    if(!byName.has(key))byName.set(key,[]);
    byName.get(key).push(item);
