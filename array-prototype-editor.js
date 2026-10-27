@@ -42,16 +42,40 @@ export function framePrototypeCamera(camera,orbit,bounds){
 // Helpers are never attached to the primitive-world root. This keeps them
 // present in the editor only, not in exported GLB or After Effects packages.
 export function createPrototypeGuides(scene){
- const grid=new THREE.GridHelper(20,20,0x6795a7,0x35556b);
+ // Solid modeling ground, never part of the saved or exported assembly.
+ const floor=new THREE.Mesh(new THREE.PlaneGeometry(20,20),
+   new THREE.MeshBasicMaterial({color:0x1b3541,side:THREE.DoubleSide}));
+ floor.name='Prototype studio floor (editor only)';
+ floor.rotation.x=-Math.PI/2;
+ floor.renderOrder=-2;
+ scene.add(floor);
+ const grid=new THREE.GridHelper(20,20,0x79a8b5,0x496e7e);
  grid.name='Prototype ground grid (editor only)';
- grid.material.transparent=true;
- grid.material.opacity=.48;
- grid.material.depthWrite=false;
+ grid.material.transparent=true;grid.material.opacity=.72;
+ grid.material.depthWrite=false;grid.renderOrder=-1;
  scene.add(grid);
  const axes=new THREE.AxesHelper(2);
  axes.name='Prototype XYZ axes (editor only)';
  scene.add(axes);
- return {grid,axes};
+ return {floor,grid,axes};
+}
+
+// Modeling worklights are never authored. Keep the prototype readable even
+// when the source chapter deliberately disables studio/environment lighting.
+export function createPrototypeStudioLights(scene){
+ const group=new THREE.Group();
+ group.name='Prototype studio worklights (editor only)';
+ const ambient=new THREE.AmbientLight(0xe9f5ff,1.3);
+ const hemisphere=new THREE.HemisphereLight(0xdff0ff,0x52748a,2.1);
+ const key=new THREE.DirectionalLight(0xffffff,4.6);
+ key.name='Studio key';key.position.set(8,15,12);
+ const fill=new THREE.DirectionalLight(0xd5e7ff,2.8);
+ fill.name='Studio side fill';fill.position.set(-10,7,5);
+ const rim=new THREE.DirectionalLight(0xffdfbb,3.0);
+ rim.name='Studio back rim';rim.position.set(2,9,-12);
+ group.add(ambient,hemisphere,key,fill,rim);
+ scene.add(group);
+ return group;
 }
 
 export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose=()=>{}}){
@@ -67,10 +91,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
 
  const scene=new THREE.Scene();
  scene.background=new THREE.Color(0x10212c);
- scene.add(new THREE.HemisphereLight(0xcdeaff,0x344047,2));
- const {grid,axes}=createPrototypeGuides(scene);
- const key=new THREE.DirectionalLight(0xffffff,2.6);
- key.position.set(8,14,12);scene.add(key);
+ const {floor,grid,axes}=createPrototypeGuides(scene);
+ const worklights=createPrototypeStudioLights(scene);
  const camera=new THREE.PerspectiveCamera(46,1,.1,2000);
  camera.position.set(9,7,13);
  // Avoid allocating a second WebGL context during normal page startup.
@@ -211,11 +233,13 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        const box=body?new THREE.Box3().setFromObject(body):null;
        const at=box&&!box.isEmpty()?box.getCenter(new THREE.Vector3()):
          new THREE.Vector3().fromArray(bounds.center);
-       grid.position.set(at.x,
-         box&&!box.isEmpty()?box.min.y-.035:at.y-radius,
-         at.z);
+       const floorY=box&&!box.isEmpty()?box.min.y-.035:at.y-radius;
+       grid.position.set(at.x,floorY+.004,at.z);
+       floor.position.set(at.x,floorY-.008,at.z);
        // Grid divisions track the object's dimensions without obstructing it.
-       grid.scale.setScalar(Math.max(.5,Math.min(50,radius*4/20)));
+       const stageScale=Math.max(.5,Math.min(50,radius*4/20));
+       grid.scale.setScalar(stageScale);
+       floor.scale.set(stageScale,stageScale,1);
        axes.position.copy(grid.position);
        axes.scale.setScalar(Math.max(.3,Math.min(12,radius*.27)));
      }
@@ -242,6 +266,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    orbit.update();
    world.updateLightVisuals(camera,canvas.clientHeight||320);
    applyShotEffects(scene,renderer,previewEffects,{camera,shotId:sampleShot});
+   // Do not let the final chapter's studio-light checkbox darken the editor.
+   for(const light of worklights.children)light.visible=true;
    renderer.render(scene,camera);
    frame=requestAnimationFrame(animate);
  }
@@ -840,6 +866,9 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    close,
    get active(){return !!draft;},
    dispose(){close();world.dispose();renderer?.dispose();orbit.dispose();
-     transform.dispose?.();scene.remove(helper);}
+     transform.dispose?.();scene.remove(helper);
+     floor.geometry.dispose();floor.material.dispose();
+     grid.geometry.dispose();grid.material.dispose();
+     axes.geometry.dispose();axes.material.dispose();}
  };
 }
