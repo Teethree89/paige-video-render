@@ -16,3 +16,9 @@ test('every ID accessed by primitive editor is a well-formed, present HTML ID',(
   assert.equal(actual.get('primitiveImport'),1);
   assert.doesNotMatch(html,/\bid="primitiveImport'/);
 });
+
+test('chapter outliner and mini spotlight mode controls are present and unique',()=>{
+ for(const id of ['primitiveSceneOutliner','arrayEditSpotMode'])
+   assert.equal(html.split('id="'+id+'"').length-1,1,id);
+ assert.match(html,/role="tree" aria-label="Chapter hierarchy"/);
+});

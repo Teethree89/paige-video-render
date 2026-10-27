@@ -209,7 +209,8 @@ async function boot(){
      syncPrimitiveWorld();
      saveLocal();renderWorld();
    },
-   onSelectionChange:id=>sceneObjectEditor?.select(id,false)
+   onSelectionChange:id=>sceneObjectEditor?.select(id,false),
+    onEditAssembly:(shotId,id)=>arrayPrototypeEditor?.open(shotId,id)||false
  });
  sceneObjectEditor=setupSceneObjectEditing({
    scene,camera,canvas,orbitControls:controls,world:primitiveWorld,
