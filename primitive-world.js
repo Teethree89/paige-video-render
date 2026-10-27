@@ -395,6 +395,9 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
   }
   function invalidateGeometry(shotId=activeShotId){
     invalidateShadows(shotId);
+    // Static ground pool samples must rebuild after in-place geometry edits.
+    const root=groups.get(shotId);
+    if(root)root.userData.fakeGroundVersion=(root.userData.fakeGroundVersion||0)+1;
     for(const record of renderBatches.get(shotId)||[])record.dirty=true;
   }
   const _batchInverse=new THREE.Matrix4(),_batchMatrix=new THREE.Matrix4();
