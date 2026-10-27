@@ -149,7 +149,7 @@ const FAKE_BEAM_MAX_LENGTH=12,FAKE_POOL_GROUND_Y=.08;
 // Pool illumination follows the authored light's range, independently from
 // the atmospheric cone's intentionally short 12-unit visible beam.
 const FAKE_POOL_MAX_DISTANCE=48;
-const FAKE_POOL_DECAL_LIFT=.008;
+const FAKE_POOL_DECAL_LIFT=.010; // 10 mm at the exterior chapter's approximate metre scale
 const _fakePoolProjectorOrientation=new THREE.Euler(-Math.PI/2,0,0);
 const _fakePoolProjectorSize=new THREE.Vector3();
 const _fakePoolProjectorPosition=new THREE.Vector3();
