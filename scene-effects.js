@@ -123,7 +123,9 @@ function fakeSpotRig(scene){
        float facing=abs(dot(normalize(vViewNormal),normalize(-vViewPosition)));
        float feather=smoothstep(0.015,0.32,facing);
        float nearFade=smoothstep(1.5,6.0,length(vViewPosition));
-       gl_FragColor=vec4(vColor,0.026*axial*feather*nearFade*vConeOpacity);
+       // The old 0.026 ceiling made 100% opacity almost invisible.
+       // Keep the soft atmospheric falloff; this is not an opaque solid.
+       gl_FragColor=vec4(vColor,0.16*axial*feather*nearFade*vConeOpacity);
      }
    `
  });
