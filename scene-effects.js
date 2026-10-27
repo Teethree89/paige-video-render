@@ -353,7 +353,8 @@ function updateFakeSpots(scene,faked,activeRoot,showBeams=true){
      beams++;
    }
    if(poolGroundHit){
-     poolPatches.push({node,patch:fakePoolPatch(activeRoot,node,_spotPos,_spotDir,poolRange)});
+     const patch=fakePoolPatch(activeRoot,node,_spotPos,_spotDir,poolRange);
+     if(patch.indices.length)poolPatches.push({node,patch});
    }
  }
  rig.beam.count=beams;

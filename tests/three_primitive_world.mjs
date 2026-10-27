@@ -1288,6 +1288,7 @@ test('hidden/isolate ground is not pickable or a fake spotlight decal receiver',
      'hiding ground prevents picking its surface');
    applyShotEffects(scene,renderer,fx,{shotId:'test',camera});
    assert.equal(pool.visible,false,'hidden ground gets no fake-light decal');
+   assert.equal(pool.userData.fakePoolCount,0,'no phantom empty decal pools are submitted');
    world.setIsolation('test',null);
    applyShotEffects(scene,renderer,fx,{shotId:'test',camera});
    assert.equal(pool.visible,true,'restoring ground rebuilds its decal');
