@@ -212,7 +212,7 @@ function fakePoolPatch(root,node,center,radius,lightY){
  return patch;
 }
 function syncFakePoolBatch(rig,patches,root){
- const key=patches.map(({node,patch})=>node.uuid+':'+patch.key).join('|');
+ const key=patches.map(({node,patch})=>node.uuid+':'+patch.version+':'+patch.key).join('|');
  if(key===rig.poolKey&&root===rig.poolRoot)return;
  rig.poolKey=key;rig.poolRoot=root;
  if(!patches.length){
