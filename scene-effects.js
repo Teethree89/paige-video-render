@@ -76,7 +76,7 @@ export function applyShotEffects(scene,renderer,effects,{
      if(node.castShadow&&node.shadow)node.shadow.needsUpdate=true;
    }
  });
- updateFakeSpots(scene,faked);
+ updateFakeSpots(scene,faked,activeRoot);
  return profile;
 }
 
@@ -113,7 +113,57 @@ const _spotPos=new THREE.Vector3(),_spotTarget=new THREE.Vector3(),_spotDir=new 
 const _spotQuat=new THREE.Quaternion(),_spotMatrix=new THREE.Matrix4(),_spotScale=new THREE.Vector3();
 const _spotUp=new THREE.Vector3(0,-1,0),_poolQuat=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
 const FAKE_BEAM_MAX_LENGTH=12,FAKE_POOL_GROUND_Y=.08;
-function updateFakeSpots(scene,faked){
+
+const _fakeGroundMeshes=new WeakMap(),_fakeGroundHits=new WeakMap();
+const _fakeGroundRay=new THREE.Raycaster();
+const _fakeGroundOrigin=new THREE.Vector3(),_fakeGroundDown=new THREE.Vector3(0,-1,0);
+const _fakeGroundProbe=new THREE.Vector3();
+const FAKE_POOL_SURFACE_LIFT=.018;
+// Ground support is computed from authored geometry, not an arbitrary Y=0 plane.
+// Build bounds just once per chapter root and raycast only when a light moves
+// or the primitive world is rebuilt. Never raycast per frame for static arrays.
+function fakeGroundSurfaces(root){
+ if(!root)return [];
+ let surfaces=_fakeGroundMeshes.get(root);
+ if(surfaces)return surfaces;
+ surfaces=[];
+ root.updateWorldMatrix(true,true);
+ root.traverse(node=>{
+   if(!node.isMesh||node.isInstancedMesh||node.userData.previewSource||
+       node.userData.layer!=='ground'||!node.geometry)return;
+   if(!node.geometry.boundingBox)node.geometry.computeBoundingBox();
+   const bounds=node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld);
+   surfaces.push({node,bounds});
+ });
+ _fakeGroundMeshes.set(root,surfaces);
+ return surfaces;
+}
+function groundHeightAt(root,light,x,z,lightY){
+ const prior=_fakeGroundHits.get(light);
+ if(prior?.root===root&&Math.abs(prior.x-x)<.001&&
+     Math.abs(prior.z-z)<.001&&Math.abs(prior.lightY-lightY)<.001)
+   return prior.groundY;
+ _fakeGroundOrigin.set(x,lightY+.1,z);
+ _fakeGroundRay.set(_fakeGroundOrigin,_fakeGroundDown);
+ _fakeGroundRay.near=0;
+ _fakeGroundRay.far=2000;
+ let groundY=null;
+ for(const {node,bounds} of fakeGroundSurfaces(root)){
+   if(x<bounds.min.x-.001||x>bounds.max.x+.001||
+       z<bounds.min.z-.001||z>bounds.max.z+.001||bounds.min.y>lightY+.1)continue;
+   // Raycast the actual surface: a very large, slightly tilted ground plane
+   // has an inflated bounding box and must not override a higher road.
+   const hits=_fakeGroundRay.intersectObject(node,false);
+   for(const hit of hits){
+     if(hit.point.y<=lightY+.01&&(groundY===null||hit.point.y>groundY))
+       groundY=hit.point.y;
+   }
+ }
+ _fakeGroundHits.set(light,{root,x,z,lightY,groundY});
+ return groundY;
+}
+
+function updateFakeSpots(scene,faked,activeRoot){
  let rig=FAKE_SPOT_CACHE.get(scene);
  if(!rig&&!faked.length)return;
  rig=rig||fakeSpotRig(scene);
@@ -139,7 +189,16 @@ function updateFakeSpots(scene,faked){
    // The authored angle is a HALF angle. Visual beam length is separate
    // from the spotlight's much longer attenuation distance.
    const maximum=Math.min(node.distance>0?node.distance:FAKE_BEAM_MAX_LENGTH,FAKE_BEAM_MAX_LENGTH);
-   const groundT=_spotDir.y<-.001?(_spotPos.y-FAKE_POOL_GROUND_Y)/-_spotDir.y:Infinity;
+   // Find where the pool falls on the real chapter ground mesh.
+   // A fixed 0.08 height hid Right Street pools under its raised road.
+   let surfaceY=FAKE_POOL_GROUND_Y;
+   if(_spotDir.y<-.001){
+     const roughT=(_spotPos.y-surfaceY)/-_spotDir.y;
+     _fakeGroundProbe.copy(_spotPos).addScaledVector(_spotDir,roughT);
+     const actualY=groundHeightAt(activeRoot,node,_fakeGroundProbe.x,_fakeGroundProbe.z,_spotPos.y);
+     if(actualY!==null)surfaceY=actualY+FAKE_POOL_SURFACE_LIFT;
+   }
+   const groundT=_spotDir.y<-.001?(_spotPos.y-surfaceY)/-_spotDir.y:Infinity;
    const groundHit=groundT>.05&&groundT<=maximum;
    const length=groundHit?groundT:maximum;
    if(length<=.05)continue;
@@ -152,7 +211,7 @@ function updateFakeSpots(scene,faked){
    beams++;
    if(groundHit){
      _spotTarget.copy(_spotPos).addScaledVector(_spotDir,groundT);
-     _spotTarget.y=FAKE_POOL_GROUND_Y;
+     _spotTarget.y=surfaceY;
      _spotScale.set(radius*1.05,radius*1.05,1);
      _spotMatrix.compose(_spotTarget,_poolQuat,_spotScale);
      rig.pool.setMatrixAt(pools,_spotMatrix);

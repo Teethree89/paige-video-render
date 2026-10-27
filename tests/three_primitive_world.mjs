@@ -1000,3 +1000,38 @@ test('fake spotlight instances follow real targets, isolate chapters, and switch
    assert.equal(otherLight.visible,false,'faraway light is not still evaluated by GPU shaders');
  }finally{world.dispose();}
 });
+
+test('fake spotlight pools sit above actual front and raised right road surfaces',async()=>{
+ const {applyShotEffects}=await import('../scene-effects.js');
+ const frontRoad=unit('front','box',{name:'Front Road',layer:'ground',
+   position:[-15,-.047952144598502555,78.62],scale:[340,.24,18]});
+ const rightRoad=unit('right','box',{name:'Right Road',layer:'ground',
+   position:[82,.10337410817953868,-10],scale:[20,.24,320]});
+ const ground=unit('ground','plane',{name:'Base',layer:'ground',
+   position:[0,0,0],rotation:[-Math.PI/2,0,0],scale:[800,800,1]});
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const baseSpot={type:'spot',angle:.7,color:'#ffd2a0',intensity:320,penumbra:.35,distance:32};
+ const doc={schemaVersion:1,scenes:[{shotId:'road',objects:[ground,frontRoad,rightRoad],lights:[
+   {...baseSpot,name:'Front street',position:[-15,7.92,78.62],target:[-15,0,78.62]},
+   {...baseSpot,name:'Right street',position:[73.135,8.01,-10],target:[73.135,0,-10]}
+ ]}]};
+ const renderer={toneMappingExposure:1,shadowMap:{enabled:false}},camera=new THREE.PerspectiveCamera();
+ try{
+   world.setDocument(doc);world.showShot('road');
+   applyShotEffects(scene,renderer,{shadows:{enabled:false},lights:{enabled:true,spot:true,spotMode:'fake'}},{camera,shotId:'road'});
+   const rig=scene.getObjectByName('Runtime_fake_spotlights');
+   const pool=rig.children.find(o=>o.isInstancedMesh&&o.geometry.type==='PlaneGeometry');
+   const beam=rig.children.find(o=>o.isInstancedMesh&&o.geometry.type==='ConeGeometry');
+   assert.equal(pool.count,2);assert.equal(beam.count,2);
+   const matrix=new THREE.Matrix4();
+   pool.getMatrixAt(0,matrix);
+   const frontY=new THREE.Vector3().setFromMatrixPosition(matrix).y;
+   pool.getMatrixAt(1,matrix);
+   const rightY=new THREE.Vector3().setFromMatrixPosition(matrix).y;
+   assert.ok(Math.abs(frontY-(frontRoad.position[1]+frontRoad.scale[1]/2+.018))<.001,
+     'front pool should sit just above its pavement');
+   assert.ok(Math.abs(rightY-(rightRoad.position[1]+rightRoad.scale[1]/2+.018))<.001,
+     'right pool should sit just above its raised pavement');
+   assert.ok(rightY>frontY+.1,'different road elevations must not share a pool plane');
+ }finally{world.dispose();}
+});
