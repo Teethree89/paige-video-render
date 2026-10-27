@@ -1092,3 +1092,13 @@ test('fake spotlight decals clip to raised ground surfaces without spanning curb
    assert.notEqual(pool.geometry,previous,'ground edits invalidate cached decals');
  }finally{world.dispose();}
 });
+
+test('mini editor rounds displayed XYZ and degrees to hundredths without mutating authored precision',async()=>{
+ const {displayHundredth}=await import('../array-prototype-editor.js');
+ const original=[73.13534556341,8.500000004,-10.0021456];
+ assert.deepEqual(original.map(displayHundredth),['73.14','8.5','-10']);
+ assert.deepEqual(original,[73.13534556341,8.500000004,-10.0021456],
+   'formatting must not overwrite saved high precision transforms');
+ assert.equal(displayHundredth(90.000000008),'90');
+ assert.equal(displayHundredth(-12.345),'-12.35');
+});
