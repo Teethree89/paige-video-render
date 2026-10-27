@@ -131,7 +131,11 @@ export function validateSceneEffects(value){
      threshold:finite(bloom.threshold??.8,'bloom threshold',0,1),
      radius:finite(bloom.radius??.35,'bloom radius',0,1)},
    shadows:{enabled:shadows.enabled},
-   lights:{enabled:lights.enabled},
+   lights:{enabled:lights.enabled,...Object.fromEntries(['studio','spot','point','directional','area'].map(type=>{
+     const enabled=lights[type]??true;
+     if(typeof enabled!=='boolean')fail('lights '+type+' must be boolean');
+     return [type,enabled];
+   }))},
    exposure:finite(value.exposure??1.35,'scene exposure',.2,5),
    vignette:finite(value.vignette??.45,'vignette strength',0,1)
  };

@@ -11,7 +11,7 @@ export const DEFAULT_EFFECTS=Object.freeze({
  fog:{mode:'default',color:'#526779',density:.008},
  bloom:{enabled:false,strength:.45,threshold:.8,radius:.35},
  shadows:{enabled:true},
- lights:{enabled:true},
+ lights:{enabled:true,studio:true,spot:true,point:true,directional:true,area:true},
  exposure:1.35,vignette:.45
 });
 export function effectsForShot(sequence,shotId){
@@ -38,9 +38,17 @@ export function applyShotEffects(scene,renderer,effects,{
  // Renderer-level gate skips every shadow-map pass without mutating the
  // saved castShadow flag or the light's color/intensity/illumination.
  renderer.shadowMap.enabled=profile.shadows.enabled&&profile.lights.enabled;
+ // Separate procedural studio lighting from authored punctual lights.
+ // Keep the previous visibility state for reversible, chapter-local overrides.
+ const allowed=node=>{
+   if(!profile.lights.enabled)return false;
+   if(!node.userData.primitiveLight)return profile.lights.studio;
+   const type=node.userData.primitiveLight;
+   return profile.lights[type]!==false;
+ };
  scene.traverse(node=>{
    if(!node.isLight)return;
-   if(!profile.lights.enabled){
+   if(!allowed(node)){
      if(!Object.hasOwn(node.userData,'chapterLightOriginalVisible'))node.userData.chapterLightOriginalVisible=node.visible;
      node.visible=false;
    }else if(Object.hasOwn(node.userData,'chapterLightOriginalVisible')){
