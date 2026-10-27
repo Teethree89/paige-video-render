@@ -99,22 +99,30 @@ function fakeSpotRig(scene){
        gl_FragColor=vec4(vColor,0.045*fade);}
    `
  });
- const poolGeometry=new THREE.PlaneGeometry(2,2);
+ // Surface-conforming glow is rendered in one batched additive mesh.
+ // Avoid stacking billboards at arbitrary elevations or looping over many
+ // lights in every ground material fragment shader.
  const poolMaterial=new THREE.ShaderMaterial({
-   transparent:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,
-   vertexShader:`varying vec2 vUv;varying vec3 vColor;void main(){vUv=uv;vColor=instanceColor;gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.0);}`,
+   transparent:true,depthTest:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,
+   vertexShader:`attribute vec3 color;varying vec2 vUv;varying vec3 vColor;void main(){vUv=uv;vColor=color;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
    fragmentShader:`varying vec2 vUv;varying vec3 vColor;void main(){float r=length(vUv-.5)*2.;float a=pow(max(0.,1.-r*r),2.5);gl_FragColor=vec4(vColor,a*.16);}`
  });
+ const pool=new THREE.Mesh(new THREE.BufferGeometry(),poolMaterial);
+ pool.name='Fake spotlight ground pools';
+ pool.frustumCulled=false;pool.visible=false;
+ group.add(pool);
  group.frustumCulled=false;scene.add(group);
- rig={group,coneGeometry,beamMaterial,poolGeometry,poolMaterial,beam:null,pool:null,capacity:0};
+ rig={group,coneGeometry,beamMaterial,poolMaterial,beam:null,pool,capacity:0,poolKey:'',poolRoot:null};
  FAKE_SPOT_CACHE.set(scene,rig);return rig;
 }
 const _spotPos=new THREE.Vector3(),_spotTarget=new THREE.Vector3(),_spotDir=new THREE.Vector3();
 const _spotQuat=new THREE.Quaternion(),_spotMatrix=new THREE.Matrix4(),_spotScale=new THREE.Vector3();
-const _spotUp=new THREE.Vector3(0,-1,0),_poolQuat=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
+const _spotUp=new THREE.Vector3(0,-1,0);
 const FAKE_BEAM_MAX_LENGTH=12,FAKE_POOL_GROUND_Y=.08;
+const FAKE_POOL_RINGS=7,FAKE_POOL_SEGMENTS=24;
+const FAKE_POOL_VERTICES=1+FAKE_POOL_RINGS*FAKE_POOL_SEGMENTS;
 
-const _fakeGroundMeshes=new WeakMap(),_fakeGroundHits=new WeakMap();
+const _fakeGroundMeshes=new WeakMap(),_fakeGroundHits=new WeakMap(),_fakePoolPatches=new WeakMap();
 const _fakeGroundRay=new THREE.Raycaster();
 const _fakeGroundOrigin=new THREE.Vector3(),_fakeGroundDown=new THREE.Vector3(0,-1,0);
 const _fakeGroundProbe=new THREE.Vector3();
@@ -124,9 +132,10 @@ const FAKE_POOL_SURFACE_LIFT=.018;
 // or the primitive world is rebuilt. Never raycast per frame for static arrays.
 function fakeGroundSurfaces(root){
  if(!root)return [];
- let surfaces=_fakeGroundMeshes.get(root);
- if(surfaces)return surfaces;
- surfaces=[];
+ const version=root.userData.fakeGroundVersion||0;
+ const cached=_fakeGroundMeshes.get(root);
+ if(cached?.version===version)return cached.surfaces;
+ const surfaces=[];
  root.updateWorldMatrix(true,true);
  root.traverse(node=>{
    if(!node.isMesh||node.isInstancedMesh||node.userData.previewSource||
@@ -135,12 +144,13 @@ function fakeGroundSurfaces(root){
    const bounds=node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld);
    surfaces.push({node,bounds});
  });
- _fakeGroundMeshes.set(root,surfaces);
+ _fakeGroundMeshes.set(root,{version,surfaces});
  return surfaces;
 }
 function groundHeightAt(root,light,x,z,lightY){
- const prior=_fakeGroundHits.get(light);
- if(prior?.root===root&&Math.abs(prior.x-x)<.001&&
+ const version=root?.userData.fakeGroundVersion||0;
+ const prior=light?_fakeGroundHits.get(light):null;
+ if(prior?.root===root&&prior.version===version&&Math.abs(prior.x-x)<.001&&
      Math.abs(prior.z-z)<.001&&Math.abs(prior.lightY-lightY)<.001)
    return prior.groundY;
  _fakeGroundOrigin.set(x,lightY+.1,z);
@@ -159,25 +169,92 @@ function groundHeightAt(root,light,x,z,lightY){
        groundY=hit.point.y;
    }
  }
- _fakeGroundHits.set(light,{root,x,z,lightY,groundY});
+ if(light)_fakeGroundHits.set(light,{root,version,x,z,lightY,groundY});
  return groundY;
 }
 
+// Raycast each radial vertex only when the spotlight or ground changes.
+// One shared gradient shader then draws ALL active spotlight pools in one pass.
+function fakePoolPatch(root,node,center,radius,lightY){
+ const version=root?.userData.fakeGroundVersion||0;
+ const key=[center.x,center.z,radius,lightY,node.color.r,node.color.g,node.color.b]
+   .map(v=>v.toFixed(3)).join(':');
+ const prior=_fakePoolPatches.get(node);
+ if(prior?.root===root&&prior.version===version&&prior.key===key)return prior;
+ const vertices=[],uvs=[],colors=[],indices=[];
+ const add=(dx,dz)=>{
+   const x=center.x+dx*radius,z=center.z+dz*radius;
+   const groundY=groundHeightAt(root,null,x,z,lightY);
+   vertices.push(x,(groundY??FAKE_POOL_GROUND_Y)+FAKE_POOL_SURFACE_LIFT,z);
+   uvs.push((dx+1)*.5,(dz+1)*.5);
+   colors.push(node.color.r,node.color.g,node.color.b);
+ };
+ add(0,0);
+ for(let ring=1;ring<=FAKE_POOL_RINGS;ring++){
+   const r=ring/FAKE_POOL_RINGS;
+   for(let side=0;side<FAKE_POOL_SEGMENTS;side++){
+     const theta=side*2*Math.PI/FAKE_POOL_SEGMENTS;
+     add(Math.cos(theta)*r,Math.sin(theta)*r);
+   }
+ }
+ for(let side=0;side<FAKE_POOL_SEGMENTS;side++)
+   indices.push(0,1+side,1+(side+1)%FAKE_POOL_SEGMENTS);
+ for(let ring=1;ring<FAKE_POOL_RINGS;ring++){
+   const lower=1+(ring-1)*FAKE_POOL_SEGMENTS,upper=lower+FAKE_POOL_SEGMENTS;
+   for(let side=0;side<FAKE_POOL_SEGMENTS;side++){
+     const next=(side+1)%FAKE_POOL_SEGMENTS;
+     indices.push(lower+side,upper+side,lower+next);
+     indices.push(lower+next,upper+side,upper+next);
+   }
+ }
+ const patch={root,version,key,vertices,uvs,colors,indices};
+ _fakePoolPatches.set(node,patch);
+ return patch;
+}
+function syncFakePoolBatch(rig,patches,root){
+ const key=patches.map(({node,patch})=>node.uuid+':'+patch.key).join('|');
+ if(key===rig.poolKey&&root===rig.poolRoot)return;
+ rig.poolKey=key;rig.poolRoot=root;
+ if(!patches.length){
+   rig.pool.visible=false;
+   rig.pool.userData.fakePoolCount=0;
+   return;
+ }
+ const positions=[],uvs=[],colors=[],indices=[];
+ for(const {patch} of patches){
+   const offset=positions.length/3;
+   positions.push(...patch.vertices);
+   uvs.push(...patch.uvs);
+   colors.push(...patch.colors);
+   for(const index of patch.indices)indices.push(offset+index);
+ }
+ const geometry=new THREE.BufferGeometry();
+ geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+ geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uvs,2));
+ geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+ geometry.setIndex(indices);
+ geometry.computeBoundingSphere();
+ rig.pool.geometry.dispose();
+ rig.pool.geometry=geometry;
+ rig.pool.visible=true;
+ rig.pool.userData.fakePoolCount=patches.length;
+ rig.pool.userData.verticesPerLight=FAKE_POOL_VERTICES;
+}
 function updateFakeSpots(scene,faked,activeRoot){
  let rig=FAKE_SPOT_CACHE.get(scene);
  if(!rig&&!faked.length)return;
  rig=rig||fakeSpotRig(scene);
  if(faked.length>rig.capacity){
-   rig.beam?.removeFromParent();rig.pool?.removeFromParent();
-   rig.beam?.dispose();rig.pool?.dispose();
+   rig.beam?.removeFromParent();
+   rig.beam?.dispose();
    rig.capacity=Math.max(faked.length,rig.capacity*2,16);
    rig.beam=new THREE.InstancedMesh(rig.coneGeometry,rig.beamMaterial,rig.capacity);
-   rig.pool=new THREE.InstancedMesh(rig.poolGeometry,rig.poolMaterial,rig.capacity);
-   rig.beam.frustumCulled=false;rig.pool.frustumCulled=false;
-   rig.group.add(rig.beam,rig.pool);
+   rig.beam.frustumCulled=false;
+   rig.group.add(rig.beam);
  }
  if(!rig.beam)return;
- let beams=0,pools=0;
+ let beams=0;
+ const poolPatches=[];
  for(const node of faked){
    // Match Three.js actual target, including rotated array parents.
    // getWorldDirection() points +Z but SpotLight illuminates toward -Z.
@@ -212,19 +289,15 @@ function updateFakeSpots(scene,faked,activeRoot){
    if(groundHit){
      _spotTarget.copy(_spotPos).addScaledVector(_spotDir,groundT);
      _spotTarget.y=surfaceY;
-     _spotScale.set(radius*1.05,radius*1.05,1);
-     _spotMatrix.compose(_spotTarget,_poolQuat,_spotScale);
-     rig.pool.setMatrixAt(pools,_spotMatrix);
-     rig.pool.setColorAt(pools,node.color);
-     pools++;
+     poolPatches.push({node,patch:fakePoolPatch(activeRoot,node,_spotTarget,radius*1.05,_spotPos.y)});
    }
  }
- rig.beam.count=beams;rig.pool.count=pools;
- for(const mesh of [rig.beam,rig.pool]){
-   if(!mesh.count)continue;
-   mesh.instanceMatrix.needsUpdate=true;
-   if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;
+ rig.beam.count=beams;
+ if(beams){
+   rig.beam.instanceMatrix.needsUpdate=true;
+   if(rig.beam.instanceColor)rig.beam.instanceColor.needsUpdate=true;
  }
+ syncFakePoolBatch(rig,poolPatches,activeRoot);
 }
 export function createScenePostprocessor(renderer,scene,camera){
  let composer=null,bloom=null,enabled=false,width=1,height=1,pixelRatio=renderer.getPixelRatio();
