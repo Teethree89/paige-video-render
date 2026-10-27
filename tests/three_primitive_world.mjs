@@ -679,7 +679,7 @@ test('double-clicking one array mesh outlines all repeats and asks before openin
 
 
 test('array prototype mini viewport frames the saved mesh with finite camera coordinates',async()=>{
- const {framePrototypeCamera,createPrototypeGuides}=
+ const {framePrototypeCamera,createPrototypeGuides,createPrototypeStudioLights}=
    await import('../array-prototype-editor.js');
  const scene=new THREE.Scene(),world=createPrimitiveWorld(scene);
  const prototype={...unit('right_ave_crowns','sphere'),name:'Right Ave Crowns',
@@ -706,7 +706,10 @@ test('array prototype mini viewport frames the saved mesh with finite camera coo
    'source must be within the visible camera framing');
  assert.ok(projected.z>-1&&projected.z<1,'source must be between near and far planes');
 
- const {grid,axes}=createPrototypeGuides(scene);
+ const {floor,grid,axes}=createPrototypeGuides(scene);
+ assert.equal(floor.isMesh,true);
+ assert.equal(floor.material.depthWrite,true);
+ assert.equal(floor.material.transparent,false);
  assert.equal(grid.type,'GridHelper');
  assert.equal(grid.visible,true);
  assert.equal(axes.type,'AxesHelper');
@@ -714,14 +717,20 @@ test('array prototype mini viewport frames the saved mesh with finite camera coo
  grid.position.set(bounds.center[0],box.min.y-.035,bounds.center[2]);
  grid.scale.setScalar(Math.max(.5,Math.min(50,radius*4/20)));
  assert.ok(grid.position.y<box.min.y,'grid must sit below the sample object');
- assert.ok(grid.parent===scene && axes.parent===scene,
+ assert.ok(grid.parent===scene && axes.parent===scene && floor.parent===scene,
    'viewport guides must not be children of the exported 3D scene');
+ const worklights=createPrototypeStudioLights(scene);
+ assert.equal(worklights.children.filter(n=>n.isLight).length,5);
+ assert.ok(worklights.children.every(n=>n.castShadow===false));
  const exportRoot=world.getSceneForExport('arrayPreview');
  assert.equal(exportRoot.getObjectByName(grid.name),undefined);
+ assert.equal(exportRoot.getObjectByName(floor.name),undefined);
+ assert.equal(exportRoot.getObjectByName(worklights.name),undefined);
  assert.equal(exportRoot.getObjectByName(axes.name),undefined);
  assert.throws(()=>framePrototypeCamera(camera,orbit,{center:[NaN,0,0],radius:4}),
    /valid XYZ/);
  world.dispose();grid.geometry.dispose();grid.material.dispose();
+ floor.geometry.dispose();floor.material.dispose();
  axes.geometry.dispose();axes.material.dispose();
 });
 
