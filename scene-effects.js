@@ -42,7 +42,8 @@ export function applyShotEffects(scene,renderer,effects,{
  // Separate procedural studio lighting from authored punctual lights.
  // Keep the previous visibility state for reversible, chapter-local overrides.
  const allowed=node=>{
-   if(!profile.lights.enabled)return false;
+   if(!profile.lights.enabled||node.userData.authoredVisible===false||
+       node.userData.editorIsolationHidden)return false;
    if(!node.userData.primitiveLight)return profile.lights.studio;
    const type=node.userData.primitiveLight;
    return profile.lights[type]!==false;
@@ -60,7 +61,11 @@ export function applyShotEffects(scene,renderer,effects,{
  scene.traverse(node=>{
    if(!node.isLight)return;
    let fakeSpot=false;
-   if(activeRoot&&isActiveNode(node)&&node.isSpotLight
+   // Hidden layer, assembly or child light must never spawn a fake beam.
+   let hierarchyVisible=true;
+   for(let ancestor=node.parent;ancestor;ancestor=ancestor.parent)
+     if(!ancestor.visible){hierarchyVisible=false;break;}
+   if(activeRoot&&isActiveNode(node)&&hierarchyVisible&&allowed(node)&&node.isSpotLight
        &&node.userData.primitiveLight==='spot'&&profile.lights.enabled&&profile.lights.spot){
      fakeSpot=profile.lights.spotMode==='fake'
        ||(profile.lights.spotMode==='hybrid'&&cameraPosition

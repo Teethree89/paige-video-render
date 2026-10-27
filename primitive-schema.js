@@ -93,6 +93,10 @@ const sceneLights=(value,shotId)=>{
       color:hexColor(light.color,label+' color'),
       intensity:finite(light.intensity,label+' intensity',0,light.type==='directional'?10:500),
       position:vec(light.position,label+' position',-10000,10000)};
+    if(light.visible!==undefined){
+      if(typeof light.visible!=='boolean')fail(label+' visible must be boolean');
+      if(!light.visible)out.visible=false;
+    }
     if(light.castShadow!==undefined){
       if(typeof light.castShadow!=='boolean')fail(label+' castShadow must be boolean');
       out.castShadow=light.castShadow;
@@ -257,7 +261,10 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
         }
         arrayParts={objects,lights,...(order?{order}:{})};
       }
+      if(item.visible!==undefined&&typeof item.visible!=='boolean')
+        fail(id+' visible must be boolean');
       return {id,name:displayName(item.name,item.primitive+' '+id),
+        ...(item.visible===false?{visible:false}:{}),
         primitive:item.primitive,position,rotation,
         ...(instanceRotation?{instanceRotation}:{}),scale,
         ...(points?{points}:{}),
@@ -269,7 +276,20 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
     const camera=scene.camera==null?undefined:sceneCamera(scene.camera,shotId);
     const lights=scene.lights==null?[]:sceneLights(scene.lights,shotId);
     const effects=validateSceneEffects(scene.effects);
+    let layerVisibility;
+    if(scene.layerVisibility!==undefined){
+      if(!scene.layerVisibility||typeof scene.layerVisibility!=='object'||
+          Array.isArray(scene.layerVisibility))fail(shotId+' layerVisibility must be an object');
+      layerVisibility={};
+      for(const [layer,visible] of Object.entries(scene.layerVisibility)){
+        if(![...ENVIRONMENT_LAYERS,'manual','lights'].includes(layer))
+          fail(shotId+' has unknown visibility layer '+layer);
+        if(typeof visible!=='boolean')fail(shotId+' layer '+layer+' visible must be boolean');
+        if(visible===false)layerVisibility[layer]=false;
+      }
+    }
     return {shotId,objects,...(camera?{camera}:{}),...(lights.length?{lights}:{}),
+      ...(layerVisibility&&Object.keys(layerVisibility).length?{layerVisibility}:{}),
       ...(effects?{effects}:{})};
   });
   return {schemaVersion:1,scenes};

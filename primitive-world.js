@@ -54,6 +54,8 @@ const light = (spec,castShadow=false,cacheShadow=false) => {
     :new THREE.PointLight(color,spec.intensity,spec.distance);
   node.name=spec.name;
   node.userData.primitiveLight=spec.type;
+  node.userData.authoredVisible=spec.visible!==false;
+  node.visible=spec.visible!==false;
   // Keep the authored choice in GLB extras even if the chapter shadow budget
   // is full. Point shadows are opt-in because a cube map takes six renders.
   node.userData.castShadow=lightCastsShadow(spec);
@@ -99,6 +101,7 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
   let markersEnabled=false;
   let document={schemaVersion:1,scenes:[]};
   let activeShotId=null;
+  const isolateByShot=new Map();
 
   function clear() {
     const geometries=new Set(),materials=new Set();
@@ -149,6 +152,8 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
           const layerRoot=new THREE.Group();
           layerRoot.name='Layer_'+key;
           layerRoot.userData.layer=key;
+          layerRoot.userData.authoredVisible=entry.layerVisibility?.[key]!==false;
+          layerRoot.visible=entry.layerVisibility?.[key]!==false;
           layerGroups.set(key,layerRoot);root.add(layerRoot);
         }
         // An assembly parent is a real Three.Group with no phantom mesh.
@@ -159,6 +164,8 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
           node.userData.primitiveId=item.id;
           node.userData.primitiveType=item.primitive;
           node.userData.layer=item.layer||'manual';
+          node.userData.authoredVisible=item.visible!==false;
+          node.visible=item.visible!==false;
           return node;
         };
         const offsets=repeatOffsets(item.repeat);
@@ -210,6 +217,9 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
                 extra.userData.primitiveId=item.id;
                 extra.userData.primitiveArrayIndex=item.repeat?index:null;
                 extra.userData.primitiveArrayPartId=part.id;
+                extra.userData.primitiveArrayPartKind='object';
+                extra.userData.authoredVisible=part.visible!==false;
+                extra.visible=part.visible!==false;
                 extra.position.set(...part.position);
                 extra.rotation.set(...part.rotation);
                 extra.scale.set(...part.scale);
@@ -221,6 +231,7 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
                 const node=light(part,shadows,true);
                 if(shadows)casters.push(node);
                 node.userData.primitiveArrayPartId=part.id;
+                node.userData.primitiveArrayPartKind='light';
                 instance.add(node);
               }
             }
@@ -249,7 +260,7 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
           const bins=new Map();
           holder.traverse(node=>{
             // Transparent copies retain their normal depth sorting.
-            if(!node.isMesh||node.material.transparent)return;
+            if(!node.isMesh||!node.userData.authoredVisible||node.material.transparent)return;
             const key=node.geometry.uuid+':'+node.material.uuid;
             if(!bins.has(key))bins.set(key,[]);
             bins.get(key).push(node);
@@ -260,6 +271,9 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
             const batch=new THREE.InstancedMesh(first.geometry,first.material,sources.length);
             batch.name='Preview batch '+item.name;
             batch.userData.previewBatch=true;
+            batch.userData.primitiveArrayPartId=first.userData.primitiveArrayPartId||null;
+            batch.userData.primitiveArrayPartKind=first.userData.primitiveArrayPartKind||null;
+            batch.userData.authoredVisible=true;
             batch.castShadow=true;batch.receiveShadow=true;
             batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
             holder.add(batch);
@@ -277,6 +291,7 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
           usedShadowSlots<MAX_PRIMITIVE_SHADOW_MAPS;
         if(shadows)usedShadowSlots++;
         const source=light(spec,shadows,entry.objects.length>0);
+        source.userData.chapterLightId=id;
         if(shadows)casters.push(source);
         root.add(source);actualLights.set(id,source);
       });
@@ -359,6 +374,7 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
       scene.add(root);
       scene.add(markerRoot); // keep the scene's primary root first for existing integrations
     }
+    for(const entry of document.scenes)applyVisibility(entry.shotId);
     showShot(activeShotId);
   }
   function hasObjects(shotId){return document.scenes.some(s=>s.shotId===shotId&&s.objects.length>0);}
@@ -383,6 +399,72 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
     sphere.radius=Math.max(sphere.radius,1);
     return {center:sphere.center.toArray(),radius:sphere.radius};
   }
+  // Eye controls are serialized; isolation is only a temporary viewport
+  // filter. Restore authored visibility whenever the world gets rebuilt.
+  function applyVisibility(shotId){
+    const entry=document.scenes.find(s=>s.shotId===shotId),root=groups.get(shotId);
+    if(!entry||!root)return;
+    const isolate=isolateByShot.get(shotId)||null;
+    const owner=isolate&&(isolate.kind==='object'||isolate.kind==='part')?
+      entry.objects.find(item=>item.id===isolate.id):null;
+    const ownerLayer=owner?.layer||'manual';
+    for(const layerNode of root.children.filter(node=>node.userData.layer)){
+      const layer=layerNode.userData.layer;
+      const allowed=!isolate?true:isolate.kind==='layer'?isolate.layer===layer:
+        (isolate.kind==='object'||isolate.kind==='part')&&ownerLayer===layer;
+      layerNode.userData.authoredVisible=entry.layerVisibility?.[layer]!==false;
+      layerNode.visible=layerNode.userData.authoredVisible&&allowed;
+    }
+    const nodes=objectNodes.get(shotId);
+    for(const item of entry.objects){
+      const node=nodes?.get(item.id);if(!node)continue;
+      const selected=!isolate||isolate.kind==='layer'||
+        ((isolate.kind==='object'||isolate.kind==='part')&&isolate.id===item.id);
+      node.userData.authoredVisible=item.visible!==false;
+      node.userData.editorIsolationHidden=!selected;
+      node.visible=node.userData.authoredVisible&&selected;
+      const partOnly=isolate?.kind==='part'&&isolate.id===item.id;
+      if(node.isMesh&&partOnly)node.visible=false;
+      node.traverse(child=>{
+        if(child===node)return;
+        const partId=child.userData.primitiveArrayPartId;
+        const partKind=child.userData.primitiveArrayPartKind;
+        if(partId){
+          const data=partKind==='light'?
+            item.arrayParts?.lights?.find(p=>p.id===partId):
+            item.arrayParts?.objects?.find(p=>p.id===partId);
+          const partAllowed=!partOnly||
+            (partId===isolate.partId&&partKind===isolate.partKind);
+          child.userData.authoredVisible=data?.visible!==false;
+          child.userData.editorIsolationHidden=!partAllowed;
+          child.visible=child.userData.authoredVisible&&partAllowed&&!child.userData.previewSource;
+        }else if(child.isMesh&&partOnly){
+          child.visible=false;child.userData.editorIsolationHidden=true;
+        }else if(child.isMesh&&child.userData.previewSource){
+          child.visible=false;
+        }
+      });
+    }
+    for(const [id,node] of lightNodes.get(shotId)||[]){
+      const spec=(entry.lights||[]).find(light=>light.id===id);
+      const allowed=!isolate||
+        (isolate.kind==='layer'&&isolate.layer==='lights')||
+        (isolate.kind==='light'&&isolate.id===id);
+      node.userData.authoredVisible=spec?.visible!==false&&entry.layerVisibility?.lights!==false;
+      node.userData.editorIsolationHidden=!allowed;
+      node.visible=node.userData.authoredVisible&&allowed;
+    }
+    invalidateShadows(shotId);
+  }
+  function setIsolation(shotId,next){
+    const old=isolateByShot.get(shotId)||null;
+    if(!next||(old&&JSON.stringify(old)===JSON.stringify(next)))
+      isolateByShot.delete(shotId);
+    else isolateByShot.set(shotId,{...next});
+    applyVisibility(shotId);
+    return getIsolation(shotId);
+  }
+  function getIsolation(shotId){return isolateByShot.get(shotId)||null;}
   function showShot(shotId){
     if(activeShotId!==shotId)invalidateShadows(shotId);
     activeShotId=shotId;
@@ -507,8 +589,12 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
     copy.traverse(node=>{
       if(node.userData.previewBatch)batches.push(node);
       if(node.userData.previewSource){
-        node.visible=true;delete node.userData.previewSource;
+        node.visible=node.userData.authoredVisible!==false;
+        delete node.userData.previewSource;
+      }else if(node.userData.authoredVisible!==undefined){
+        node.visible=node.userData.authoredVisible!==false;
       }
+      delete node.userData.editorIsolationHidden;
       const target=node.isLight&&node.children.find(child=>child.userData.lightTarget);
       if(target)node.target=target;
     });
@@ -532,6 +618,6 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
   }
   function getDocument(){return structuredClone(document);}
   function dispose(){clear();}
-  return {setDocument,showShot,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,getLightNode,isLightMarkerVisible,getLightTargetMarker,updateLightVisuals,setLightMarkersVisible,getPickableMeshes,
+  return {setDocument,showShot,setIsolation,getIsolation,hasObjects,hasSceneContent,getBounds,getCamera,getObjectNode,getLightMarker,getLightNode,isLightMarkerVisible,getLightTargetMarker,updateLightVisuals,setLightMarkersVisible,getPickableMeshes,
     getSceneForExport,getDocument,getArrayInstances,getRenderBatchStats,invalidateShadows,invalidateGeometry,prepareRender,dispose};
 }
