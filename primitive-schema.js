@@ -131,7 +131,7 @@ export function validateSceneEffects(value){
      threshold:finite(bloom.threshold??.8,'bloom threshold',0,1),
      radius:finite(bloom.radius??.35,'bloom radius',0,1)},
    shadows:{enabled:shadows.enabled},
-   lights:{enabled:lights.enabled,spotMode:['real','fake','hybrid'].includes(lights.spotMode??'real')?(lights.spotMode??'real'):(()=>{fail('invalid spotlight mode')})(),...Object.fromEntries(['studio','spot','point','directional','area'].map(type=>{
+   lights:{enabled:lights.enabled,fakeBeams:(()=>{if(typeof (lights.fakeBeams??true)!=='boolean')fail('fake beams enabled must be boolean');return lights.fakeBeams??true;})(),spotMode:['real','fake','hybrid'].includes(lights.spotMode??'real')?(lights.spotMode??'real'):(()=>{fail('invalid spotlight mode')})(),...Object.fromEntries(['studio','spot','point','directional','area'].map(type=>{
      const enabled=lights[type]??true;
      if(typeof enabled!=='boolean')fail('lights '+type+' must be boolean');
      return [type,enabled];

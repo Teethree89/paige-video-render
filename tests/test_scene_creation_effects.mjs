@@ -268,3 +268,11 @@ test('fake spotlight targets and active chapter match editor/video camera path',
  assert.ok(render.includes('camera:cam,shotId:currentShot.id'));
  assert.ok(!effects.includes('node.getWorldDirection(_spotDir)'));
 });
+
+test('fake beam volume flag validates and defaults to the existing appearance',()=>{
+ const original=validateSceneEffects({lights:{enabled:true,spotMode:'fake'}});
+ assert.equal(original.lights.fakeBeams,true);
+ const off=validateSceneEffects({lights:{enabled:true,spotMode:'fake',fakeBeams:false}});
+ assert.equal(off.lights.fakeBeams,false);
+ assert.throws(()=>validateSceneEffects({lights:{enabled:true,spotMode:'fake',fakeBeams:'false'}}),/fake beams/);
+});

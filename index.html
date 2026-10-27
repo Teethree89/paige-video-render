@@ -142,6 +142,8 @@
           <label class="checkbox-field"><input id="sceneLightsSpot" type="checkbox" checked> Spotlights</label>
           <label for="sceneLightsSpotMode">Spotlight rendering</label>
           <select id="sceneLightsSpotMode"><option value="real">Real (accurate, expensive)</option><option value="fake">Fake (instanced beam + pool)</option><option value="hybrid">Hybrid (near real, far fake)</option></select>
+          <label class="checkbox-field"><input id="sceneLightsFakeBeams" type="checkbox" checked> Show fake volumetric cones</label>
+          <p class="field-help">For testing camera wipes: turn off cones while keeping spotlight ground decals. Real spotlights are unaffected.</p>
           <label class="checkbox-field"><input id="sceneLightsPoint" type="checkbox" checked> Point lights</label>
           <label class="checkbox-field"><input id="sceneLightsDirectional" type="checkbox" checked> Authored directional lights</label>
           <label class="checkbox-field"><input id="sceneLightsArea" type="checkbox" checked> Area lights (when supported)</label>
