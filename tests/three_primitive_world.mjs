@@ -993,7 +993,7 @@ test('fake spotlight instances follow real targets, isolate chapters, and switch
    world.showShot('other');
    applyShotEffects(scene,renderer,fx,{camera,shotId:'other'});
    assert.equal(beam.count,1,'switching chapters replaces the visible fake-light instances');
-   assert.equal(pool.userData.fakePoolCount,1,'a downlight eight units up reaches the ground');
+   assert.equal(pool.userData.fakePoolCount,0,'a lights-only chapter has no ground surfaces to receive decals');
    const other=scene.children.find(node=>node.userData.shotId==='other');
    const otherLight=other.children.find(node=>node.isSpotLight);
    assert.ok(otherLight);
