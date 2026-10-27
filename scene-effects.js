@@ -1,6 +1,7 @@
 // Shared browser preview/video visual pipeline. The scene document stores
 // only safe fog/bloom/tonal settings; no generated shader code is permitted.
 import * as THREE from 'three';
+import {DecalGeometry} from 'three/addons/geometries/DecalGeometry.js';
 import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
 import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
 import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -99,11 +100,11 @@ function fakeSpotRig(scene){
        gl_FragColor=vec4(vColor,0.045*fade);}
    `
  });
- // Surface-conforming glow is rendered in one batched additive mesh.
- // Avoid stacking billboards at arbitrary elevations or looping over many
- // lights in every ground material fragment shader.
+ // Each ground surface receives a clipped decal where the light cone meets
+ // its polygons. All decals share one batched additive shader draw call.
  const poolMaterial=new THREE.ShaderMaterial({
    transparent:true,depthTest:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,
+   polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1,
    vertexShader:`attribute vec3 color;varying vec2 vUv;varying vec3 vColor;void main(){vUv=uv;vColor=color;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
    fragmentShader:`varying vec2 vUv;varying vec3 vColor;void main(){float r=length(vUv-.5)*2.;float a=pow(max(0.,1.-r*r),2.5);gl_FragColor=vec4(vColor,a*.16);}`
  });
@@ -119,8 +120,10 @@ const _spotPos=new THREE.Vector3(),_spotTarget=new THREE.Vector3(),_spotDir=new 
 const _spotQuat=new THREE.Quaternion(),_spotMatrix=new THREE.Matrix4(),_spotScale=new THREE.Vector3();
 const _spotUp=new THREE.Vector3(0,-1,0);
 const FAKE_BEAM_MAX_LENGTH=12,FAKE_POOL_GROUND_Y=.08;
-const FAKE_POOL_RINGS=12,FAKE_POOL_SEGMENTS=48;
-const FAKE_POOL_VERTICES=1+FAKE_POOL_RINGS*FAKE_POOL_SEGMENTS;
+const FAKE_POOL_DECAL_LIFT=.008;
+const _fakePoolProjectorOrientation=new THREE.Euler(-Math.PI/2,0,0);
+const _fakePoolProjectorSize=new THREE.Vector3();
+const _fakePoolProjectorPosition=new THREE.Vector3();
 
 const _fakeGroundMeshes=new WeakMap(),_fakeGroundHits=new WeakMap(),_fakePoolPatches=new WeakMap();
 const _fakeGroundRay=new THREE.Raycaster();
@@ -173,39 +176,65 @@ function groundHeightAt(root,light,x,z,lightY){
  return groundY;
 }
 
-// Raycast each radial vertex only when the spotlight or ground changes.
-// One shared gradient shader then draws ALL active spotlight pools in one pass.
-function fakePoolPatch(root,node,center,radius,lightY){
+// CPU-create decals only on authored ground-layer surface polygons that the
+// spotlight cone reaches. A road decal and a base-ground decal may overlap:
+// depth testing hides the lower one behind raised opaque pavement, while the
+// geometry projector clips each to its own mesh boundaries.
+function fakePoolPatch(root,node,origin,direction,maxLength){
  const version=root?.userData.fakeGroundVersion||0;
- const key=[center.x,center.z,radius,lightY,node.color.r,node.color.g,node.color.b]
-   .map(v=>v.toFixed(3)).join(':');
+ const key=[
+   origin.x,origin.y,origin.z,direction.x,direction.y,direction.z,
+   maxLength,node.angle,node.color.r,node.color.g,node.color.b
+ ].map(v=>Number(v).toFixed(4)).join(':');
  const prior=_fakePoolPatches.get(node);
  if(prior?.root===root&&prior.version===version&&prior.key===key)return prior;
  const vertices=[],uvs=[],colors=[],indices=[];
- const add=(dx,dz)=>{
-   const x=center.x+dx*radius,z=center.z+dz*radius;
-   const groundY=groundHeightAt(root,null,x,z,lightY);
-   vertices.push(x,(groundY??FAKE_POOL_GROUND_Y)+FAKE_POOL_SURFACE_LIFT,z);
-   uvs.push((dx+1)*.5,(dz+1)*.5);
-   colors.push(node.color.r,node.color.g,node.color.b);
- };
- add(0,0);
- for(let ring=1;ring<=FAKE_POOL_RINGS;ring++){
-   const r=ring/FAKE_POOL_RINGS;
-   for(let side=0;side<FAKE_POOL_SEGMENTS;side++){
-     const theta=side*2*Math.PI/FAKE_POOL_SEGMENTS;
-     add(Math.cos(theta)*r,Math.sin(theta)*r);
+ if(direction.y<-.001){
+  const maxPoolLength=Math.min(maxLength,FAKE_BEAM_MAX_LENGTH);
+  for(const {node:surface,bounds} of fakeGroundSurfaces(root)){
+   // The top of a road/terrain mesh determines its approximate cone section.
+   // The projector's depth then clips to the actual triangles, including slopes.
+   const surfaceY=bounds.max.y;
+   const t=(origin.y-surfaceY)/-direction.y;
+   if(t<=.05||t>maxPoolLength)continue;
+   const radius=Math.tan(node.angle)*t*1.05;
+   if(!Number.isFinite(radius)||radius<=.01)continue;
+   _fakePoolProjectorPosition.copy(origin).addScaledVector(direction,t);
+   _fakePoolProjectorPosition.y=surfaceY;
+   const x=_fakePoolProjectorPosition.x,z=_fakePoolProjectorPosition.z;
+   if(bounds.max.x<x-radius||bounds.min.x>x+radius||
+      bounds.max.z<z-radius||bounds.min.z>z+radius)continue;
+   // Clip against real surface triangles instead of trying to bend a pool
+   // mesh across raised road edges. Reject sides and undersides after clipping.
+   _fakePoolProjectorSize.set(
+     radius*2,radius*2,Math.max(1,Math.min(12,bounds.max.y-bounds.min.y+1))
+   );
+   const decal=new DecalGeometry(surface,_fakePoolProjectorPosition,
+     _fakePoolProjectorOrientation,_fakePoolProjectorSize);
+   const positions=decal.getAttribute('position');
+   const texcoords=decal.getAttribute('uv');
+   const normals=decal.getAttribute('normal');
+   if(!positions||!texcoords||!normals){decal.dispose();continue;}
+   const index=decal.getIndex();
+   const triangleCount=(index?index.count:positions.count)/3;
+   for(let tri=0;tri<triangleCount;tri++){
+     const ia=index?index.getX(tri*3):tri*3;
+     const ib=index?index.getX(tri*3+1):tri*3+1;
+     const ic=index?index.getX(tri*3+2):tri*3+2;
+     // Ground/top faces must point upwards; do not light curb side walls
+     // or underside geometry as though they were horizontal pavement.
+     if(Math.min(normals.getY(ia),normals.getY(ib),normals.getY(ic))<.45)continue;
+     for(const i of [ia,ib,ic]){
+       vertices.push(positions.getX(i),
+         positions.getY(i)+FAKE_POOL_DECAL_LIFT,
+         positions.getZ(i));
+       uvs.push(texcoords.getX(i),texcoords.getY(i));
+       colors.push(node.color.r,node.color.g,node.color.b);
+       indices.push(indices.length);
+     }
    }
- }
- for(let side=0;side<FAKE_POOL_SEGMENTS;side++)
-   indices.push(0,1+side,1+(side+1)%FAKE_POOL_SEGMENTS);
- for(let ring=1;ring<FAKE_POOL_RINGS;ring++){
-   const lower=1+(ring-1)*FAKE_POOL_SEGMENTS,upper=lower+FAKE_POOL_SEGMENTS;
-   for(let side=0;side<FAKE_POOL_SEGMENTS;side++){
-     const next=(side+1)%FAKE_POOL_SEGMENTS;
-     indices.push(lower+side,upper+side,lower+next);
-     indices.push(lower+next,upper+side,upper+next);
-   }
+   decal.dispose();
+  }
  }
  const patch={root,version,key,vertices,uvs,colors,indices};
  _fakePoolPatches.set(node,patch);
@@ -238,7 +267,7 @@ function syncFakePoolBatch(rig,patches,root){
  rig.pool.geometry=geometry;
  rig.pool.visible=true;
  rig.pool.userData.fakePoolCount=patches.length;
- rig.pool.userData.verticesPerLight=FAKE_POOL_VERTICES;
+ rig.pool.userData.fakePoolSurfaceTriangles=indices.length/3;
 }
 function updateFakeSpots(scene,faked,activeRoot){
  let rig=FAKE_SPOT_CACHE.get(scene);
@@ -289,7 +318,7 @@ function updateFakeSpots(scene,faked,activeRoot){
    if(groundHit){
      _spotTarget.copy(_spotPos).addScaledVector(_spotDir,groundT);
      _spotTarget.y=surfaceY;
-     poolPatches.push({node,patch:fakePoolPatch(activeRoot,node,_spotTarget,radius*1.05,_spotPos.y)});
+     poolPatches.push({node,patch:fakePoolPatch(activeRoot,node,_spotPos,_spotDir,maximum)});
    }
  }
  rig.beam.count=beams;
