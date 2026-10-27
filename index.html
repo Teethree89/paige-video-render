@@ -175,7 +175,7 @@
             <button id="primitiveAdd" class="secondary" type="button">+ Add primitive</button>
             <button id="primitiveExample" class="ghost" type="button">Example room</button>
           </div>
-          <label class="field">Show objects from layer
+          <label class="field" hidden>Legacy layer filter
             <select id="primitiveLayerFilter">
               <option value="all">All layers</option>
               <option value="structures">Buildings &amp; structures</option>
@@ -185,7 +185,10 @@
               <option value="manual">Manual shapes</option>
             </select>
           </label>
-          <label class="field">Objects in current shot
+          <div class="section-label">SCENE OUTLINER</div>
+          <p class="field-help">Expand layers and assemblies, click to select; double-click an assembly to edit its parts.</p>
+          <div id="primitiveSceneOutliner" class="array-outliner primitive-scene-outliner" role="tree" aria-label="Chapter hierarchy"></div>
+          <label class="field" hidden>Legacy object picker
             <select id="primitiveObjectSelect"><option value="">No objects yet</option></select>
           </label>
           <div id="primitiveFields" hidden>

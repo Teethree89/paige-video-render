@@ -25,7 +25,7 @@ export function shapeSummary(item){
     parts.push(Math.round(item.material.opacity*100)+'% opacity');
   return parts.join(' · ');
 }
-export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world,onSelectionChange=()=>{}}) {
+export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world,onSelectionChange=()=>{},onEditAssembly=()=>{}}) {
   let selectedId=null,selectedLightId=null,previousShot=null,lastCreateError=null;
   const editor=el('primitiveEditor'),objectSelect=el('primitiveObjectSelect');
   // Browser inputs may be moved to the Selected Object dialog while editing.
@@ -33,6 +33,75 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   const fieldInputs=selector=>document.querySelectorAll?.(selector)||
     editor.querySelectorAll(selector);
   const layerFilter=el('primitiveLayerFilter');
+  const sceneTree=el('primitiveSceneOutliner');
+  const collapsedLayers=new Set(),collapsedAssemblies=new Set();
+  const layerNames=[
+    ['structures','Buildings & structures'],['ground','Roads & terrain'],
+    ['vegetation','Trees & landscaping'],['details','Props & infrastructure'],
+    ['manual','Manual shapes']
+  ];
+  const treeEl=(tag,label,klass)=>{
+    const node=document.createElement(tag);
+    node.textContent=label;node.className=klass;return node;
+  };
+  function refreshSceneTree(objects,lights){
+    if(!sceneTree)return;
+    const groups=[];
+    for(const [key,label] of [...layerNames,['lights','Scene lights']]){
+      const items=key==='lights'?lights:objects.filter(o=>(o.layer||'manual')===key);
+      if(!items.length)continue;
+      const wrap=treeEl('div','','primitive-tree-layer');
+      const header=treeEl('button',(collapsedLayers.has(key)?'▸ ':'▾ ')+(key==='lights'?'☀ ':'▣ ')+label+' ('+items.length+')','primitive-tree-group');
+      header.type='button';
+      header.addEventListener('click',()=>{
+        if(collapsedLayers.has(key))collapsedLayers.delete(key);else collapsedLayers.add(key);
+        refresh();
+      });
+      wrap.append(header);
+      if(!collapsedLayers.has(key))for(const item of items){
+        const light=key==='lights',assembly=!light&&!!(item.repeat||item.arrayParts);
+        const row=treeEl('div','','array-outliner-row primitive-tree-row');
+        row.dataset.selected=String(light?item.id===selectedLightId:item.id===selectedId);
+        const toggle=treeEl('button',assembly?(collapsedAssemblies.has(item.id)?'▸':'▾'):'·','primitive-tree-expand');
+        toggle.type='button';toggle.disabled=!assembly;
+        toggle.addEventListener('click',()=>{
+          if(collapsedAssemblies.has(item.id))collapsedAssemblies.delete(item.id);
+          else collapsedAssemblies.add(item.id);
+          refresh();
+        });
+        const pick=treeEl('button',(light?'☀ ':assembly?'◇ ':'▱ ')+item.name,'primitive-tree-pick');
+        pick.type='button';pick.title='Select '+item.name;
+        pick.addEventListener('click',()=>{
+          if(light)selectLight(item.id,{notify:true});
+          else selectObject(item.id,{notify:true});
+        });
+        if(assembly)pick.addEventListener('dblclick',()=>onEditAssembly(getActiveShot()?.id,item.id));
+        row.append(toggle,pick);wrap.append(row);
+        if(assembly&&!collapsedAssemblies.has(item.id)){
+          const parts=item.arrayParts;
+          const objectMap=new Map((parts?.objects||[]).map(x=>[x.id,x]));
+          const lightMap=new Map((parts?.lights||[]).map(x=>[x.id,x]));
+          const order=parts?.order?.length?parts.order:[
+            ...[...objectMap.keys()].map(id=>'object:'+id),
+            ...[...lightMap.keys()].map(id=>'light:'+id)];
+          for(const key of order){
+            const [kind,id]=key.split(':');
+            const child=kind==='light'?lightMap.get(id):objectMap.get(id);
+            if(!child)continue;
+            const button=treeEl('button',(kind==='light'?'☀ ':'▱ ')+child.name,'primitive-tree-child');
+            button.type='button';button.title='Double-click to edit assembly';
+            button.addEventListener('click',()=>selectObject(item.id,{notify:true}));
+            button.addEventListener('dblclick',()=>onEditAssembly(getActiveShot()?.id,item.id));
+            wrap.append(button);
+          }
+        }
+      }
+      groups.push(wrap);
+    }
+    if(!groups.length)groups.push(treeEl('p','No objects or lights yet.','field-help'));
+    sceneTree.replaceChildren(...groups);
+  }
+
   const status=el('primitiveStatus');
   const editable=el('primitiveFields');
   const file=el('primitiveImportFile');
@@ -161,6 +230,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
         input.value=chosen[key]?.[Number(index)]??0;
       }
     }
+    refreshSceneTree(objects,lightsList);
     el('primitiveExportGLB').disabled=objects.length===0&&lightsList.length===0;
     el('primitiveDelete').disabled=!selected;
     el('primitiveDuplicate').disabled=!selected;
