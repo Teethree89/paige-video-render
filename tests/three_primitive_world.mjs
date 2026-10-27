@@ -1102,3 +1102,34 @@ test('mini editor rounds displayed XYZ and degrees to hundredths without mutatin
  assert.equal(displayHundredth(90.000000008),'90');
  assert.equal(displayHundredth(-12.345),'-12.35');
 });
+
+test('fake pool decals honor longer authored light range without lengthening visible beam',async()=>{
+ const {applyShotEffects}=await import('../scene-effects.js');
+ const plane=unit('road','box',{name:'Elevated pavement',layer:'ground',
+   position:[0,0,0],scale:[25,.2,25]});
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const light={type:'spot',name:'High light',color:'#ffe1b7',intensity:320,
+   position:[0,18,0],target:[0,0,0],angle:.3,penumbra:.35,distance:32};
+ const renderer={toneMappingExposure:1,shadowMap:{enabled:false}};
+ const camera=new THREE.PerspectiveCamera();
+ try{
+   world.setDocument({schemaVersion:1,scenes:[{shotId:'deep',objects:[plane],lights:[light]}]});
+   world.showShot('deep');
+   applyShotEffects(scene,renderer,{shadows:{enabled:false},
+     lights:{enabled:true,spot:true,spotMode:'fake'}},{camera,shotId:'deep'});
+   const rig=scene.getObjectByName('Runtime_fake_spotlights');
+   const pool=rig.getObjectByName('Fake spotlight ground pools');
+   assert.equal(pool.userData.fakePoolCount,1);
+   assert.ok(pool.geometry.getAttribute('position').count>0,
+     'ground at 18 units is lit even when visible beam stops at 12');
+   const beam=rig.children.find(node=>node.isInstancedMesh&&node.geometry.type==='ConeGeometry');
+   const matrix=new THREE.Matrix4();beam.getMatrixAt(0,matrix);
+   const scale=new THREE.Vector3();matrix.decompose(new THREE.Vector3(),new THREE.Quaternion(),scale);
+   assert.ok(scale.y<=12.001,'volumetric beam remains bounded independently of decal projection');
+   const previous=pool.geometry;
+   camera.position.set(1000,1000,1000);
+   applyShotEffects(scene,renderer,{shadows:{enabled:false},
+     lights:{enabled:true,spot:true,spotMode:'fake'}},{camera,shotId:'deep'});
+   assert.equal(pool.geometry,previous,'moving the camera must not rebuild or clip the pool');
+ }finally{world.dispose();}
+});

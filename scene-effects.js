@@ -104,7 +104,7 @@ function fakeSpotRig(scene){
  // its polygons. All decals share one batched additive shader draw call.
  const poolMaterial=new THREE.ShaderMaterial({
    transparent:true,depthTest:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,
-   polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-1,
+   polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2,
    vertexShader:`attribute vec3 color;varying vec2 vUv;varying vec3 vColor;void main(){vUv=uv;vColor=color;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
    fragmentShader:`varying vec2 vUv;varying vec3 vColor;void main(){float r=length(vUv-.5)*2.;float a=pow(max(0.,1.-r*r),2.5);gl_FragColor=vec4(vColor,a*.16);}`
  });
@@ -120,6 +120,9 @@ const _spotPos=new THREE.Vector3(),_spotTarget=new THREE.Vector3(),_spotDir=new 
 const _spotQuat=new THREE.Quaternion(),_spotMatrix=new THREE.Matrix4(),_spotScale=new THREE.Vector3();
 const _spotUp=new THREE.Vector3(0,-1,0);
 const FAKE_BEAM_MAX_LENGTH=12,FAKE_POOL_GROUND_Y=.08;
+// Pool illumination follows the authored light's range, independently from
+// the atmospheric cone's intentionally short 12-unit visible beam.
+const FAKE_POOL_MAX_DISTANCE=48;
 const FAKE_POOL_DECAL_LIFT=.008;
 const _fakePoolProjectorOrientation=new THREE.Euler(-Math.PI/2,0,0);
 const _fakePoolProjectorSize=new THREE.Vector3();
@@ -190,7 +193,7 @@ function fakePoolPatch(root,node,origin,direction,maxLength){
  if(prior?.root===root&&prior.version===version&&prior.key===key)return prior;
  const vertices=[],uvs=[],colors=[],indices=[];
  if(direction.y<-.001){
-  const maxPoolLength=Math.min(maxLength,FAKE_BEAM_MAX_LENGTH);
+  const maxPoolLength=Math.min(maxLength,FAKE_POOL_MAX_DISTANCE);
   for(const {node:surface,bounds} of fakeGroundSurfaces(root)){
    // The top of a road/terrain mesh determines its approximate cone section.
    // The projector's depth then clips to the actual triangles, including slopes.
@@ -207,7 +210,7 @@ function fakePoolPatch(root,node,origin,direction,maxLength){
    // Clip against real surface triangles instead of trying to bend a pool
    // mesh across raised road edges. Reject sides and undersides after clipping.
    _fakePoolProjectorSize.set(
-     radius*2,radius*2,Math.max(1,Math.min(12,bounds.max.y-bounds.min.y+1))
+     radius*2,radius*2,Math.max(1,2*(bounds.max.y-bounds.min.y+.25))
    );
    const decal=new DecalGeometry(surface,_fakePoolProjectorPosition,
      _fakePoolProjectorOrientation,_fakePoolProjectorSize);
@@ -225,9 +228,12 @@ function fakePoolPatch(root,node,origin,direction,maxLength){
      // or underside geometry as though they were horizontal pavement.
      if(Math.min(normals.getY(ia),normals.getY(ib),normals.getY(ic))<.45)continue;
      for(const i of [ia,ib,ic]){
-       vertices.push(positions.getX(i),
-         positions.getY(i)+FAKE_POOL_DECAL_LIFT,
-         positions.getZ(i));
+       // Offset along the polygon normal, not vertical Y. This prevents
+       // camera-distance z-fighting on sloped ground without pulling the
+       // decal through neighbouring raised surfaces.
+       vertices.push(positions.getX(i)+normals.getX(i)*FAKE_POOL_DECAL_LIFT,
+         positions.getY(i)+normals.getY(i)*FAKE_POOL_DECAL_LIFT,
+         positions.getZ(i)+normals.getZ(i)*FAKE_POOL_DECAL_LIFT);
        uvs.push(texcoords.getX(i),texcoords.getY(i));
        colors.push(node.color.r,node.color.g,node.color.b);
        indices.push(indices.length);
@@ -306,6 +312,9 @@ function updateFakeSpots(scene,faked,activeRoot){
    }
    const groundT=_spotDir.y<-.001?(_spotPos.y-surfaceY)/-_spotDir.y:Infinity;
    const groundHit=groundT>.05&&groundT<=maximum;
+   // The atmospheric beam has a short cap; its projected ground pool does not.
+   const poolRange=Math.min(node.distance>0?node.distance:32,FAKE_POOL_MAX_DISTANCE);
+   const poolGroundHit=groundT>.05&&groundT<=poolRange;
    const length=groundHit?groundT:maximum;
    if(length<=.05)continue;
    const radius=Math.tan(node.angle)*length;
@@ -315,10 +324,8 @@ function updateFakeSpots(scene,faked,activeRoot){
    rig.beam.setMatrixAt(beams,_spotMatrix);
    rig.beam.setColorAt(beams,node.color);
    beams++;
-   if(groundHit){
-     _spotTarget.copy(_spotPos).addScaledVector(_spotDir,groundT);
-     _spotTarget.y=surfaceY;
-     poolPatches.push({node,patch:fakePoolPatch(activeRoot,node,_spotPos,_spotDir,maximum)});
+   if(poolGroundHit){
+     poolPatches.push({node,patch:fakePoolPatch(activeRoot,node,_spotPos,_spotDir,poolRange)});
    }
  }
  rig.beam.count=beams;
