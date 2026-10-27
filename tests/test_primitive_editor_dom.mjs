@@ -71,7 +71,8 @@ test('primitive inspector initializes and adds editable scene geometry without c
     assert.equal(typeof editor.refresh,'function');
     const tree=dom.getElementById('primitiveSceneOutliner');
     assert.ok(tree.children.length,'chapter hierarchy initializes without a separate layer dropdown');
-    assert.match(tree.children[0].textContent,/No objects or lights yet/);
+    assert.ok(tree.children.some(group=>group.textContent?.includes('No objects or lights yet')||
+      group.children?.some(child=>child.textContent?.includes('No objects or lights yet'))));
     assert.equal(dom.getElementById('primitiveObjectSelect').children[0].tag,'option');
     assert.equal(dom.getElementById('primitiveShotLabel').textContent,'Imported shot · 0 object(s)');
     dom.getElementById('primitiveType').value='box';

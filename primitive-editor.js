@@ -49,13 +49,28 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     const groups=[];
     for(const [key,label] of [...layerNames,['lights','Scene lights']]){
       const items=key==='lights'?lights:objects.filter(o=>(o.layer||'manual')===key);
-      if(!items.length)continue;
+      // Keep empty layer collections visible: users can drop an object into
+      // a new layer without first populating it elsewhere.
       const wrap=treeEl('div','','primitive-tree-layer');
       const header=treeEl('button',(collapsedLayers.has(key)?'▸ ':'▾ ')+(key==='lights'?'☀ ':'▣ ')+label+' ('+items.length+')','primitive-tree-group');
       header.type='button';
       header.addEventListener('click',()=>{
         if(collapsedLayers.has(key))collapsedLayers.delete(key);else collapsedLayers.add(key);
         refresh();
+      });
+      header.addEventListener('dragover',event=>{if(key!=='lights')event.preventDefault();});
+      header.addEventListener('drop',event=>{
+        if(key==='lights')return;
+        event.preventDefault();
+        const id=event.dataTransfer?.getData('text/plain');
+        if(!id)return;
+        apply(entry=>{
+          const object=entry.objects.find(item=>item.id===id);
+          if(!object)return;
+          if(key==='manual')delete object.layer;
+          else object.layer=key;
+          selectedId=id;selectedLightId=null;
+        });
       });
       wrap.append(header);
       if(!collapsedLayers.has(key))for(const item of items){
@@ -69,14 +84,53 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
           else collapsedAssemblies.add(item.id);
           refresh();
         });
-        const pick=treeEl('button',(light?'☀ ':assembly?'◇ ':'▱ ')+item.name,'primitive-tree-pick');
+        const pick=treeEl('button',light?'☀':assembly?'◇':'▱','primitive-tree-pick');
         pick.type='button';pick.title='Select '+item.name;
         pick.addEventListener('click',()=>{
           if(light)selectLight(item.id,{notify:true});
           else selectObject(item.id,{notify:true});
         });
         if(assembly)pick.addEventListener('dblclick',()=>onEditAssembly(getActiveShot()?.id,item.id));
-        row.append(toggle,pick);wrap.append(row);
+        const name=treeEl('input','','primitive-tree-name');
+        name.type='text';name.value=item.name;name.maxLength=100;
+        name.title='Rename '+item.name;
+        name.addEventListener('change',()=>{
+          const updated=name.value.trim();
+          if(!updated){name.value=item.name;return;}
+          if(light){selectedLightId=item.id;selectedId=null;}
+          else{selectedId=item.id;selectedLightId=null;}
+          apply(entry=>{
+            const target=light?(entry.lights||[]).find(x=>x.id===item.id):
+              entry.objects.find(x=>x.id===item.id);
+            if(target)target.name=updated;
+          });
+        });
+        if(!light){
+          const handle=treeEl('span','⋮⋮','primitive-tree-drag-handle');
+          handle.draggable=true;handle.title='Drag to reorder or move to another layer';
+          handle.addEventListener('dragstart',event=>{
+            event.dataTransfer?.setData('text/plain',item.id);
+            if(event.dataTransfer)event.dataTransfer.effectAllowed='move';
+          });
+          row.append(toggle,handle,pick,name);
+          row.addEventListener('dragover',event=>event.preventDefault());
+          row.addEventListener('drop',event=>{
+            event.preventDefault();
+            const id=event.dataTransfer?.getData('text/plain');
+            if(!id||id===item.id)return;
+            apply(entry=>{
+              const from=entry.objects.findIndex(x=>x.id===id);
+              const to=entry.objects.findIndex(x=>x.id===item.id);
+              if(from<0||to<0)return;
+              const [moving]=entry.objects.splice(from,1);
+              if(item.layer==='manual'||!item.layer)delete moving.layer;
+              else moving.layer=item.layer;
+              entry.objects.splice(entry.objects.findIndex(x=>x.id===item.id),0,moving);
+              selectedId=id;selectedLightId=null;
+            });
+          });
+        }else row.append(toggle,pick,name);
+        wrap.append(row);
         if(assembly&&!collapsedAssemblies.has(item.id)){
           const parts=item.arrayParts;
           const objectMap=new Map((parts?.objects||[]).map(x=>[x.id,x]));
@@ -98,7 +152,8 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       }
       groups.push(wrap);
     }
-    if(!groups.length)groups.push(treeEl('p','No objects or lights yet.','field-help'));
+    if(!objects.length&&!lights.length)
+      groups.push(treeEl('p','No objects or lights yet.','field-help'));
     sceneTree.replaceChildren(...groups);
   }
 

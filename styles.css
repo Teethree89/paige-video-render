@@ -515,3 +515,9 @@ html,body{font-size:14px}
 .primitive-tree-child,.primitive-tree-light{display:block;box-sizing:border-box;width:100%;min-width:0;padding:5px 8px 5px 52px;text-align:left;border:0;border-radius:4px;background:transparent;color:#a8ccd4;font-size:11px;cursor:pointer;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
 .primitive-tree-light{padding-left:37px}
 .primitive-tree-light[data-selected=true]{background:#244457;color:#edffff;border:1px solid #5ba5ad}
+
+.primitive-tree-name{flex:1;box-sizing:border-box;min-width:0;width:100%;padding:5px 6px;background:transparent;color:#e0f0f3;border:1px solid transparent;border-radius:4px;font-size:11px}
+.primitive-tree-name:focus{background:#0b1a27;border-color:#75c9d0;outline:none}
+.primitive-tree-drag-handle{flex:0 0 14px;cursor:grab;color:#8eb8bf;font-size:12px;user-select:none}
+.primitive-tree-drag-handle:active{cursor:grabbing}
+.primitive-tree-row .primitive-tree-pick{flex:0 0 25px;width:25px;text-align:center;padding:4px 2px}
