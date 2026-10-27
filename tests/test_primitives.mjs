@@ -282,3 +282,25 @@ test('apply globally changes all chapter spotlights but not point lights or ligh
  assert.equal(point.intensity,12);
  assert.equal(point.fakeConeOpacity,undefined);
 });
+
+test('spotlight fake cone opacity defaults to full, is bounded and round-trips in array lights',()=>{
+ const source={id:'beam',type:'spot',name:'Beam',color:'#ffeecc',intensity:100,
+   position:[0,6,0],target:[0,0,0],distance:32,angle:.5,penumbra:.35};
+ const document={schemaVersion:1,scenes:[{shotId:'shot',objects:[
+   {...makePrimitive('box','lamp'),arrayParts:{objects:[],lights:[source]}}
+ ],lights:[source]}]};
+ const existing=validatePrimitiveDocument(document,['shot']).scenes[0];
+ assert.equal(existing.lights[0].fakeConeOpacity,1);
+ assert.equal(existing.objects[0].arrayParts.lights[0].fakeConeOpacity,1);
+ for(const value of [0,.13,1]){
+   document.scenes[0].lights[0].fakeConeOpacity=value;
+   document.scenes[0].objects[0].arrayParts.lights[0].fakeConeOpacity=value;
+   const result=validatePrimitiveDocument(document,['shot']).scenes[0];
+   assert.equal(result.lights[0].fakeConeOpacity,value);
+   assert.equal(result.objects[0].arrayParts.lights[0].fakeConeOpacity,value);
+ }
+ for(const value of [-.1,1.01,'0.5',NaN,Infinity]){
+   document.scenes[0].lights[0].fakeConeOpacity=value;
+   assert.throws(()=>validatePrimitiveDocument(document,['shot']),/fake cone opacity/);
+ }
+});
