@@ -521,3 +521,21 @@ html,body{font-size:14px}
 .primitive-tree-drag-handle{flex:0 0 14px;cursor:grab;color:#8eb8bf;font-size:12px;user-select:none}
 .primitive-tree-drag-handle:active{cursor:grabbing}
 .primitive-tree-row .primitive-tree-pick{flex:0 0 25px;width:25px;text-align:center;padding:4px 2px}
+
+/* Blender-style scene hierarchy visibility and isolate controls. */
+.primitive-tree-header{display:flex;align-items:center;gap:4px;min-width:0;background:#172b39;border-radius:4px}
+.primitive-tree-header>.primitive-tree-group{flex:1;min-width:0}
+.primitive-tree-header>.primitive-tree-visibility{margin-left:auto}
+.primitive-tree-row>.primitive-tree-visibility{margin-left:auto}
+.primitive-tree-visibility,.primitive-tree-isolate{flex:0 0 25px;display:inline-flex;justify-content:center;align-items:center;min-width:25px;height:25px;background:transparent;border:1px solid transparent;border-radius:5px;color:#a8d9e2;font:15px system-ui;cursor:pointer;position:relative}
+.primitive-tree-visibility:hover,.primitive-tree-isolate:hover{background:#275060;color:#f0ffff;border-color:#598e99}
+.primitive-tree-visibility[data-visible=false]{color:#668091;opacity:.65}
+.primitive-tree-visibility[data-visible=false]::after{content:'';position:absolute;width:20px;height:1px;background:#e0918d;transform:rotate(-42deg);pointer-events:none}
+.primitive-tree-isolate{font-size:16px;font-weight:700;color:#80aabb}
+.primitive-tree-isolate[data-active=true]{color:#adfff1;background:#1d6261;border-color:#8ff4e3}
+.primitive-tree-row[data-visible=false]>.primitive-tree-name,
+.primitive-tree-child-row[data-visible=false]>.primitive-tree-child{opacity:.48}
+.primitive-tree-layer[data-visible=false]>.primitive-tree-header{opacity:.75}
+.primitive-tree-child-row{display:flex;align-items:center;gap:3px;min-width:0;padding-right:3px}
+.primitive-tree-child-row>.primitive-tree-child{flex:1;width:auto;min-width:0;padding-left:52px}
+.primitive-tree-child-row>.primitive-tree-visibility,.primitive-tree-child-row>.primitive-tree-isolate{flex:0 0 25px}

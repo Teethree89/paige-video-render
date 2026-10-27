@@ -44,9 +44,41 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
     const node=document.createElement(tag);
     node.textContent=label;node.className=klass;return node;
   };
-  function refreshSceneTree(objects,lights){
+  function toggleIsolation(candidate){
+    const shot=getActiveShot();
+    if(!shot||!world.setIsolation)return;
+    world.setIsolation(shot.id,candidate);
+    refresh();
+  }
+  function visibilityControl(enabled,label,onClick){
+    const eye=treeEl('button','👁','primitive-tree-visibility');
+    eye.type='button';eye.dataset.visible=String(enabled);
+    eye.title=(enabled?'Hide ':'Show ')+label;
+    eye.setAttribute?.('aria-label',eye.title);
+    eye.addEventListener('click',event=>{event.stopPropagation?.();onClick();});
+    return eye;
+  }
+  function isolationControl(candidate,label,active){
+    const solo=treeEl('button','ⓘ','primitive-tree-isolate');
+    solo.type='button';solo.dataset.active=String(active);
+    solo.title=(active?'Exit isolation of ':'Isolate ')+label;
+    solo.setAttribute?.('aria-label',solo.title);
+    solo.addEventListener('click',event=>{event.stopPropagation?.();toggleIsolation(candidate);});
+    return solo;
+  }
+  function refreshSceneTree(objects,lights,entry){
     if(!sceneTree)return;
     const groups=[];
+    const isolation=world.getIsolation?.(getActiveShot()?.id)||null;
+    const soloActive=value=>isolation&&JSON.stringify(isolation)===JSON.stringify(value);
+    const eyePart=(parent,kind,id)=>{
+      apply(scene=>{
+        const target=scene.objects.find(x=>x.id===parent.id);
+        const part=(kind==='light'?target?.arrayParts?.lights:target?.arrayParts?.objects)
+          ?.find(p=>p.id===id);
+        if(part){if(part.visible===false)delete part.visible;else part.visible=false;}
+      });
+    };
     for(const [key,label] of [...layerNames,['lights','Scene lights']]){
       const items=key==='lights'?lights:objects.filter(o=>(o.layer||'manual')===key);
       // Keep empty layer collections visible: users can drop an object into
@@ -72,7 +104,18 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
           selectedId=id;selectedLightId=null;
         });
       });
-      wrap.append(header);
+      const layerVisible=entry?.layerVisibility?.[key]!==false;
+      const groupHeader=treeEl('div','','primitive-tree-header');
+      const layerSolo={kind:'layer',layer:key};
+      groupHeader.append(header,
+        visibilityControl(layerVisible,label,()=>apply(scene=>{
+          scene.layerVisibility??={};
+          if(scene.layerVisibility[key]===false)delete scene.layerVisibility[key];
+          else scene.layerVisibility[key]=false;
+        })),
+        isolationControl(layerSolo,label,soloActive(layerSolo)));
+      wrap.dataset.visible=String(layerVisible);
+      wrap.append(groupHeader);
       if(!collapsedLayers.has(key))for(const item of items){
         const light=key==='lights',assembly=!light&&!!(item.repeat||item.arrayParts);
         const row=treeEl('div','','array-outliner-row primitive-tree-row');
@@ -130,6 +173,15 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
             });
           });
         }else row.append(toggle,pick,name);
+        const entitySolo=light?{kind:'light',id:item.id}:{kind:'object',id:item.id};
+        row.append(
+          visibilityControl(item.visible!==false,item.name,()=>apply(scene=>{
+            const target=light?(scene.lights||[]).find(x=>x.id===item.id):
+              scene.objects.find(x=>x.id===item.id);
+            if(target){if(target.visible===false)delete target.visible;else target.visible=false;}
+          })),
+          isolationControl(entitySolo,item.name,soloActive(entitySolo)));
+        row.dataset.visible=String(item.visible!==false);
         wrap.append(row);
         if(assembly&&!collapsedAssemblies.has(item.id)){
           const parts=item.arrayParts;
@@ -142,11 +194,18 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
             const [kind,id]=key.split(':');
             const child=kind==='light'?lightMap.get(id):objectMap.get(id);
             if(!child)continue;
+            const childRow=treeEl('div','','primitive-tree-child-row');
             const button=treeEl('button',(kind==='light'?'☀ ':'▱ ')+child.name,'primitive-tree-child');
             button.type='button';button.title='Double-click to edit assembly';
             button.addEventListener('click',()=>selectObject(item.id,{notify:true}));
             button.addEventListener('dblclick',()=>onEditAssembly(getActiveShot()?.id,item.id));
-            wrap.append(button);
+            const childSolo={kind:'part',id:item.id,partId:child.id,partKind:kind};
+            childRow.dataset.visible=String(child.visible!==false);
+            childRow.append(button,
+              visibilityControl(child.visible!==false,child.name,
+                ()=>eyePart(item,kind,child.id)),
+              isolationControl(childSolo,child.name,soloActive(childSolo)));
+            wrap.append(childRow);
           }
         }
       }
@@ -285,7 +344,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
         input.value=chosen[key]?.[Number(index)]??0;
       }
     }
-    refreshSceneTree(objects,lightsList);
+    refreshSceneTree(objects,lightsList,entry);
     el('primitiveExportGLB').disabled=objects.length===0&&lightsList.length===0;
     el('primitiveDelete').disabled=!selected;
     el('primitiveDuplicate').disabled=!selected;

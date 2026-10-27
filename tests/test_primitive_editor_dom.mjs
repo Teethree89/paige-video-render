@@ -80,7 +80,7 @@ test('primitive inspector initializes and adds editable scene geometry without c
     assert.equal(sequence.primitiveScenes.scenes[0].objects.length,1);
     const shape=sequence.primitiveScenes.scenes[0].objects[0];
     assert.equal(shape.primitive,'box');
-    assert.ok(tree.children.some(group=>group.children?.[0]?.textContent?.includes('Manual shapes')),
+    assert.ok(tree.children.some(group=>group.children?.[0]?.children?.some(child=>child.textContent?.includes('Manual shapes'))),
       'new primitive appears in expandable Manual shapes collection');
     assert.equal(dom.getElementById('primitiveFields').hidden,false);
     assert.equal(typeof editor.selectObject,'function');
