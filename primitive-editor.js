@@ -1,6 +1,6 @@
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {blankPrimitiveDocument,validatePrimitiveDocument,makePrimitive,makeExampleBlockout,
-  radiansToDegrees,degreesToRadians,lightCastsShadow} from './primitive-schema.js';
+  radiansToDegrees,degreesToRadians,lightCastsShadow,applySpotlightSettingsGlobally} from './primitive-schema.js';
 import {insertCreatedAsset} from './scene-asset-catalog.js';
 
 const el=id=>document.getElementById(id);
@@ -478,6 +478,12 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       if(light)changer(light);
     });
   }
+  el('primitiveLightApplyGlobally').addEventListener('click',()=>{
+    apply(entry=>{
+      const selected=(entry.lights||[]).find(light=>light.id===selectedLightId);
+      if(selected?.type==='spot')applySpotlightSettingsGlobally(entry,selected);
+    });
+  });
   const lightFields={
     primitiveLightName:(v,l)=>{l.name=v;},
     primitiveLightColor:(v,l)=>{l.color=v;},
