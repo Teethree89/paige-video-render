@@ -8,6 +8,11 @@ const fields={
  bloomEnabled:['sceneBloomEnabled',Boolean],
  shadowsEnabled:['sceneShadowsEnabled',Boolean],
  lightsEnabled:['sceneLightsEnabled',Boolean],
+ lightsStudio:['sceneLightsStudio',Boolean],
+ lightsSpot:['sceneLightsSpot',Boolean],
+ lightsPoint:['sceneLightsPoint',Boolean],
+ lightsDirectional:['sceneLightsDirectional',Boolean],
+ lightsArea:['sceneLightsArea',Boolean],
  bloomStrength:['sceneBloomStrength',Number],
  bloomThreshold:['sceneBloomThreshold',Number],
  bloomRadius:['sceneBloomRadius',Number],
@@ -33,6 +38,7 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
    $('sceneBloomEnabled').checked=profile.bloom.enabled;
    $('sceneShadowsEnabled').checked=profile.shadows.enabled;
    $('sceneLightsEnabled').checked=profile.lights.enabled;
+   for(const type of ['Studio','Spot','Point','Directional','Area'])$('sceneLights'+type).checked=profile.lights[type.toLowerCase()];
    $('sceneBloomStrength').value=profile.bloom.strength;
    $('sceneBloomThreshold').value=profile.bloom.threshold;
    $('sceneBloomRadius').value=profile.bloom.radius;
@@ -63,7 +69,7 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
  }
  for(const [key,[id,cast]] of Object.entries(fields)){
    $(id).addEventListener('change',event=>{
-     const value=['sceneBloomEnabled','sceneShadowsEnabled','sceneLightsEnabled'].includes(id)?event.target.checked:cast(event.target.value);
+     const value=event.target.type==='checkbox'?event.target.checked:cast(event.target.value);
      const profile=structuredClone(current());
      switch(key){
       case 'fogMode':profile.fog.mode=value;break;
@@ -72,6 +78,11 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
       case 'bloomEnabled':profile.bloom.enabled=value;break;
       case 'shadowsEnabled':profile.shadows.enabled=value;break;
       case 'lightsEnabled':profile.lights.enabled=value;break;
+      case 'lightsStudio':profile.lights.studio=value;break;
+      case 'lightsSpot':profile.lights.spot=value;break;
+      case 'lightsPoint':profile.lights.point=value;break;
+      case 'lightsDirectional':profile.lights.directional=value;break;
+      case 'lightsArea':profile.lights.area=value;break;
       case 'bloomStrength':profile.bloom.strength=value;break;
       case 'bloomThreshold':profile.bloom.threshold=value;break;
       case 'bloomRadius':profile.bloom.radius=value;break;
