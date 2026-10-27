@@ -1133,3 +1133,36 @@ test('fake pool decals honor longer authored light range without lengthening vis
    assert.equal(pool.geometry,previous,'moving the camera must not rebuild or clip the pool');
  }finally{world.dispose();}
 });
+
+test('fake beam toggle preserves ground pool and avoids double-sided shell blending',async()=>{
+ const {applyShotEffects}=await import('../scene-effects.js');
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const road=unit('road','box',{name:'Road',layer:'ground',position:[0,0,0],scale:[20,.2,20]});
+ const light={type:'spot',name:'Street lamp',color:'#ffdc99',intensity:200,
+   position:[0,8,0],target:[0,0,0],distance:28,angle:.6,penumbra:.3};
+ const renderer={toneMappingExposure:1,shadowMap:{enabled:false}};
+ const camera=new THREE.PerspectiveCamera();
+ try{
+   world.setDocument({schemaVersion:1,scenes:[{shotId:'test',objects:[road],lights:[light]}]});
+   world.showShot('test');
+   const use=enabled=>applyShotEffects(scene,renderer,{shadows:{enabled:false},
+     lights:{enabled:true,spot:true,spotMode:'fake',fakeBeams:enabled}},{camera,shotId:'test'});
+   use(true);
+   const rig=scene.getObjectByName('Runtime_fake_spotlights');
+   const beam=rig.children.find(x=>x.isInstancedMesh&&x.geometry.type==='ConeGeometry');
+   const pool=rig.getObjectByName('Fake spotlight ground pools');
+   assert.equal(beam.count,1);
+   assert.equal(pool.userData.fakePoolCount,1);
+   const originalGeometry=pool.geometry;
+   assert.equal(beam.material.side,THREE.BackSide);
+   assert.match(beam.material.fragmentShader,/nearFade/);
+   assert.match(beam.material.fragmentShader,/feather/);
+   use(false);
+   assert.equal(beam.count,0);
+   assert.equal(pool.userData.fakePoolCount,1);
+   assert.equal(pool.geometry,originalGeometry,'static decals must remain cached');
+   use(true);
+   assert.equal(beam.count,1);
+   assert.equal(pool.geometry,originalGeometry);
+ }finally{world.dispose();}
+});

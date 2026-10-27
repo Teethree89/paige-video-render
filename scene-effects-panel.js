@@ -11,6 +11,7 @@ const fields={
  lightsStudio:['sceneLightsStudio',Boolean],
  lightsSpot:['sceneLightsSpot',Boolean],
  lightsSpotMode:['sceneLightsSpotMode',v=>v],
+ lightsFakeBeams:['sceneLightsFakeBeams',Boolean],
  lightsPoint:['sceneLightsPoint',Boolean],
  lightsDirectional:['sceneLightsDirectional',Boolean],
  lightsArea:['sceneLightsArea',Boolean],
@@ -40,6 +41,7 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
    $('sceneShadowsEnabled').checked=profile.shadows.enabled;
    $('sceneLightsEnabled').checked=profile.lights.enabled;
    $('sceneLightsSpotMode').value=profile.lights.spotMode;
+   $('sceneLightsFakeBeams').checked=profile.lights.fakeBeams;
    for(const type of ['Studio','Spot','Point','Directional','Area'])$('sceneLights'+type).checked=profile.lights[type.toLowerCase()];
    $('sceneBloomStrength').value=profile.bloom.strength;
    $('sceneBloomThreshold').value=profile.bloom.threshold;
@@ -83,6 +85,7 @@ export function setupSceneEffectsPanel({getSequence,getActiveShot,canEdit,onDocu
       case 'lightsStudio':profile.lights.studio=value;break;
       case 'lightsSpot':profile.lights.spot=value;break;
       case 'lightsSpotMode':profile.lights.spotMode=value;break;
+      case 'lightsFakeBeams':profile.lights.fakeBeams=value;break;
       case 'lightsPoint':profile.lights.point=value;break;
       case 'lightsDirectional':profile.lights.directional=value;break;
       case 'lightsArea':profile.lights.area=value;break;

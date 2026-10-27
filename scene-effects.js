@@ -12,7 +12,7 @@ export const DEFAULT_EFFECTS=Object.freeze({
  fog:{mode:'default',color:'#526779',density:.008},
  bloom:{enabled:false,strength:.45,threshold:.8,radius:.35},
  shadows:{enabled:true},
- lights:{enabled:true,studio:true,spot:true,point:true,directional:true,area:true,spotMode:'real'},
+ lights:{enabled:true,studio:true,spot:true,point:true,directional:true,area:true,spotMode:'real',fakeBeams:true},
  exposure:1.35,vignette:.45
 });
 export function effectsForShot(sequence,shotId){
@@ -77,7 +77,7 @@ export function applyShotEffects(scene,renderer,effects,{
      if(node.castShadow&&node.shadow)node.shadow.needsUpdate=true;
    }
  });
- updateFakeSpots(scene,faked,activeRoot);
+ updateFakeSpots(scene,faked,activeRoot,profile.lights.fakeBeams);
  return profile;
 }
 
@@ -86,18 +86,36 @@ function fakeSpotRig(scene){
  let rig=FAKE_SPOT_CACHE.get(scene);
  if(rig)return rig;
  const group=new THREE.Group();group.name='Runtime_fake_spotlights';group.userData.fakeSpotRig=true;
- const coneGeometry=new THREE.ConeGeometry(1,1,20,1,true);
+ const coneGeometry=new THREE.ConeGeometry(1,1,32,1,true);
  coneGeometry.translate(0,-.5,0);
+ // A translucent cone shell is not true volumetric light. Drawing both sides
+ // creates a hard double image when the camera crosses it. Keep the far face,
+ // smoothly feather grazing-angle silhouettes and fade nearby shell fragments.
  const beamMaterial=new THREE.ShaderMaterial({
-   transparent:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,
-   uniforms:{},vertexShader:`
-     varying vec3 vPos;varying vec3 vColor;
-     void main(){vPos=position;vColor=instanceColor;gl_Position=projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.0);}
+   transparent:true,depthTest:true,depthWrite:false,
+   side:THREE.BackSide,blending:THREE.AdditiveBlending,
+   vertexShader:`
+     varying vec3 vLocal;varying vec3 vColor;
+     varying vec3 vViewPosition;varying vec3 vViewNormal;
+     void main(){
+       vec4 viewPosition=modelViewMatrix*instanceMatrix*vec4(position,1.0);
+       vLocal=position;vColor=instanceColor;
+       vViewPosition=viewPosition.xyz;
+       vViewNormal=normalize(mat3(modelViewMatrix)*mat3(instanceMatrix)*normal);
+       gl_Position=projectionMatrix*viewPosition;
+     }
    `,
    fragmentShader:`
-     varying vec3 vPos;varying vec3 vColor;
-     void main(){float fade=smoothstep(-1.0,-0.15,vPos.y)*(1.0-smoothstep(-0.12,0.0,vPos.y));
-       gl_FragColor=vec4(vColor,0.045*fade);}
+     varying vec3 vLocal;varying vec3 vColor;
+     varying vec3 vViewPosition;varying vec3 vViewNormal;
+     void main(){
+       float axial=smoothstep(-0.99,-0.67,vLocal.y)*
+         (1.0-smoothstep(-0.25,-0.025,vLocal.y));
+       float facing=abs(dot(normalize(vViewNormal),normalize(-vViewPosition)));
+       float feather=smoothstep(0.015,0.32,facing);
+       float nearFade=smoothstep(1.5,6.0,length(vViewPosition));
+       gl_FragColor=vec4(vColor,0.026*axial*feather*nearFade);
+     }
    `
  });
  // Each ground surface receives a clipped decal where the light cone meets
@@ -275,7 +293,7 @@ function syncFakePoolBatch(rig,patches,root){
  rig.pool.userData.fakePoolCount=patches.length;
  rig.pool.userData.fakePoolSurfaceTriangles=indices.length/3;
 }
-function updateFakeSpots(scene,faked,activeRoot){
+function updateFakeSpots(scene,faked,activeRoot,showBeams=true){
  let rig=FAKE_SPOT_CACHE.get(scene);
  if(!rig&&!faked.length)return;
  rig=rig||fakeSpotRig(scene);
@@ -318,12 +336,14 @@ function updateFakeSpots(scene,faked,activeRoot){
    const length=groundHit?groundT:maximum;
    if(length<=.05)continue;
    const radius=Math.tan(node.angle)*length;
-   _spotQuat.setFromUnitVectors(_spotUp,_spotDir);
-   _spotScale.set(radius,length,radius);
-   _spotMatrix.compose(_spotPos,_spotQuat,_spotScale);
-   rig.beam.setMatrixAt(beams,_spotMatrix);
-   rig.beam.setColorAt(beams,node.color);
-   beams++;
+   if(showBeams){
+     _spotQuat.setFromUnitVectors(_spotUp,_spotDir);
+     _spotScale.set(radius,length,radius);
+     _spotMatrix.compose(_spotPos,_spotQuat,_spotScale);
+     rig.beam.setMatrixAt(beams,_spotMatrix);
+     rig.beam.setColorAt(beams,node.color);
+     beams++;
+   }
    if(poolGroundHit){
      poolPatches.push({node,patch:fakePoolPatch(activeRoot,node,_spotPos,_spotDir,poolRange)});
    }
