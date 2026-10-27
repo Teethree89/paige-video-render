@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PRIMITIVE_TYPES,LIMITS,blankPrimitiveDocument,
-  validatePrimitiveDocument,makePrimitive,makeExampleBlockout,repeatOffsets,lightCastsShadow
+  validatePrimitiveDocument,makePrimitive,makeExampleBlockout,repeatOffsets,lightCastsShadow,applySpotlightSettingsGlobally,GLOBAL_SPOTLIGHT_KEYS
 } from '../primitive-schema.js';
 
 const doc=(shotId='draft_001')=>({schemaVersion:1,scenes:[{
@@ -255,4 +255,54 @@ test('render-space units standardize a meter and millimeter conversions',async()
  const result=validatePrimitiveDocument(original);
  assert.deepEqual(result.scenes[0].objects[0].position,original.scenes[0].objects[0].position);
  assert.deepEqual(result.scenes[0].objects[0].scale,original.scenes[0].objects[0].scale);
+});
+
+test('apply globally changes all chapter spotlights but not point lights or light transforms',()=>{
+ const source={id:'s',type:'spot',name:'Source',color:'#abc123',intensity:245,
+   distance:27,angle:.42,penumbra:.65,fakeConeOpacity:.28,castShadow:false,
+   position:[3,8,7],target:[1,1,1]};
+ const other={...source,id:'other',name:'Other',position:[42,19,8],
+   target:[5,0,3],color:'#ffffff',fakeConeOpacity:1,castShadow:true};
+ const child={...source,id:'child',name:'Child',position:[0,3,0],
+   target:[0,0,0],angle:.8,penumbra:.15};
+ const point={id:'point',type:'point',name:'Point',color:'#ffffff',intensity:12,
+   position:[0,3,0],distance:14};
+ const chapter={objects:[{id:'array',arrayParts:{objects:[],lights:[child,point]}}],
+   lights:[source,other]};
+ const old={position:[...other.position],target:[...other.target],name:other.name,id:other.id};
+ assert.equal(applySpotlightSettingsGlobally(chapter,source),3);
+ for(const key of GLOBAL_SPOTLIGHT_KEYS){
+   assert.deepEqual(other[key],source[key]);
+   assert.deepEqual(child[key],source[key]);
+ }
+ assert.deepEqual(other.position,old.position);
+ assert.deepEqual(other.target,old.target);
+ assert.equal(other.id,old.id);
+ assert.equal(other.name,old.name);
+ assert.equal(point.intensity,12);
+ assert.equal(point.fakeConeOpacity,undefined);
+});
+
+test('spotlight fake cone opacity defaults to full, is bounded and round-trips in array lights',()=>{
+ const source={id:'beam',type:'spot',name:'Beam',color:'#ffeecc',intensity:100,
+   position:[0,6,0],target:[0,0,0],distance:32,angle:.5,penumbra:.35};
+ const document={schemaVersion:1,scenes:[{shotId:'shot',objects:[
+   {...makePrimitive('box','lamp'),arrayParts:{objects:[],lights:[source]}}
+ ],lights:[source]}]};
+ const existing=validatePrimitiveDocument(document,['shot']).scenes[0];
+ assert.equal('fakeConeOpacity' in existing.lights[0],false,
+   'legacy punctual spots keep their original JSON');
+ assert.equal('fakeConeOpacity' in existing.objects[0].arrayParts.lights[0],false,
+   'legacy array lights keep their original JSON');
+ for(const value of [0,.13,1]){
+   document.scenes[0].lights[0].fakeConeOpacity=value;
+   document.scenes[0].objects[0].arrayParts.lights[0].fakeConeOpacity=value;
+   const result=validatePrimitiveDocument(document,['shot']).scenes[0];
+   assert.equal(result.lights[0].fakeConeOpacity,value);
+   assert.equal(result.objects[0].arrayParts.lights[0].fakeConeOpacity,value);
+ }
+ for(const value of [-.1,1.01,'0.5',NaN,Infinity]){
+   document.scenes[0].lights[0].fakeConeOpacity=value;
+   assert.throws(()=>validatePrimitiveDocument(document,['shot']),/fake cone opacity/);
+ }
 });

@@ -4,8 +4,8 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
 import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from './array-prototype.js';
-import {repeatOffsets,radiansToDegrees,degreesToRadians,lightCastsShadow,validateSceneEffects,validatePrimitiveDocument} from './primitive-schema.js';
-import {DEFAULT_EFFECTS,applyShotEffects} from './scene-effects.js';
+import {repeatOffsets,radiansToDegrees,degreesToRadians,lightCastsShadow,validateSceneEffects,validatePrimitiveDocument,applySpotlightSettingsGlobally} from './primitive-schema.js';
+import {DEFAULT_EFFECTS,applyShotEffects,setFakeSpotPreviewGround} from './scene-effects.js';
 import {listAssemblyTemplates,replaceAssemblyContents,saveAssemblyHierarchy,editableAssembly}
   from './array-assembly-templates.js';
 
@@ -115,7 +115,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  let operation='translate',dragging=false;
  const world=createPrimitiveWorld(scene);
  let draft=null,source=null,shotId=null,objectId=null,linked=[],candidates=[],selected='root',frame=0;
- let spotMode='real',initialSpotMode='real';
+ let spotMode='real',initialSpotMode='real',globalSpotTemplate=null;
  const spotModeSelect=byId('arrayEditSpotMode');
  let previewEffects=structuredClone(DEFAULT_EFFECTS);
  spotModeSelect?.addEventListener('change',()=>{
@@ -225,6 +225,10 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const doc=previewDocument();
      clearOutlinerHighlight();transform.detach();
      world.setDocument(doc,[sampleShot]);world.showShot(sampleShot);
+     // The mini-editor's floor is outside the authored assembly, but is a
+     // valid decal receiver for this preview only (never saved/exported).
+     const previewRoot=scene.children.find(node=>node.userData.shotId===sampleShot);
+     if(previewRoot)setFakeSpotPreviewGround(previewRoot,floor);
      addPreviewLightHandles();
      if(refit){
        const bounds=world.getBounds(sampleShot);
@@ -234,12 +238,16 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        const at=box&&!box.isEmpty()?box.getCenter(new THREE.Vector3()):
          new THREE.Vector3().fromArray(bounds.center);
        const floorY=box&&!box.isEmpty()?box.min.y-.035:at.y-radius;
-       grid.position.set(at.x,floorY+.004,at.z);
        floor.position.set(at.x,floorY-.008,at.z);
+       // Grid stays above the opaque floor but below its 10 mm decal glow.
+       grid.position.set(at.x,floorY-.002,at.z);
        // Grid divisions track the object's dimensions without obstructing it.
        const stageScale=Math.max(.5,Math.min(50,radius*4/20));
        grid.scale.setScalar(stageScale);
        floor.scale.set(stageScale,stageScale,1);
+       // Static decal geometry is cached. The re-framed studio floor moved.
+       if(previewRoot)previewRoot.userData.fakeGroundVersion=
+         (previewRoot.userData.fakeGroundVersion||0)+1;
        axes.position.copy(grid.position);
        axes.scale.setScalar(Math.max(.3,Math.min(12,radius*.27)));
      }
@@ -401,6 +409,20 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        property('Cone angle (°)',item.angle,v=>item.angle=v,
          {type:'degrees',min:.05,max:1.5});
        property('Penumbra',item.penumbra,v=>item.penumbra=v,{min:0,max:1});
+       property('Fake cone opacity (%)',(item.fakeConeOpacity??1)*100,
+         v=>item.fakeConeOpacity=v/100,{step:'1',min:0,max:100});
+       const global=makeEl('button','Apply globally to chapter spotlights',{class:'wide secondary'});
+       global.type='button';global.title='Stage chapter-wide spotlight settings for Save';
+       global.addEventListener('click',()=>{
+         globalSpotTemplate=structuredClone(item);
+         const count=applySpotlightSettingsGlobally(
+           {objects:[{arrayParts:{lights:draft.parts.lights}}]},globalSpotTemplate);
+         refreshFields();rerender();
+         setStatus('Global spotlight settings staged ('+count+
+           ' prototype spotlight(s)). Save to apply to the chapter; Cancel discards.');
+       });
+       fields.append(global);
+       fields.append(makeEl('p','Copies color, intensity, range, angle, penumbra, fake cone opacity and shadows. Keeps every light position and aim.'));
      }
    }
    const deleteButton=byId('arrayEditDeletePart');
@@ -788,6 +810,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    stop();transform.detach();transform.enabled=false;dragging=false;
    orbit.enabled=true;
    draft=null;source=null;shotId=null;objectId=null;linked=[];candidates=[];
+   globalSpotTemplate=null;
    modal.hidden=true;world.setDocument({schemaVersion:1,scenes:[]},[]);
    onClose();
  }
@@ -800,7 +823,12 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        draft.templatePlan?.document||source,getShotIds(),shotId,objectId,
        {base:draft.base,parts:draft.parts},linked,
        draft.templatePlan?[]:[...draft.absorbed.values()].flatMap(x=>x.ids));
-     if(spotMode!==initialSpotMode){
+     if(globalSpotTemplate){
+        const chapter=document.scenes.find(scene=>scene.shotId===shotId);
+        if(!chapter)throw Error('Source chapter unavailable for global spotlight update');
+        applySpotlightSettingsGlobally(chapter,globalSpotTemplate);
+      }
+      if(spotMode!==initialSpotMode){
        const entry=document.scenes.find(scene=>scene.shotId===shotId);
        if(!entry)throw Error('The source chapter is missing');
        const profile=validateSceneEffects(entry.effects)||structuredClone(DEFAULT_EFFECTS);
@@ -836,6 +864,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const converted=editableAssembly(base);
      draft={...converted,absorbed:new Map()};
      source=structuredClone(doc);shotId=id;objectId=partId;linked=matches;
+     globalSpotTemplate=null;
      previewEffects=validateSceneEffects(scene.effects)||structuredClone(DEFAULT_EFFECTS);
      spotMode=initialSpotMode=previewEffects.lights.spotMode;
      if(spotModeSelect)spotModeSelect.value=spotMode;

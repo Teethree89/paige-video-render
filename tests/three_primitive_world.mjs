@@ -1296,3 +1296,88 @@ test('hidden/isolate ground is not pickable or a fake spotlight decal receiver',
    assert.equal(pool.visible,true,'restoring ground rebuilds its decal');
  }finally{world.dispose();}
 });
+
+test('fake cone opacity uses a separate per-light GPU instancing attribute without changing ground pools',async()=>{
+ const {applyShotEffects}=await import('../scene-effects.js');
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const road=unit('road','box',{layer:'ground',position:[0,0,0],scale:[35,.2,35]});
+ const spot=(id,x,opacity)=>({id,type:'spot',name:id,color:'#ffdbaa',
+   position:[x,8,0],target:[x,0,0],distance:32,
+   intensity:200,angle:.5,penumbra:.3,fakeConeOpacity:opacity});
+ const doc={schemaVersion:1,scenes:[{shotId:'dim',objects:[road],
+   lights:[spot('left',-6,.2),spot('right',6,.8)]}]};
+ const renderer={toneMappingExposure:1,shadowMap:{enabled:false}},camera=new THREE.PerspectiveCamera();
+ try{
+   world.setDocument(doc,['dim']);world.showShot('dim');
+   applyShotEffects(scene,renderer,{shadows:{enabled:false},
+     lights:{enabled:true,spot:true,spotMode:'fake'}},{shotId:'dim',camera});
+   const rig=scene.getObjectByName('Runtime_fake_spotlights');
+   const beam=rig.children.find(node=>node.isInstancedMesh&&node.geometry.type==='ConeGeometry');
+   const pool=rig.getObjectByName('Fake spotlight ground pools');
+   const alpha=beam.geometry.getAttribute('instanceOpacity');
+   assert.equal(beam.count,2);
+   assert.ok(alpha?.isInstancedBufferAttribute,'opacity must be per-instance, not a shared uniform');
+   assert.equal(alpha.getX(0),Math.fround(.2));
+   assert.equal(alpha.getX(1),Math.fround(.8));
+   assert.match(beam.material.fragmentShader,/vConeOpacity/);
+   assert.equal(pool.userData.fakePoolCount,2);
+   const old=pool.geometry;
+   doc.scenes[0].lights[0].fakeConeOpacity=0;
+   world.getLightNode('dim','left').userData.fakeConeOpacity=0;
+   applyShotEffects(scene,renderer,{shadows:{enabled:false},
+     lights:{enabled:true,spot:true,spotMode:'fake'}},{shotId:'dim',camera});
+   assert.equal(alpha.getX(0),0,'zero opacity can hide the visible fake cone');
+   assert.equal(pool.geometry,old,'changing cone opacity never regenerates ground decals');
+   assert.equal(pool.userData.fakePoolCount,2,'ground illumination does not change');
+ }finally{world.dispose();}
+});
+
+test('array mini-editor preview floor receives fake spotlight decals above its grid and never exports',async()=>{
+ const {applyShotEffects,setFakeSpotPreviewGround}=await import('../scene-effects.js');
+ const {createPrototypeGuides}=await import('../array-prototype-editor.js');
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const guides=createPrototypeGuides(scene);
+ const {floor,grid}=guides;
+ floor.position.y=-.008;
+ grid.position.y=-.002;
+ try{
+   world.setDocument({schemaVersion:1,scenes:[{shotId:'arrayPreview',objects:[
+     unit('fixture','group',{arrayParts:{objects:[unit('post','cylinder',{scale:[.2,6,.2]})],
+       lights:[{id:'spot',type:'spot',name:'Fixture downlight',color:'#ffe1a0',
+         position:[0,7,0],target:[0,0,0],intensity:200,angle:.55,
+         penumbra:.3,distance:30}]}})]}]},['arrayPreview']);
+   world.showShot('arrayPreview');
+   const root=scene.getObjectByName('Primitives_arrayPreview');
+   assert.ok(root);
+   setFakeSpotPreviewGround(root,floor);
+   assert.equal(root.userData.fakeSpotPreviewGround,undefined,
+     'editor-only mesh cannot enter export userData');
+   root.userData.fakeGroundVersion=(root.userData.fakeGroundVersion||0)+1;
+   const renderer={toneMappingExposure:1,shadowMap:{enabled:false}};
+   applyShotEffects(scene,renderer,{shadows:{enabled:false},
+     lights:{enabled:true,spot:true,spotMode:'fake'}},
+     {shotId:'arrayPreview',camera:new THREE.PerspectiveCamera()});
+   const pool=scene.getObjectByName('Runtime_fake_spotlights')
+     .getObjectByName('Fake spotlight ground pools');
+   assert.ok(pool.visible,'modeling floor receives a ground-light decal');
+   assert.equal(pool.userData.fakePoolCount,1);
+   const points=pool.geometry.getAttribute('position');
+   assert.ok(points.count>0);
+   const minY=Math.min(...Array.from({length:points.count},(_,i)=>points.getY(i)));
+   assert.ok(minY>grid.position.y,'light decal is above the grid on the floor');
+   assert.equal(world.getSceneForExport('arrayPreview')
+     .getObjectByName(floor.name),undefined,'studio floor is never exported');
+   const old=pool.geometry;
+   floor.position.y+=.4;
+   root.userData.fakeGroundVersion++;
+   applyShotEffects(scene,renderer,{shadows:{enabled:false},
+     lights:{enabled:true,spot:true,spotMode:'fake'}},
+     {shotId:'arrayPreview',camera:new THREE.PerspectiveCamera()});
+   assert.notEqual(pool.geometry,old,'reframing preview floor invalidates decal geometry');
+ }finally{
+   world.dispose();
+   for(const item of [guides.floor,guides.grid,guides.axes]){
+     item.geometry.dispose();item.material.dispose();
+   }
+ }
+});

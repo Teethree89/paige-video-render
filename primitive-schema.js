@@ -110,12 +110,38 @@ const sceneLights=(value,shotId)=>{
     if(light.type==='spot'){
       out.angle=light.angle==null?.6:finite(light.angle,label+' angle',.05,1.5);
       out.penumbra=light.penumbra==null?.3:finite(light.penumbra,label+' penumbra',0,1);
+      // Optional rendering-only fake cone opacity, 1 matches the old beam.
+      // Missing opacity is intentionally omitted from saved legacy JSON;
+      // runtime fallback of 1 keeps the exact previous beam brightness.
+      if(light.fakeConeOpacity!==undefined)
+        out.fakeConeOpacity=finite(light.fakeConeOpacity,label+' fake cone opacity',0,1);
     }
     return out;
   });
 };
 // Chapter-specific look profile; additive v1 schema extension. These
 // parameters are stored in JSON (and portable projects), not arbitrary GLSL.
+// Copy photometric/visual spotlight settings throughout the current chapter,
+ // including repeated assembly components. Never copy names, XYZ, aim or eyes.
+export const GLOBAL_SPOTLIGHT_KEYS=['color','intensity','distance','angle',
+  'penumbra','fakeConeOpacity','castShadow'];
+export function applySpotlightSettingsGlobally(chapter,source){
+  if(!chapter||!Array.isArray(chapter.objects)||source?.type!=='spot')
+    throw new TypeError('A spotlight and valid chapter are required');
+  const apply=light=>{
+    if(light.type!=='spot')return 0;
+    for(const key of GLOBAL_SPOTLIGHT_KEYS){
+      if(source[key]!==undefined)light[key]=source[key];
+      else delete light[key];
+    }
+    return 1;
+  };
+  let count=0;
+  for(const light of chapter.lights||[])count+=apply(light);
+  for(const object of chapter.objects)
+    for(const light of object.arrayParts?.lights||[])count+=apply(light);
+  return count;
+}
 export function validateSceneEffects(value){
  if(value===undefined||value===null)return undefined;
  if(!value||typeof value!=='object'||Array.isArray(value))fail('effects must be an object');

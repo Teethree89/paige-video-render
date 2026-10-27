@@ -101,17 +101,20 @@ function fakeSpotRig(scene){
    transparent:true,depthTest:true,depthWrite:false,
    side:THREE.BackSide,blending:THREE.AdditiveBlending,
    vertexShader:`
+     attribute float instanceOpacity;
+     varying float vConeOpacity;
      varying vec3 vLocal;varying vec3 vColor;
      varying vec3 vViewPosition;varying vec3 vViewNormal;
      void main(){
        vec4 viewPosition=modelViewMatrix*instanceMatrix*vec4(position,1.0);
-       vLocal=position;vColor=instanceColor;
+       vLocal=position;vColor=instanceColor;vConeOpacity=instanceOpacity;
        vViewPosition=viewPosition.xyz;
        vViewNormal=normalize(mat3(modelViewMatrix)*mat3(instanceMatrix)*normal);
        gl_Position=projectionMatrix*viewPosition;
      }
    `,
    fragmentShader:`
+     varying float vConeOpacity;
      varying vec3 vLocal;varying vec3 vColor;
      varying vec3 vViewPosition;varying vec3 vViewNormal;
      void main(){
@@ -120,7 +123,7 @@ function fakeSpotRig(scene){
        float facing=abs(dot(normalize(vViewNormal),normalize(-vViewPosition)));
        float feather=smoothstep(0.015,0.32,facing);
        float nearFade=smoothstep(1.5,6.0,length(vViewPosition));
-       gl_FragColor=vec4(vColor,0.026*axial*feather*nearFade);
+       gl_FragColor=vec4(vColor,0.026*axial*feather*nearFade*vConeOpacity);
      }
    `
  });
@@ -157,6 +160,15 @@ const _fakePoolProjectorSize=new THREE.Vector3();
 const _fakePoolProjectorPosition=new THREE.Vector3();
 
 const _fakeGroundMeshes=new WeakMap(),_fakeGroundHits=new WeakMap(),_fakePoolPatches=new WeakMap();
+// Temporary 3D modeling floor stays outside JSON/export userData. A WeakMap
+// avoids embedding a circular Three.Mesh reference inside the scene graph.
+const _fakeSpotPreviewGrounds=new WeakMap();
+export function setFakeSpotPreviewGround(root,floor){
+ if(!root)return;
+ if(floor)_fakeSpotPreviewGrounds.set(root,floor);
+ else _fakeSpotPreviewGrounds.delete(root);
+ root.userData.fakeGroundVersion=(root.userData.fakeGroundVersion||0)+1;
+}
 const _fakeGroundRay=new THREE.Raycaster();
 const _fakeGroundOrigin=new THREE.Vector3(),_fakeGroundDown=new THREE.Vector3(0,-1,0);
 const _fakeGroundProbe=new THREE.Vector3();
@@ -181,6 +193,14 @@ function fakeGroundSurfaces(root){
    const bounds=node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld);
    surfaces.push({node,bounds});
  });
+ // Editor-only floor: capture as a receiver without changing authoring data.
+ const previewFloor=_fakeSpotPreviewGrounds.get(root);
+ if(previewFloor?.isMesh&&previewFloor.visible&&previewFloor.geometry){
+   previewFloor.updateWorldMatrix(true,false);
+   if(!previewFloor.geometry.boundingBox)previewFloor.geometry.computeBoundingBox();
+   surfaces.push({node:previewFloor,
+     bounds:previewFloor.geometry.boundingBox.clone().applyMatrix4(previewFloor.matrixWorld)});
+ }
  _fakeGroundMeshes.set(root,{version,surfaces});
  return surfaces;
 }
@@ -323,9 +343,12 @@ function updateFakeSpots(scene,faked,activeRoot,showBeams=true){
  rig=rig||fakeSpotRig(scene);
  if(faked.length>rig.capacity){
    rig.beam?.removeFromParent();
-   rig.beam?.dispose();
+   if(rig.beam){rig.beam.dispose();rig.beam.geometry.dispose();}
    rig.capacity=Math.max(faked.length,rig.capacity*2,16);
-   rig.beam=new THREE.InstancedMesh(rig.coneGeometry,rig.beamMaterial,rig.capacity);
+   const geometry=rig.coneGeometry.clone();
+   geometry.setAttribute('instanceOpacity',
+     new THREE.InstancedBufferAttribute(new Float32Array(rig.capacity).fill(1),1));
+   rig.beam=new THREE.InstancedMesh(geometry,rig.beamMaterial,rig.capacity);
    rig.beam.frustumCulled=false;
    rig.group.add(rig.beam);
  }
@@ -366,6 +389,7 @@ function updateFakeSpots(scene,faked,activeRoot,showBeams=true){
      _spotMatrix.compose(_spotPos,_spotQuat,_spotScale);
      rig.beam.setMatrixAt(beams,_spotMatrix);
      rig.beam.setColorAt(beams,node.color);
+     rig.beam.geometry.getAttribute('instanceOpacity').setX(beams,node.userData.fakeConeOpacity??1);
      beams++;
    }
    if(poolGroundHit){
@@ -379,6 +403,7 @@ function updateFakeSpots(scene,faked,activeRoot,showBeams=true){
  if(beams){
    rig.beam.instanceMatrix.needsUpdate=true;
    if(rig.beam.instanceColor)rig.beam.instanceColor.needsUpdate=true;
+   rig.beam.geometry.getAttribute('instanceOpacity').needsUpdate=true;
  }
  syncFakePoolBatch(rig,poolPatches,activeRoot);
 }

@@ -1,6 +1,6 @@
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {blankPrimitiveDocument,validatePrimitiveDocument,makePrimitive,makeExampleBlockout,
-  radiansToDegrees,degreesToRadians,lightCastsShadow} from './primitive-schema.js';
+  radiansToDegrees,degreesToRadians,lightCastsShadow,applySpotlightSettingsGlobally} from './primitive-schema.js';
 import {insertCreatedAsset} from './scene-asset-catalog.js';
 
 const el=id=>document.getElementById(id);
@@ -339,6 +339,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveLightDistance').value=chosen.distance??0;
       el('primitiveLightAngle').value=radiansToDegrees(chosen.angle??.6);
       el('primitiveLightPenumbra').value=chosen.penumbra??.3;
+      el('primitiveLightFakeConeOpacity').value=Math.round((chosen.fakeConeOpacity??1)*100);
       for(const input of fieldInputs('[data-light]')){
         const [key,index]=input.dataset.light.split('.');
         input.value=chosen[key]?.[Number(index)]??0;
@@ -477,13 +478,20 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       if(light)changer(light);
     });
   }
+  el('primitiveLightApplyGlobally').addEventListener('click',()=>{
+    apply(entry=>{
+      const selected=(entry.lights||[]).find(light=>light.id===selectedLightId);
+      if(selected?.type==='spot')applySpotlightSettingsGlobally(entry,selected);
+    });
+  });
   const lightFields={
     primitiveLightName:(v,l)=>{l.name=v;},
     primitiveLightColor:(v,l)=>{l.color=v;},
     primitiveLightIntensity:(v,l)=>{l.intensity=Number(v);},
     primitiveLightDistance:(v,l)=>{l.distance=Number(v);},
     primitiveLightAngle:(v,l)=>{l.angle=degreesToRadians(Number(v));},
-    primitiveLightPenumbra:(v,l)=>{l.penumbra=Number(v);}
+    primitiveLightPenumbra:(v,l)=>{l.penumbra=Number(v);},
+    primitiveLightFakeConeOpacity:(v,l)=>{l.fakeConeOpacity=Number(v)/100;}
   };
   for(const [id,change] of Object.entries(lightFields)){
     el(id).addEventListener('change',e=>editLight(l=>change(e.target.value,l)));
