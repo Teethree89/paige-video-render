@@ -964,7 +964,7 @@ test('fake spotlight instances follow real targets, isolate chapters, and switch
    const rig=scene.getObjectByName('Runtime_fake_spotlights');
    assert.ok(rig);
    const beam=rig.children.find(node=>node.isInstancedMesh&&node.geometry.type==='ConeGeometry');
-   const pool=rig.children.find(node=>node.isInstancedMesh&&node.geometry.type==='PlaneGeometry');
+   const pool=rig.children.find(node=>node.name==='Fake spotlight ground pools'&&node.isMesh);
    assert.ok(beam);assert.ok(pool);
    assert.equal(beam.count,4,'the other chapter does not contribute its spotlight');
    const lamps=[];
@@ -984,7 +984,7 @@ test('fake spotlight instances follow real targets, isolate chapters, and switch
    world.showShot('other');
    applyShotEffects(scene,renderer,fx,{camera,shotId:'other'});
    assert.equal(beam.count,1,'switching chapters replaces the visible fake-light instances');
-   assert.equal(pool.count,1,'a downlight eight units up reaches the ground');
+   assert.equal(pool.userData.fakePoolCount,1,'a downlight eight units up reaches the ground');
    const other=scene.children.find(node=>node.userData.shotId==='other');
    const otherLight=other.children.find(node=>node.isSpotLight);
    assert.ok(otherLight);
@@ -998,5 +998,83 @@ test('fake spotlight instances follow real targets, isolate chapters, and switch
    applyShotEffects(scene,renderer,hybrid,{camera,shotId:'other'});
    assert.equal(beam.count,1,'faraway hybrid light becomes fake');
    assert.equal(otherLight.visible,false,'faraway light is not still evaluated by GPU shaders');
+ }finally{world.dispose();}
+});
+
+test('fake spotlight pools sit above actual front and raised right road surfaces',async()=>{
+ const {applyShotEffects}=await import('../scene-effects.js');
+ const frontRoad=unit('front','box',{name:'Front Road',layer:'ground',
+   position:[-15,-.047952144598502555,78.62],scale:[340,.24,18]});
+ const rightRoad=unit('right','box',{name:'Right Road',layer:'ground',
+   position:[82,.10337410817953868,-10],scale:[20,.24,320]});
+ const ground=unit('ground','plane',{name:'Base',layer:'ground',
+   position:[0,0,0],rotation:[-Math.PI/2,0,0],scale:[800,800,1]});
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const baseSpot={type:'spot',angle:.7,color:'#ffd2a0',intensity:320,penumbra:.35,distance:32};
+ const doc={schemaVersion:1,scenes:[{shotId:'road',objects:[ground,frontRoad,rightRoad],lights:[
+   {...baseSpot,name:'Front street',position:[-15,7.92,78.62],target:[-15,0,78.62]},
+   {...baseSpot,name:'Right street',position:[73.135,8.01,-10],target:[73.135,0,-10]}
+ ]}]};
+ const renderer={toneMappingExposure:1,shadowMap:{enabled:false}},camera=new THREE.PerspectiveCamera();
+ try{
+   world.setDocument(doc);world.showShot('road');
+   applyShotEffects(scene,renderer,{shadows:{enabled:false},lights:{enabled:true,spot:true,spotMode:'fake'}},{camera,shotId:'road'});
+   const rig=scene.getObjectByName('Runtime_fake_spotlights');
+   const pool=rig.children.find(o=>o.name==='Fake spotlight ground pools'&&o.isMesh);
+   const beam=rig.children.find(o=>o.isInstancedMesh&&o.geometry.type==='ConeGeometry');
+   assert.equal(pool.userData.fakePoolCount,2);assert.equal(beam.count,2);
+   const positions=pool.geometry.getAttribute('position');
+   const frontY=positions.getY(0);
+   const rightY=positions.getY(pool.userData.verticesPerLight);
+   assert.ok(Math.abs(frontY-(frontRoad.position[1]+frontRoad.scale[1]/2+.018))<.001,
+     'front pool should sit just above its pavement');
+   assert.ok(Math.abs(rightY-(rightRoad.position[1]+rightRoad.scale[1]/2+.018))<.001,
+     'right pool should sit just above its raised pavement');
+   assert.ok(rightY>frontY+.1,'different road elevations must not share a pool plane');
+ }finally{world.dispose();}
+});
+
+test('one shader ground pool conforms to multiple surface elevations inside a single footprint',async()=>{
+ const {applyShotEffects}=await import('../scene-effects.js');
+ const ground=unit('ground','plane',{name:'Base',layer:'ground',
+   position:[0,0,0],rotation:[-Math.PI/2,0,0],scale:[100,100,1]});
+ const lower=unit('low','box',{name:'Lower sidewalk',layer:'ground',
+   position:[-4,0,0],scale:[8,.2,14]});
+ const upper=unit('high','box',{name:'Raised street',layer:'ground',
+   position:[4,.9,0],scale:[8,.2,14]});
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const doc={schemaVersion:1,scenes:[{shotId:'uneven',objects:[ground,lower,upper],
+   lights:[{type:'spot',name:'Boundary light',color:'#ffe0aa',intensity:320,
+     position:[.2,6.5,0],target:[.2,0,0],angle:.55,penumbra:.35,distance:25}]}]};
+ const renderer={toneMappingExposure:1,shadowMap:{enabled:false}},camera=new THREE.PerspectiveCamera();
+ const effects={shadows:{enabled:false},lights:{enabled:true,spot:true,spotMode:'fake'}};
+ try{
+   world.setDocument(doc);world.showShot('uneven');
+   applyShotEffects(scene,renderer,effects,{camera,shotId:'uneven'});
+   const rig=scene.getObjectByName('Runtime_fake_spotlights');
+   const pool=rig.getObjectByName('Fake spotlight ground pools');
+   assert.ok(pool.visible);
+   assert.equal(pool.userData.fakePoolCount,1,'one pool draws across both levels');
+   const pos=pool.geometry.getAttribute('position');
+   const uv=pool.geometry.getAttribute('uv');
+   const color=pool.geometry.getAttribute('color');
+   assert.equal(pos.count,1+7*24,'one center plus seven radial rings');
+   assert.equal(uv.count,pos.count);assert.equal(color.count,pos.count);
+   assert.ok(pos.count<200,'grid is lightweight enough for repeated arrays');
+   const left=[],right=[];
+   for(let i=0;i<pos.count;i++){
+     if(pos.getX(i)<-1)left.push(pos.getY(i));
+     if(pos.getX(i)>1)right.push(pos.getY(i));
+   }
+   assert.ok(left.some(y=>Math.abs(y-(lower.position[1]+lower.scale[1]/2+.018))<.001),
+      'lower sidewalk receives surface-following glow');
+   assert.ok(right.some(y=>Math.abs(y-(upper.position[1]+upper.scale[1]/2+.018))<.001),
+      'raised road receives glow from the same spotlight');
+   const previous=pool.geometry;
+   applyShotEffects(scene,renderer,effects,{camera,shotId:'uneven'});
+   assert.equal(pool.geometry,previous,'static terrain has no per-frame resampling or reallocation');
+   world.invalidateGeometry('uneven');
+   applyShotEffects(scene,renderer,effects,{camera,shotId:'uneven'});
+   assert.notEqual(pool.geometry,previous,'editing ground invalidates cached conforming geometry');
  }finally{world.dispose();}
 });
