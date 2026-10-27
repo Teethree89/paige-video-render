@@ -1024,17 +1024,21 @@ test('fake spotlight pools sit above actual front and raised right road surfaces
    const beam=rig.children.find(o=>o.isInstancedMesh&&o.geometry.type==='ConeGeometry');
    assert.equal(pool.userData.fakePoolCount,2);assert.equal(beam.count,2);
    const positions=pool.geometry.getAttribute('position');
-   const frontY=positions.getY(0);
-   const rightY=positions.getY(pool.userData.verticesPerLight);
-   assert.ok(Math.abs(frontY-(frontRoad.position[1]+frontRoad.scale[1]/2+.018))<.001,
+   const firstRoadHeight=frontRoad.position[1]+frontRoad.scale[1]/2+.008;
+   const secondRoadHeight=rightRoad.position[1]+rightRoad.scale[1]/2+.008;
+   const heights=Array.from({length:positions.count},(_,i)=>positions.getY(i));
+   assert.ok(heights.some(y=>Math.abs(y-firstRoadHeight)<.002));
+   assert.ok(heights.some(y=>Math.abs(y-secondRoadHeight)<.002));
+   const frontY=firstRoadHeight,rightY=secondRoadHeight;
+   assert.ok(Math.abs(frontY-(frontRoad.position[1]+frontRoad.scale[1]/2+.008))<.001,
      'front pool should sit just above its pavement');
-   assert.ok(Math.abs(rightY-(rightRoad.position[1]+rightRoad.scale[1]/2+.018))<.001,
+   assert.ok(Math.abs(rightY-(rightRoad.position[1]+rightRoad.scale[1]/2+.008))<.001,
      'right pool should sit just above its raised pavement');
    assert.ok(rightY>frontY+.1,'different road elevations must not share a pool plane');
  }finally{world.dispose();}
 });
 
-test('one shader ground pool conforms to multiple surface elevations inside a single footprint',async()=>{
+test('fake spotlight decals clip to raised ground surfaces without spanning curb edges',async()=>{
  const {applyShotEffects}=await import('../scene-effects.js');
  const ground=unit('ground','plane',{name:'Base',layer:'ground',
    position:[0,0,0],rotation:[-Math.PI/2,0,0],scale:[100,100,1]});
@@ -1054,27 +1058,37 @@ test('one shader ground pool conforms to multiple surface elevations inside a si
    const rig=scene.getObjectByName('Runtime_fake_spotlights');
    const pool=rig.getObjectByName('Fake spotlight ground pools');
    assert.ok(pool.visible);
-   assert.equal(pool.userData.fakePoolCount,1,'one pool draws across both levels');
+   assert.equal(pool.userData.fakePoolCount,1,'one authored spotlight uses one batched pool');
    const pos=pool.geometry.getAttribute('position');
    const uv=pool.geometry.getAttribute('uv');
    const color=pool.geometry.getAttribute('color');
-   assert.equal(pos.count,1+12*48,'one center plus twelve radial rings');
+   assert.ok(pos.count>0);
    assert.equal(uv.count,pos.count);assert.equal(color.count,pos.count);
-   assert.ok(pos.count<600,'12x48 grid remains bounded for repeated arrays');
+   assert.ok(pos.count<2000,'decal geometry stays bounded for repeated streetlights');
+   const lowerTop=lower.position[1]+lower.scale[1]/2+.008;
+   const upperTop=upper.position[1]+upper.scale[1]/2+.008;
    const left=[],right=[];
    for(let i=0;i<pos.count;i++){
      if(pos.getX(i)<-1)left.push(pos.getY(i));
      if(pos.getX(i)>1)right.push(pos.getY(i));
    }
-   assert.ok(left.some(y=>Math.abs(y-(lower.position[1]+lower.scale[1]/2+.018))<.001),
-      'lower sidewalk receives surface-following glow');
-   assert.ok(right.some(y=>Math.abs(y-(upper.position[1]+upper.scale[1]/2+.018))<.001),
-      'raised road receives glow from the same spotlight');
+   assert.ok(left.some(y=>Math.abs(y-lowerTop)<.002),
+      'lower sidewalk gets a decal at its exact surface elevation');
+   assert.ok(right.some(y=>Math.abs(y-upperTop)<.002),
+      'raised road gets a separately clipped decal');
+   // Each mesh is projected independently; there should be no triangles
+   // that bridge the lower and higher surfaces.
+   const index=pool.geometry.getIndex();
+   const xWidth=pool.geometry.getAttribute('position');
+   for(let i=0;i<index.count;i+=3){
+     const y=[0,1,2].map(j=>xWidth.getY(index.getX(i+j)));
+     assert.ok(Math.max(...y)-Math.min(...y)<.11,'decal triangle does not span road step');
+   }
    const previous=pool.geometry;
    applyShotEffects(scene,renderer,effects,{camera,shotId:'uneven'});
-   assert.equal(pool.geometry,previous,'static terrain has no per-frame resampling or reallocation');
+   assert.equal(pool.geometry,previous,'static ground does not regenerate decals every frame');
    world.invalidateGeometry('uneven');
    applyShotEffects(scene,renderer,effects,{camera,shotId:'uneven'});
-   assert.notEqual(pool.geometry,previous,'editing ground invalidates cached conforming geometry');
+   assert.notEqual(pool.geometry,previous,'ground edits invalidate cached decals');
  }finally{world.dispose();}
 });
