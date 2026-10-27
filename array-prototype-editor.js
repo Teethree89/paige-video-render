@@ -238,12 +238,16 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        const at=box&&!box.isEmpty()?box.getCenter(new THREE.Vector3()):
          new THREE.Vector3().fromArray(bounds.center);
        const floorY=box&&!box.isEmpty()?box.min.y-.035:at.y-radius;
-       grid.position.set(at.x,floorY+.004,at.z);
        floor.position.set(at.x,floorY-.008,at.z);
+       // Grid stays above the opaque floor but below its 10 mm decal glow.
+       grid.position.set(at.x,floorY-.002,at.z);
        // Grid divisions track the object's dimensions without obstructing it.
        const stageScale=Math.max(.5,Math.min(50,radius*4/20));
        grid.scale.setScalar(stageScale);
        floor.scale.set(stageScale,stageScale,1);
+       // Static decal geometry is cached. The re-framed studio floor moved.
+       if(previewRoot)previewRoot.userData.fakeGroundVersion=
+         (previewRoot.userData.fakeGroundVersion||0)+1;
        axes.position.copy(grid.position);
        axes.scale.setScalar(Math.max(.3,Math.min(12,radius*.27)));
      }
