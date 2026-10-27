@@ -1175,3 +1175,93 @@ test('fake beam toggle preserves ground pool and avoids double-sided shell blend
    assert.equal(pool.geometry,originalGeometry);
  }finally{world.dispose();}
 });
+
+test('saved layer/object/assembly-part eye toggles and transient isolate preserve authoring',async()=>{
+ const {validatePrimitiveDocument}=await import('../primitive-schema.js');
+ const {applyShotEffects}=await import('../scene-effects.js');
+ const mat={color:'#556677',metalness:0,roughness:.8};
+ const basic=(id,layer='manual')=>({
+   id,name:id,primitive:'box',position:[0,1,0],rotation:[0,0,0],scale:[2,2,2],
+   ...(layer==='manual'?{}:{layer}),material:mat
+ });
+ const lamp={...basic('lamp','details'),position:[5,1,0],
+   repeat:{count:[3,1,1],spacing:[3,0,0]},
+   arrayParts:{
+     objects:[
+       {...basic('pole'),name:'Lamp pole',visible:false,position:[0,0,0],scale:[.3,3,.3]},
+       {...basic('head'),name:'Lamp head',position:[0,2,0],scale:[1,.4,.7]}
+     ],
+     lights:[{id:'glow',name:'Array spot',type:'spot',color:'#ffccaa',
+       intensity:100,position:[0,2,0],target:[0,0,0],distance:25,angle:.5,penumbra:.3}],
+     order:['object:pole','object:head','light:glow']
+   }
+ };
+ const base={schemaVersion:1,scenes:[{shotId:'visibility',
+   objects:[basic('road','ground'),lamp],
+   lights:[{id:'main',type:'spot',name:'Street spot',color:'#ffccaa',
+     intensity:120,position:[0,7,0],target:[0,0,0],distance:25,angle:.6,penumbra:.3}],
+   layerVisibility:{ground:false}
+ }]};
+ const saved=validatePrimitiveDocument(base,['visibility']);
+ assert.equal(saved.scenes[0].layerVisibility.ground,false);
+ assert.equal(saved.scenes[0].objects[1].arrayParts.objects[0].visible,false);
+ assert.throws(()=>validatePrimitiveDocument({...base,scenes:[{
+   ...base.scenes[0],layerVisibility:{ground:'false'}}]}),/visible must be boolean/);
+ assert.throws(()=>validatePrimitiveDocument({...base,scenes:[{
+   ...base.scenes[0],objects:[{...base.scenes[0].objects[0],visible:'false'}]}]}),
+   /visible must be boolean/);
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ try{
+   world.setDocument(saved,['visibility']);world.showShot('visibility');world.prepareRender('visibility');
+   const root=scene.children.find(n=>n.userData.shotId==='visibility');
+   const ground=root.getObjectByName('Layer_ground');
+   assert.equal(ground.visible,false,'ground-layer eye is persisted and respected');
+   const assembly=world.getObjectNode('visibility','lamp');
+   assert.equal(assembly.visible,true);
+   const poles=[],heads=[],arrayLights=[];
+   assembly.traverse(n=>{
+     if(n.userData.primitiveArrayPartId==='pole'&&n.isMesh)poles.push(n);
+     if(n.userData.primitiveArrayPartId==='head'&&n.isMesh)heads.push(n);
+     if(n.userData.primitiveArrayPartId==='glow'&&n.isLight)arrayLights.push(n);
+   });
+   assert.ok(poles.every(n=>n.visible===false),'hidden array part never becomes a visible copy');
+   assert.equal(arrayLights.length,3);
+   assert.ok(heads.some(n=>n.visible),'visible head batches remain');
+   const mainLight=world.getLightNode('visibility','main');
+   assert.equal(mainLight.visible,true);
+   const isoPart={kind:'part',id:'lamp',partId:'glow',partKind:'light'};
+   world.setIsolation('visibility',isoPart);
+   assert.deepEqual(world.getIsolation('visibility'),isoPart);
+   assert.equal(ground.visible,false);
+   assert.equal(mainLight.visible,false);
+   assert.ok(arrayLights.every(n=>n.visible),'all instances of isolated component remain');
+   assert.ok(heads.every(n=>n.visible===false),'non-target parts disappear under isolate');
+   const exportRoot=world.getSceneForExport('visibility');
+   assert.equal(exportRoot.getObjectByName('Layer_ground').visible,false,
+      'GLB copies preserve authored hidden layer, not isolate state');
+   const exportedHeads=[];
+   exportRoot.traverse(n=>{if(n.isMesh&&n.userData.primitiveArrayPartId==='head')exportedHeads.push(n);});
+   assert.ok(exportedHeads.some(n=>n.visible),'temporary isolate is not exported');
+   assert.equal(world.setIsolation('visibility',isoPart),null,'repeating isolate restores visibility');
+   assert.equal(mainLight.visible,true);
+   assert.ok(heads.some(n=>n.visible));
+   const isoLight={kind:'light',id:'main'};
+   world.setIsolation('visibility',isoLight);
+   assert.equal(assembly.visible,false);
+   assert.equal(mainLight.visible,true);
+   world.setIsolation('visibility',null);
+   assert.equal(assembly.visible,true);
+   const updated=structuredClone(saved);
+   updated.scenes[0].objects[1].visible=false;
+   updated.scenes[0].lights[0].visible=false;
+   world.setDocument(updated,['visibility']);world.showShot('visibility');
+   assert.equal(world.getObjectNode('visibility','lamp').visible,false);
+   assert.equal(world.getLightNode('visibility','main').visible,false);
+   const renderer={toneMappingExposure:1,shadowMap:{enabled:false}};
+   applyShotEffects(scene,renderer,{shadows:{enabled:false},
+     lights:{enabled:true,spot:true,spotMode:'fake'}},
+   {camera:new THREE.PerspectiveCamera(),shotId:'visibility'});
+   const rig=scene.getObjectByName('Runtime_fake_spotlights');
+   assert.ok(!rig||rig.beam?.count===0,'hidden authored streetlights create no fake beams');
+ }finally{world.dispose();}
+});

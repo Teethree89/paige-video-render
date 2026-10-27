@@ -62,11 +62,17 @@ test('primitive inspector initializes and adds editable scene geometry without c
     const moduleUrl='data:text/javascript;base64,'+Buffer.from(executable).toString('base64');
     const {setupPrimitiveEditor}=await import(moduleUrl);
     let sequence={shots:[{id:'draft_001',name:'Imported shot'}]};
+    let currentIsolation=null;
     const editor=setupPrimitiveEditor({
       getSequence:()=>sequence,
       getActiveShot:()=>sequence.shots[0],
       onDocumentChange:doc=>{sequence.primitiveScenes=doc;},
-      world:{hasObjects:()=>false}
+      world:{hasObjects:()=>false,
+        getIsolation:()=>currentIsolation,
+        setIsolation:(_shot,next)=>{
+          currentIsolation=JSON.stringify(currentIsolation)===JSON.stringify(next)?null:next;
+          return currentIsolation;
+        }}
     });
     assert.equal(typeof editor.refresh,'function');
     const tree=dom.getElementById('primitiveSceneOutliner');
@@ -80,6 +86,32 @@ test('primitive inspector initializes and adds editable scene geometry without c
     assert.equal(sequence.primitiveScenes.scenes[0].objects.length,1);
     const shape=sequence.primitiveScenes.scenes[0].objects[0];
     assert.equal(shape.primitive,'box');
+    const manualCollection=()=>tree.children.find(group=>
+      group.children?.[0]?.children?.some(x=>x.textContent?.includes('Manual shapes')));
+    let collection=manualCollection();
+    assert.ok(collection);
+    assert.equal(collection.children[0].children.length,3,
+      'layer headings expose expand, eye and isolate controls');
+    await collection.children[0].children[1].fire('click');
+    assert.equal(sequence.primitiveScenes.scenes[0].layerVisibility.manual,false,
+      'eye hides its entire layer in saved scene data');
+    collection=manualCollection();
+    await collection.children[0].children[1].fire('click');
+    assert.equal(sequence.primitiveScenes.scenes[0].layerVisibility?.manual,undefined,
+      'eye restores the layer and removes the explicit hidden override');
+    collection=manualCollection();
+    await collection.children[0].children[2].fire('click');
+    assert.deepEqual(currentIsolation,{kind:'layer',layer:'manual'});
+    collection=manualCollection();
+    await collection.children[0].children[2].fire('click');
+    assert.equal(currentIsolation,null,'isolate toggles back without saving scene changes');
+    collection=manualCollection();
+    const objectRow=collection.children.find(child=>child.className?.includes('primitive-tree-row'));
+    const eye=objectRow.children.find(child=>child.className==='primitive-tree-visibility');
+    await eye.fire('click');
+    assert.equal(sequence.primitiveScenes.scenes[0].objects[0].visible,false,
+      'individual eye is persisted');
+    
     assert.ok(tree.children.some(group=>group.children?.[0]?.children?.some(child=>child.textContent?.includes('Manual shapes'))),
       'new primitive appears in expandable Manual shapes collection');
     assert.equal(dom.getElementById('primitiveFields').hidden,false);
