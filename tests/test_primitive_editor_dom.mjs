@@ -69,6 +69,10 @@ test('primitive inspector initializes and adds editable scene geometry without c
       world:{hasObjects:()=>false}
     });
     assert.equal(typeof editor.refresh,'function');
+    const tree=dom.getElementById('primitiveSceneOutliner');
+    assert.ok(tree.children.length,'chapter hierarchy initializes without a separate layer dropdown');
+    assert.ok(tree.children.some(group=>group.textContent?.includes('No objects or lights yet')||
+      group.children?.some(child=>child.textContent?.includes('No objects or lights yet'))));
     assert.equal(dom.getElementById('primitiveObjectSelect').children[0].tag,'option');
     assert.equal(dom.getElementById('primitiveShotLabel').textContent,'Imported shot · 0 object(s)');
     dom.getElementById('primitiveType').value='box';
@@ -76,6 +80,8 @@ test('primitive inspector initializes and adds editable scene geometry without c
     assert.equal(sequence.primitiveScenes.scenes[0].objects.length,1);
     const shape=sequence.primitiveScenes.scenes[0].objects[0];
     assert.equal(shape.primitive,'box');
+    assert.ok(tree.children.some(group=>group.children?.[0]?.textContent?.includes('Manual shapes')),
+      'new primitive appears in expandable Manual shapes collection');
     assert.equal(dom.getElementById('primitiveFields').hidden,false);
     assert.equal(typeof editor.selectObject,'function');
     assert.equal(editor.selectObject('missing'),false);

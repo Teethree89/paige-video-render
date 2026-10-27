@@ -4,12 +4,14 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
 import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from './array-prototype.js';
-import {repeatOffsets,radiansToDegrees,degreesToRadians,lightCastsShadow} from './primitive-schema.js';
+import {repeatOffsets,radiansToDegrees,degreesToRadians,lightCastsShadow,validateSceneEffects,validatePrimitiveDocument} from './primitive-schema.js';
+import {DEFAULT_EFFECTS,applyShotEffects} from './scene-effects.js';
 import {listAssemblyTemplates,replaceAssemblyContents,saveAssemblyHierarchy,editableAssembly}
   from './array-assembly-templates.js';
 
 const sampleShot='arrayPreview';
 const finite=value=>Number.isFinite(Number(value))?Number(value):null;
+export const displayHundredth=value=>Number.isFinite(Number(value))?String(Number(Number(value).toFixed(2))):'0';
 
 // Never treat a visible, enabled Replace action as a no-op: older projects
 // and browser restorations may leave the select on the blank placeholder.
@@ -91,6 +93,15 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
  let operation='translate',dragging=false;
  const world=createPrimitiveWorld(scene);
  let draft=null,source=null,shotId=null,objectId=null,linked=[],candidates=[],selected='root',frame=0;
+ let spotMode='real',initialSpotMode='real';
+ const spotModeSelect=byId('arrayEditSpotMode');
+ let previewEffects=structuredClone(DEFAULT_EFFECTS);
+ spotModeSelect?.addEventListener('change',()=>{
+   if(!draft||!['real','fake','hybrid'].includes(spotModeSelect.value))return;
+   spotMode=spotModeSelect.value;
+   previewEffects.lights.spotMode=spotMode;
+   rerender();
+ });
  let sourceTemplates=[],beforeTemplate=null,hoverOutlines=[];
  const originalRoot=()=>source?.scenes?.find(s=>s.shotId===shotId)?.objects.find(o=>o.id===objectId);
  const pose=()=>{
@@ -230,6 +241,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    }
    orbit.update();
    world.updateLightVisuals(camera,canvas.clientHeight||320);
+   applyShotEffects(scene,renderer,previewEffects,{camera,shotId:sampleShot});
    renderer.render(scene,camera);
    frame=requestAnimationFrame(animate);
  }
@@ -259,7 +271,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    return {kind,value:(kind==='light'?draft.parts.lights:draft.parts.objects)
      .find(x=>x.id===id)};
  }
- function property(label,value,onChange,{type='number',step='0.1',min=null,max=null}={}){
+ function property(label,value,onChange,{type='number',step='0.01',min=null,max=null}={}){
    const wrap=makeEl('label',label,{class:'array-property'});
    const input=makeEl('input');
    const degrees=type==='degrees',number=type==='number'||degrees;
@@ -268,8 +280,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    else if(type==='text')input.value=String(value??'');
    else if(type==='checkbox')input.checked=!!value;
    else{
-     input.step=degrees?'1':step;
-     input.value=String(degrees?radiansToDegrees(value??0):(value??0));
+     input.step=degrees?'0.01':step;
+     input.value=displayHundredth(degrees?radiansToDegrees(value??0):(value??0));
      if(min!=null)input.min=degrees?radiansToDegrees(min):min;
      if(max!=null)input.max=degrees?radiansToDegrees(max):max;
    }
@@ -286,20 +298,22 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    wrap.append(input);fields.append(wrap);
  }
  function xyz(label,vector,onChange,{degrees=false}={}){
-   const line=makeEl('div',label,{class:'array-xyz'});
+   const line=makeEl('div','',{class:'array-xyz'});
+   line.append(makeEl('div',label,{class:'array-xyz-title'}));
+   const cells=makeEl('div','',{class:'array-xyz-grid'});
    for(let i=0;i<3;i++){
      const field=makeEl('label',['X','Y','Z'][i]);
-     const input=makeEl('input');input.type='number';input.step=degrees?'1':'.1';
-     input.value=String(degrees?radiansToDegrees(vector[i]):vector[i]);
+     const input=makeEl('input');input.type='number';input.step='.01';
+     input.value=displayHundredth(degrees?radiansToDegrees(vector[i]):vector[i]);
      input.addEventListener('change',()=>{
        const v=finite(input.value);
        if(v===null){setStatus('Enter a finite XYZ value.');return;}
        const result=[...vector];result[i]=degrees?degreesToRadians(v):v;
        onChange(result);refreshFields();rerender();
      });
-     field.append(input);line.append(field);
+     field.append(input);cells.append(field);
    }
-   fields.append(line);
+   line.append(cells);fields.append(line);
  }
  function refreshFields(){
    fields.replaceChildren();
@@ -760,7 +774,14 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        draft.templatePlan?.document||source,getShotIds(),shotId,objectId,
        {base:draft.base,parts:draft.parts},linked,
        draft.templatePlan?[]:[...draft.absorbed.values()].flatMap(x=>x.ids));
-     onSave(document);
+     if(spotMode!==initialSpotMode){
+       const entry=document.scenes.find(scene=>scene.shotId===shotId);
+       if(!entry)throw Error('The source chapter is missing');
+       const profile=validateSceneEffects(entry.effects)||structuredClone(DEFAULT_EFFECTS);
+       profile.lights.spotMode=spotMode;
+       entry.effects=validateSceneEffects(profile);
+     }
+     onSave(validatePrimitiveDocument(document,getShotIds()));
      close();
    }catch(error){setStatus('Save blocked: '+error.message);}
  });
@@ -789,6 +810,9 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const converted=editableAssembly(base);
      draft={...converted,absorbed:new Map()};
      source=structuredClone(doc);shotId=id;objectId=partId;linked=matches;
+     previewEffects=validateSceneEffects(scene.effects)||structuredClone(DEFAULT_EFFECTS);
+     spotMode=initialSpotMode=previewEffects.lights.spotMode;
+     if(spotModeSelect)spotModeSelect.value=spotMode;
      candidates=base.repeat?findArrayCompanions(doc,id,partId):[];
      sourceTemplates=listAssemblyTemplates(doc,id).filter(t=>t.id!==partId);
      selectOptions(templateSelect||makeEl('select'),

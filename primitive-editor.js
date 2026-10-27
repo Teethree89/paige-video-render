@@ -25,7 +25,7 @@ export function shapeSummary(item){
     parts.push(Math.round(item.material.opacity*100)+'% opacity');
   return parts.join(' · ');
 }
-export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world,onSelectionChange=()=>{}}) {
+export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange,world,onSelectionChange=()=>{},onEditAssembly=()=>{}}) {
   let selectedId=null,selectedLightId=null,previousShot=null,lastCreateError=null;
   const editor=el('primitiveEditor'),objectSelect=el('primitiveObjectSelect');
   // Browser inputs may be moved to the Selected Object dialog while editing.
@@ -33,6 +33,130 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   const fieldInputs=selector=>document.querySelectorAll?.(selector)||
     editor.querySelectorAll(selector);
   const layerFilter=el('primitiveLayerFilter');
+  const sceneTree=el('primitiveSceneOutliner');
+  const collapsedLayers=new Set(),collapsedAssemblies=new Set();
+  const layerNames=[
+    ['structures','Buildings & structures'],['ground','Roads & terrain'],
+    ['vegetation','Trees & landscaping'],['details','Props & infrastructure'],
+    ['manual','Manual shapes']
+  ];
+  const treeEl=(tag,label,klass)=>{
+    const node=document.createElement(tag);
+    node.textContent=label;node.className=klass;return node;
+  };
+  function refreshSceneTree(objects,lights){
+    if(!sceneTree)return;
+    const groups=[];
+    for(const [key,label] of [...layerNames,['lights','Scene lights']]){
+      const items=key==='lights'?lights:objects.filter(o=>(o.layer||'manual')===key);
+      // Keep empty layer collections visible: users can drop an object into
+      // a new layer without first populating it elsewhere.
+      const wrap=treeEl('div','','primitive-tree-layer');
+      const header=treeEl('button',(collapsedLayers.has(key)?'▸ ':'▾ ')+(key==='lights'?'☀ ':'▣ ')+label+' ('+items.length+')','primitive-tree-group');
+      header.type='button';
+      header.addEventListener('click',()=>{
+        if(collapsedLayers.has(key))collapsedLayers.delete(key);else collapsedLayers.add(key);
+        refresh();
+      });
+      header.addEventListener('dragover',event=>{if(key!=='lights')event.preventDefault();});
+      header.addEventListener('drop',event=>{
+        if(key==='lights')return;
+        event.preventDefault();
+        const id=event.dataTransfer?.getData('text/plain');
+        if(!id)return;
+        apply(entry=>{
+          const object=entry.objects.find(item=>item.id===id);
+          if(!object)return;
+          if(key==='manual')delete object.layer;
+          else object.layer=key;
+          selectedId=id;selectedLightId=null;
+        });
+      });
+      wrap.append(header);
+      if(!collapsedLayers.has(key))for(const item of items){
+        const light=key==='lights',assembly=!light&&!!(item.repeat||item.arrayParts);
+        const row=treeEl('div','','array-outliner-row primitive-tree-row');
+        row.dataset.selected=String(light?item.id===selectedLightId:item.id===selectedId);
+        const toggle=treeEl('button',assembly?(collapsedAssemblies.has(item.id)?'▸':'▾'):'·','primitive-tree-expand');
+        toggle.type='button';toggle.disabled=!assembly;
+        toggle.addEventListener('click',()=>{
+          if(collapsedAssemblies.has(item.id))collapsedAssemblies.delete(item.id);
+          else collapsedAssemblies.add(item.id);
+          refresh();
+        });
+        const pick=treeEl('button',light?'☀':assembly?'◇':'▱','primitive-tree-pick');
+        pick.type='button';pick.title='Select '+item.name;
+        pick.addEventListener('click',()=>{
+          if(light)selectLight(item.id,{notify:true});
+          else selectObject(item.id,{notify:true});
+        });
+        if(assembly)pick.addEventListener('dblclick',()=>onEditAssembly(getActiveShot()?.id,item.id));
+        const name=treeEl('input','','primitive-tree-name');
+        name.type='text';name.value=item.name;name.maxLength=100;
+        name.title='Rename '+item.name;
+        name.addEventListener('change',()=>{
+          const updated=name.value.trim();
+          if(!updated){name.value=item.name;return;}
+          if(light){selectedLightId=item.id;selectedId=null;}
+          else{selectedId=item.id;selectedLightId=null;}
+          apply(entry=>{
+            const target=light?(entry.lights||[]).find(x=>x.id===item.id):
+              entry.objects.find(x=>x.id===item.id);
+            if(target)target.name=updated;
+          });
+        });
+        if(!light){
+          const handle=treeEl('span','⋮⋮','primitive-tree-drag-handle');
+          handle.draggable=true;handle.title='Drag to reorder or move to another layer';
+          handle.addEventListener('dragstart',event=>{
+            event.dataTransfer?.setData('text/plain',item.id);
+            if(event.dataTransfer)event.dataTransfer.effectAllowed='move';
+          });
+          row.append(toggle,handle,pick,name);
+          row.addEventListener('dragover',event=>event.preventDefault());
+          row.addEventListener('drop',event=>{
+            event.preventDefault();
+            const id=event.dataTransfer?.getData('text/plain');
+            if(!id||id===item.id)return;
+            apply(entry=>{
+              const from=entry.objects.findIndex(x=>x.id===id);
+              const to=entry.objects.findIndex(x=>x.id===item.id);
+              if(from<0||to<0)return;
+              const [moving]=entry.objects.splice(from,1);
+              if(item.layer==='manual'||!item.layer)delete moving.layer;
+              else moving.layer=item.layer;
+              entry.objects.splice(entry.objects.findIndex(x=>x.id===item.id),0,moving);
+              selectedId=id;selectedLightId=null;
+            });
+          });
+        }else row.append(toggle,pick,name);
+        wrap.append(row);
+        if(assembly&&!collapsedAssemblies.has(item.id)){
+          const parts=item.arrayParts;
+          const objectMap=new Map((parts?.objects||[]).map(x=>[x.id,x]));
+          const lightMap=new Map((parts?.lights||[]).map(x=>[x.id,x]));
+          const order=parts?.order?.length?parts.order:[
+            ...[...objectMap.keys()].map(id=>'object:'+id),
+            ...[...lightMap.keys()].map(id=>'light:'+id)];
+          for(const key of order){
+            const [kind,id]=key.split(':');
+            const child=kind==='light'?lightMap.get(id):objectMap.get(id);
+            if(!child)continue;
+            const button=treeEl('button',(kind==='light'?'☀ ':'▱ ')+child.name,'primitive-tree-child');
+            button.type='button';button.title='Double-click to edit assembly';
+            button.addEventListener('click',()=>selectObject(item.id,{notify:true}));
+            button.addEventListener('dblclick',()=>onEditAssembly(getActiveShot()?.id,item.id));
+            wrap.append(button);
+          }
+        }
+      }
+      groups.push(wrap);
+    }
+    if(!objects.length&&!lights.length)
+      groups.push(treeEl('p','No objects or lights yet.','field-help'));
+    sceneTree.replaceChildren(...groups);
+  }
+
   const status=el('primitiveStatus');
   const editable=el('primitiveFields');
   const file=el('primitiveImportFile');
@@ -161,6 +285,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
         input.value=chosen[key]?.[Number(index)]??0;
       }
     }
+    refreshSceneTree(objects,lightsList);
     el('primitiveExportGLB').disabled=objects.length===0&&lightsList.length===0;
     el('primitiveDelete').disabled=!selected;
     el('primitiveDuplicate').disabled=!selected;
