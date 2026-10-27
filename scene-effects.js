@@ -160,6 +160,15 @@ const _fakePoolProjectorSize=new THREE.Vector3();
 const _fakePoolProjectorPosition=new THREE.Vector3();
 
 const _fakeGroundMeshes=new WeakMap(),_fakeGroundHits=new WeakMap(),_fakePoolPatches=new WeakMap();
+// Temporary 3D modeling floor stays outside JSON/export userData. A WeakMap
+// avoids embedding a circular Three.Mesh reference inside the scene graph.
+const _fakeSpotPreviewGrounds=new WeakMap();
+export function setFakeSpotPreviewGround(root,floor){
+ if(!root)return;
+ if(floor)_fakeSpotPreviewGrounds.set(root,floor);
+ else _fakeSpotPreviewGrounds.delete(root);
+ root.userData.fakeGroundVersion=(root.userData.fakeGroundVersion||0)+1;
+}
 const _fakeGroundRay=new THREE.Raycaster();
 const _fakeGroundOrigin=new THREE.Vector3(),_fakeGroundDown=new THREE.Vector3(0,-1,0);
 const _fakeGroundProbe=new THREE.Vector3();
@@ -185,7 +194,7 @@ function fakeGroundSurfaces(root){
    surfaces.push({node,bounds});
  });
  // Editor-only floor: capture as a receiver without changing authoring data.
- const previewFloor=root.userData.fakeSpotPreviewGround;
+ const previewFloor=_fakeSpotPreviewGrounds.get(root);
  if(previewFloor?.isMesh&&previewFloor.visible&&previewFloor.geometry){
    previewFloor.updateWorldMatrix(true,false);
    if(!previewFloor.geometry.boundingBox)previewFloor.geometry.computeBoundingBox();

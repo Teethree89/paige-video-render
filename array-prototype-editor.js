@@ -5,7 +5,7 @@ import {createPrimitiveWorld} from './primitive-world.js';
 import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
 import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from './array-prototype.js';
 import {repeatOffsets,radiansToDegrees,degreesToRadians,lightCastsShadow,validateSceneEffects,validatePrimitiveDocument,applySpotlightSettingsGlobally} from './primitive-schema.js';
-import {DEFAULT_EFFECTS,applyShotEffects} from './scene-effects.js';
+import {DEFAULT_EFFECTS,applyShotEffects,setFakeSpotPreviewGround} from './scene-effects.js';
 import {listAssemblyTemplates,replaceAssemblyContents,saveAssemblyHierarchy,editableAssembly}
   from './array-assembly-templates.js';
 
@@ -228,7 +228,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      // The mini-editor's floor is outside the authored assembly, but is a
      // valid decal receiver for this preview only (never saved/exported).
      const previewRoot=scene.children.find(node=>node.userData.shotId===sampleShot);
-     if(previewRoot)previewRoot.userData.fakeSpotPreviewGround=floor;
+     if(previewRoot)setFakeSpotPreviewGround(previewRoot,floor);
      addPreviewLightHandles();
      if(refit){
        const bounds=world.getBounds(sampleShot);

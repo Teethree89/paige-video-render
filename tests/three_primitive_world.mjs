@@ -1333,7 +1333,7 @@ test('fake cone opacity uses a separate per-light GPU instancing attribute witho
 });
 
 test('array mini-editor preview floor receives fake spotlight decals above its grid and never exports',async()=>{
- const {applyShotEffects}=await import('../scene-effects.js');
+ const {applyShotEffects,setFakeSpotPreviewGround}=await import('../scene-effects.js');
  const {createPrototypeGuides}=await import('../array-prototype-editor.js');
  const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
  const guides=createPrototypeGuides(scene);
@@ -1349,7 +1349,9 @@ test('array mini-editor preview floor receives fake spotlight decals above its g
    world.showShot('arrayPreview');
    const root=scene.getObjectByName('Primitives_arrayPreview');
    assert.ok(root);
-   root.userData.fakeSpotPreviewGround=floor;
+   setFakeSpotPreviewGround(root,floor);
+   assert.equal(root.userData.fakeSpotPreviewGround,undefined,
+     'editor-only mesh cannot enter export userData');
    root.userData.fakeGroundVersion=(root.userData.fakeGroundVersion||0)+1;
    const renderer={toneMappingExposure:1,shadowMap:{enabled:false}};
    applyShotEffects(scene,renderer,{shadows:{enabled:false},
