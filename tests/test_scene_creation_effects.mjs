@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {CREATE_CATEGORIES,CREATE_DEFAULTS,insertCreatedAsset,validateCreateChoice} from '../scene-asset-catalog.js';
 import {validatePrimitiveDocument,validateSceneEffects,capGeneratedLights,LIMITS} from '../primitive-schema.js';
 import {editLightTransform,editLightTarget,deleteLightObject} from '../scene-object-operations.js';
+import {spotlightFieldVisibility} from '../spotlight-controls.js';
 const empty=()=>({schemaVersion:1,scenes:[]});
 test('every radial Create submenu item creates validated scene geometry or a punctual light',()=>{
  for(const category of CREATE_CATEGORIES)for(const [preset] of category.items){
@@ -275,4 +276,27 @@ test('fake beam volume flag validates and defaults to the existing appearance',(
  const off=validateSceneEffects({lights:{enabled:true,spotMode:'fake',fakeBeams:false}});
  assert.equal(off.lights.fakeBeams,false);
  assert.throws(()=>validateSceneEffects({lights:{enabled:true,spotMode:'fake',fakeBeams:'false'}}),/fake beams/);
+});
+
+test('real, fake and hybrid spotlight UI controls match the rendering pipeline',async()=>{
+ assert.deepEqual(spotlightFieldVisibility('spot','real'),
+  {intensity:true,penumbra:true,shadows:true,fakeConeOpacity:false});
+ assert.deepEqual(spotlightFieldVisibility('spot','fake'),
+  {intensity:false,penumbra:false,shadows:false,fakeConeOpacity:true});
+ assert.deepEqual(spotlightFieldVisibility('spot','hybrid'),
+  {intensity:true,penumbra:true,shadows:true,fakeConeOpacity:true});
+ assert.equal(spotlightFieldVisibility('point','fake').intensity,true);
+ assert.equal(spotlightFieldVisibility('directional','fake').shadows,true);
+ const base=new URL('../',import.meta.url);
+ const [main,mini,effects,markup,css]=await Promise.all(
+  ['primitive-editor.js','array-prototype-editor.js','scene-effects.js','index.html','styles.css']
+   .map(path=>readFile(new URL(path,base),'utf8')));
+ assert.match(main,/spotlightFieldVisibility\(chosen.type,spotMode\)/);
+ assert.match(mini,/spotlightFieldVisibility\(item.type,spotMode\)/);
+ assert.match(mini,/refreshFields\(\);rerender\(\)/);
+ assert.match(markup,/id="primitiveLightIntensityWrap"/);
+ assert.match(markup,/id="primitiveLightPenumbraWrap"/);
+ assert.match(css,/#primitiveLightFields \[hidden\]\{display:none!important\}/);
+ assert.match(effects,/0\.16\*axial\*feather\*nearFade\*vConeOpacity/);
+ assert.doesNotMatch(effects,/vec4\(vColor,0\.026\*axial/);
 });
