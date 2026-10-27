@@ -251,3 +251,20 @@ test('light gizmos are camera-pixel-sized and rays connect saved XYZ without exp
  assert.match(app,/onLightTargetTransform:/);
  assert.match(app,/editLightTarget\(/);
 });
+
+test('fake spotlight targets and active chapter match editor/video camera path',async()=>{
+ const root=new URL('../',import.meta.url);
+ const [effects,app,render]=await Promise.all(['scene-effects.js','app.js','render.js']
+   .map(p=>readFile(new URL(p,root),'utf8')));
+ for(const fragment of [
+   'node.target.getWorldPosition(_spotTarget)',
+   '_spotDir.subVectors(_spotTarget,_spotPos)',
+   'const activeRoot=scene.children.find(node=>node.userData.shotId===shotId)',
+   'if(fakeSpot)faked.push(node)',
+   'const groundHit=groundT>.05&&groundT<=maximum',
+   'node.shadow.needsUpdate=true'
+ ])assert.ok(effects.includes(fragment),fragment);
+ assert.ok(app.includes('review:!!reviewShotId,camera,shotId:shot.id'));
+ assert.ok(render.includes('camera:cam,shotId:currentShot.id'));
+ assert.ok(!effects.includes('node.getWorldDirection(_spotDir)'));
+});

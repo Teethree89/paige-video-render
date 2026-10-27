@@ -945,3 +945,58 @@ test('rotating every array copy preserves world XYZ centers and authored repeat 
    assert.ok(gltf.nodes.some(node=>node.name?.includes('Lamp head')));
  }finally{world.dispose();}
 });
+
+test('fake spotlight instances follow real targets, isolate chapters, and switch hybrid modes',async()=>{
+ const {applyShotEffects}=await import('../scene-effects.js');
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const source=batchFixture();
+ source.scenes[0].objects[0].instanceRotation=[.35,.8,0];
+ source.scenes.push({shotId:'other',objects:[],lights:[{
+   ...lights[2],id:'other_spot',position:[0,8,0],target:[0,0,0],distance:32
+ }]});
+ const renderer={shadowMap:{enabled:false},toneMappingExposure:1};
+ const camera=new THREE.PerspectiveCamera();
+ const fx={lights:{enabled:true,spot:true,spotMode:'fake'},shadows:{enabled:false}};
+ try{
+   world.setDocument(source);world.showShot('array');
+   camera.position.set(200,25,100);
+   applyShotEffects(scene,renderer,fx,{camera,shotId:'array'});
+   const rig=scene.getObjectByName('Runtime_fake_spotlights');
+   assert.ok(rig);
+   const beam=rig.children.find(node=>node.isInstancedMesh&&node.geometry.type==='ConeGeometry');
+   const pool=rig.children.find(node=>node.isInstancedMesh&&node.geometry.type==='PlaneGeometry');
+   assert.ok(beam);assert.ok(pool);
+   assert.equal(beam.count,4,'the other chapter does not contribute its spotlight');
+   const lamps=[];
+   const root=scene.children.find(node=>node.userData.shotId==='array');
+   root.traverse(node=>{if(node.isSpotLight)lamps.push(node);});
+   assert.equal(lamps.length,4);
+   const light=lamps[0],origin=light.getWorldPosition(new THREE.Vector3());
+   const target=light.target.getWorldPosition(new THREE.Vector3());
+   const expected=target.sub(origin).normalize();
+   const instance=new THREE.Matrix4();beam.getMatrixAt(0,instance);
+   const apex=new THREE.Vector3(0,0,0).applyMatrix4(instance);
+   const base=new THREE.Vector3(0,-1,0).applyMatrix4(instance);
+   const actual=base.sub(apex).normalize();
+   assert.ok(actual.dot(expected)>.99999,'volume must point along the authored spotlight target');
+   assert.equal(light.visible,false,'fake mode disables the corresponding real light');
+
+   world.showShot('other');
+   applyShotEffects(scene,renderer,fx,{camera,shotId:'other'});
+   assert.equal(beam.count,1,'switching chapters replaces the visible fake-light instances');
+   assert.equal(pool.count,1,'a downlight eight units up reaches the ground');
+   const other=scene.children.find(node=>node.userData.shotId==='other');
+   const otherLight=other.children.find(node=>node.isSpotLight);
+   assert.ok(otherLight);
+   const hybrid={lights:{enabled:true,spot:true,spotMode:'hybrid'},shadows:{enabled:true}};
+   camera.position.copy(otherLight.getWorldPosition(new THREE.Vector3())).add(new THREE.Vector3(0,0,1));
+   applyShotEffects(scene,renderer,hybrid,{camera,shotId:'other'});
+   assert.equal(beam.count,0,'nearby hybrid light is real, not also drawn as a fake');
+   assert.equal(otherLight.visible,true,'real light restores visibility');
+   assert.ok(otherLight.shadow.needsUpdate,'cached shadow must refresh on restoration');
+   camera.position.set(500,100,500);
+   applyShotEffects(scene,renderer,hybrid,{camera,shotId:'other'});
+   assert.equal(beam.count,1,'faraway hybrid light becomes fake');
+   assert.equal(otherLight.visible,false,'faraway light is not still evaluated by GPU shaders');
+ }finally{world.dispose();}
+});

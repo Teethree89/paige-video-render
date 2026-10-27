@@ -21,7 +21,7 @@ export function effectsForShot(sequence,shotId){
 // World.update() assigns scene.fog density every frame; apply this AFTER that
 // update so saved chapter settings have priority and never spill between shots.
 export function applyShotEffects(scene,renderer,effects,{
- originalFogColor='#050d17',defaultExposure=1.35,review=false
+ originalFogColor='#050d17',defaultExposure=1.35,review=false,camera=null,shotId=null
 }={}){
  const profile=validateSceneEffects(effects)||structuredClone(DEFAULT_EFFECTS);
  if(scene.fog){
@@ -46,18 +46,37 @@ export function applyShotEffects(scene,renderer,effects,{
    const type=node.userData.primitiveLight;
    return profile.lights[type]!==false;
  };
+ // Chapter roots carry an explicit shotId; never generate fake lights
+ // from invisible roots belonging to other chapters.
+ const activeRoot=scene.children.find(node=>node.userData.shotId===shotId);
+ const isActiveNode=node=>{
+   for(let ancestor=node;ancestor;ancestor=ancestor.parent)
+     if(ancestor===activeRoot)return true;
+   return false;
+ };
+ const faked=[];
+ const cameraPosition=camera?.position;
  scene.traverse(node=>{
    if(!node.isLight)return;
-   const fakeSpot=node.isSpotLight&&node.userData.primitiveLight==='spot'&&profile.lights.spot&&profile.lights.enabled&&profile.lights.spotMode!=='real'&& (profile.lights.spotMode==='fake'||(scene.userData.activeCamera&&scene.userData.activeCamera.position.distanceTo(node.getWorldPosition(new THREE.Vector3()))>=35));
+   let fakeSpot=false;
+   if(activeRoot&&isActiveNode(node)&&node.isSpotLight
+       &&node.userData.primitiveLight==='spot'&&profile.lights.enabled&&profile.lights.spot){
+     fakeSpot=profile.lights.spotMode==='fake'
+       ||(profile.lights.spotMode==='hybrid'&&cameraPosition
+         &&node.getWorldPosition(_spotPos).distanceTo(cameraPosition)>=35);
+     if(fakeSpot)faked.push(node);
+   }
    if(!allowed(node)||fakeSpot){
-     if(!Object.hasOwn(node.userData,'chapterLightOriginalVisible'))node.userData.chapterLightOriginalVisible=node.visible;
+     if(!Object.hasOwn(node.userData,'chapterLightOriginalVisible'))
+       node.userData.chapterLightOriginalVisible=node.visible;
      node.visible=false;
    }else if(Object.hasOwn(node.userData,'chapterLightOriginalVisible')){
      node.visible=node.userData.chapterLightOriginalVisible;
      delete node.userData.chapterLightOriginalVisible;
+     if(node.castShadow&&node.shadow)node.shadow.needsUpdate=true;
    }
  });
- updateFakeSpots(scene,scene.userData.activeCamera,profile);
+ updateFakeSpots(scene,faked);
  return profile;
 }
 
@@ -90,52 +109,64 @@ function fakeSpotRig(scene){
  rig={group,coneGeometry,beamMaterial,poolGeometry,poolMaterial,beam:null,pool:null,capacity:0};
  FAKE_SPOT_CACHE.set(scene,rig);return rig;
 }
-const _spotPos=new THREE.Vector3(),_spotDir=new THREE.Vector3(),_spotQuat=new THREE.Quaternion(),_spotMatrix=new THREE.Matrix4(),_spotScale=new THREE.Vector3(),_spotUp=new THREE.Vector3(0,-1,0);
-function updateFakeSpots(scene,camera,profile){
- const rig=fakeSpotRig(scene);
- const fake=[],hybrid=profile.lights.spotMode==='hybrid';
- scene.updateMatrixWorld(true);
- scene.traverse(node=>{
-   if(!node.isSpotLight||!node.userData.primitiveLight)return;
-   if(!profile.lights.enabled||!profile.lights.spot)return;
-   node.getWorldPosition(_spotPos);
-   const near=hybrid&&camera&&camera.position.distanceTo(_spotPos)<35;
-   if(profile.lights.spotMode==='real'||near)return;
-   fake.push(node);
- });
- if(fake.length>rig.capacity){
+const _spotPos=new THREE.Vector3(),_spotTarget=new THREE.Vector3(),_spotDir=new THREE.Vector3();
+const _spotQuat=new THREE.Quaternion(),_spotMatrix=new THREE.Matrix4(),_spotScale=new THREE.Vector3();
+const _spotUp=new THREE.Vector3(0,-1,0),_poolQuat=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
+const FAKE_BEAM_MAX_LENGTH=12,FAKE_POOL_GROUND_Y=.08;
+function updateFakeSpots(scene,faked){
+ let rig=FAKE_SPOT_CACHE.get(scene);
+ if(!rig&&!faked.length)return;
+ rig=rig||fakeSpotRig(scene);
+ if(faked.length>rig.capacity){
    rig.beam?.removeFromParent();rig.pool?.removeFromParent();
    rig.beam?.dispose();rig.pool?.dispose();
-   rig.capacity=Math.max(fake.length,rig.capacity*2,16);
+   rig.capacity=Math.max(faked.length,rig.capacity*2,16);
    rig.beam=new THREE.InstancedMesh(rig.coneGeometry,rig.beamMaterial,rig.capacity);
    rig.pool=new THREE.InstancedMesh(rig.poolGeometry,rig.poolMaterial,rig.capacity);
    rig.beam.frustumCulled=false;rig.pool.frustumCulled=false;
    rig.group.add(rig.beam,rig.pool);
  }
  if(!rig.beam)return;
- rig.beam.count=rig.pool.count=fake.length;
- fake.forEach((node,i)=>{
+ let beams=0,pools=0;
+ for(const node of faked){
+   // Match Three.js actual target, including rotated array parents.
+   // getWorldDirection() points +Z but SpotLight illuminates toward -Z.
    node.getWorldPosition(_spotPos);
-   node.getWorldDirection(_spotDir);
-   const length=Math.min(node.distance||24,60);
+   node.target.getWorldPosition(_spotTarget);
+   _spotDir.subVectors(_spotTarget,_spotPos);
+   if(_spotDir.lengthSq()<1e-8)continue;
+   _spotDir.normalize();
+   // The authored angle is a HALF angle. Visual beam length is separate
+   // from the spotlight's much longer attenuation distance.
+   const maximum=Math.min(node.distance>0?node.distance:FAKE_BEAM_MAX_LENGTH,FAKE_BEAM_MAX_LENGTH);
+   const groundT=_spotDir.y<-.001?(_spotPos.y-FAKE_POOL_GROUND_Y)/-_spotDir.y:Infinity;
+   const groundHit=groundT>.05&&groundT<=maximum;
+   const length=groundHit?groundT:maximum;
+   if(length<=.05)continue;
    const radius=Math.tan(node.angle)*length;
    _spotQuat.setFromUnitVectors(_spotUp,_spotDir);
    _spotScale.set(radius,length,radius);
    _spotMatrix.compose(_spotPos,_spotQuat,_spotScale);
-   rig.beam.setMatrixAt(i,_spotMatrix);
-   const dy=_spotDir.y;
-   const t=dy<-.1?Math.max(0,(_spotPos.y-.03)/-dy):length;
-   const hit=_spotPos.clone().addScaledVector(_spotDir,Math.min(t,length));
-   _spotQuat.setFromAxisAngle(new THREE.Vector3(1,0,0),-Math.PI/2);
-   _spotScale.set(radius*1.5,radius*1.5,1);
-   _spotMatrix.compose(hit,_spotQuat,_spotScale);
-   rig.pool.setMatrixAt(i,_spotMatrix);
-   rig.beam.setColorAt(i,node.color);
-   rig.pool.setColorAt(i,node.color);
- });
- for(const mesh of [rig.beam,rig.pool]){mesh.instanceMatrix.needsUpdate=true;if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;}
+   rig.beam.setMatrixAt(beams,_spotMatrix);
+   rig.beam.setColorAt(beams,node.color);
+   beams++;
+   if(groundHit){
+     _spotTarget.copy(_spotPos).addScaledVector(_spotDir,groundT);
+     _spotTarget.y=FAKE_POOL_GROUND_Y;
+     _spotScale.set(radius*1.05,radius*1.05,1);
+     _spotMatrix.compose(_spotTarget,_poolQuat,_spotScale);
+     rig.pool.setMatrixAt(pools,_spotMatrix);
+     rig.pool.setColorAt(pools,node.color);
+     pools++;
+   }
+ }
+ rig.beam.count=beams;rig.pool.count=pools;
+ for(const mesh of [rig.beam,rig.pool]){
+   if(!mesh.count)continue;
+   mesh.instanceMatrix.needsUpdate=true;
+   if(mesh.instanceColor)mesh.instanceColor.needsUpdate=true;
+ }
 }
-
 export function createScenePostprocessor(renderer,scene,camera){
  let composer=null,bloom=null,enabled=false,width=1,height=1,pixelRatio=renderer.getPixelRatio();
  function syncPixelRatio(){
