@@ -127,7 +127,10 @@ function fakeSpotRig(scene){
  // its polygons. All decals share one batched additive shader draw call.
  const poolMaterial=new THREE.ShaderMaterial({
    transparent:true,depthTest:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending,
-   polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2,
+   // Geometry already sits FAKE_POOL_DECAL_LIFT above its receiver. A screen-
+   // space polygon offset grows in world units with camera distance/slope and
+   // pulls buried base-ground decals through raised roads, producing wipes.
+   // Use only the fixed normal lift so opaque surfaces retain real occlusion.
    vertexShader:`attribute vec3 color;varying vec2 vUv;varying vec3 vColor;void main(){vUv=uv;vColor=color;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
    fragmentShader:`varying vec2 vUv;varying vec3 vColor;void main(){float r=length(vUv-.5)*2.;float a=pow(max(0.,1.-r*r),2.5);gl_FragColor=vec4(vColor,a*.16);}`
  });
@@ -358,6 +361,8 @@ function updateFakeSpots(scene,faked,activeRoot,showBeams=true){
    }
  }
  rig.beam.count=beams;
+ // A zero-count beam may not yet have instanceColor; do not compile/draw it.
+ rig.beam.visible=beams>0;
  if(beams){
    rig.beam.instanceMatrix.needsUpdate=true;
    if(rig.beam.instanceColor)rig.beam.instanceColor.needsUpdate=true;

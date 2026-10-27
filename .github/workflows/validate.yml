@@ -46,6 +46,11 @@ jobs:
         run: |
           npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/three" three@0.166.1
           THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" node --test tests/three_primitive_world.mjs tests/test_array_prototype.mjs
+      - name: Render fake spotlight depth regression in WebGL
+        run: |
+          npm install --no-save --no-audit --no-fund --prefix "$RUNNER_TEMP/browser" playwright@1.58.2
+          node "$RUNNER_TEMP/browser/node_modules/playwright/cli.js" install --with-deps chromium --only-shell
+          THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/light-pool-depth.mjs
       - name: Validate timeline and model assets
         run: |
           python tests/test_workspace.py
