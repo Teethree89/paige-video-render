@@ -119,7 +119,7 @@ const _spotPos=new THREE.Vector3(),_spotTarget=new THREE.Vector3(),_spotDir=new 
 const _spotQuat=new THREE.Quaternion(),_spotMatrix=new THREE.Matrix4(),_spotScale=new THREE.Vector3();
 const _spotUp=new THREE.Vector3(0,-1,0);
 const FAKE_BEAM_MAX_LENGTH=12,FAKE_POOL_GROUND_Y=.08;
-const FAKE_POOL_RINGS=7,FAKE_POOL_SEGMENTS=24;
+const FAKE_POOL_RINGS=12,FAKE_POOL_SEGMENTS=48;
 const FAKE_POOL_VERTICES=1+FAKE_POOL_RINGS*FAKE_POOL_SEGMENTS;
 
 const _fakeGroundMeshes=new WeakMap(),_fakeGroundHits=new WeakMap(),_fakePoolPatches=new WeakMap();

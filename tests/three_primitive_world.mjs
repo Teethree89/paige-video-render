@@ -1058,9 +1058,9 @@ test('one shader ground pool conforms to multiple surface elevations inside a si
    const pos=pool.geometry.getAttribute('position');
    const uv=pool.geometry.getAttribute('uv');
    const color=pool.geometry.getAttribute('color');
-   assert.equal(pos.count,1+7*24,'one center plus seven radial rings');
+   assert.equal(pos.count,1+12*48,'one center plus twelve radial rings');
    assert.equal(uv.count,pos.count);assert.equal(color.count,pos.count);
-   assert.ok(pos.count<200,'grid is lightweight enough for repeated arrays');
+   assert.ok(pos.count<600,'12x48 grid remains bounded for repeated arrays');
    const left=[],right=[];
    for(let i=0;i<pos.count;i++){
      if(pos.getX(i)<-1)left.push(pos.getY(i));
