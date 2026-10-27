@@ -42,7 +42,8 @@ export function applyShotEffects(scene,renderer,effects,{
  // Separate procedural studio lighting from authored punctual lights.
  // Keep the previous visibility state for reversible, chapter-local overrides.
  const allowed=node=>{
-   if(!profile.lights.enabled)return false;
+   if(!profile.lights.enabled||node.userData.authoredVisible===false||
+       node.userData.editorIsolationHidden)return false;
    if(!node.userData.primitiveLight)return profile.lights.studio;
    const type=node.userData.primitiveLight;
    return profile.lights[type]!==false;
@@ -60,7 +61,11 @@ export function applyShotEffects(scene,renderer,effects,{
  scene.traverse(node=>{
    if(!node.isLight)return;
    let fakeSpot=false;
-   if(activeRoot&&isActiveNode(node)&&node.isSpotLight
+   // Hidden layer, assembly or child light must never spawn a fake beam.
+   let hierarchyVisible=true;
+   for(let ancestor=node.parent;ancestor;ancestor=ancestor.parent)
+     if(!ancestor.visible){hierarchyVisible=false;break;}
+   if(activeRoot&&isActiveNode(node)&&hierarchyVisible&&allowed(node)&&node.isSpotLight
        &&node.userData.primitiveLight==='spot'&&profile.lights.enabled&&profile.lights.spot){
      fakeSpot=profile.lights.spotMode==='fake'
        ||(profile.lights.spotMode==='hybrid'&&cameraPosition
@@ -164,6 +169,9 @@ function fakeGroundSurfaces(root){
  root.traverse(node=>{
    if(!node.isMesh||node.isInstancedMesh||node.userData.previewSource||
        node.userData.layer!=='ground'||!node.geometry)return;
+   // Exclude hidden/interactively isolated surfaces from ground receivers.
+   for(let ancestor=node;ancestor&&ancestor!==root;ancestor=ancestor.parent)
+     if(!ancestor.visible)return;
    if(!node.geometry.boundingBox)node.geometry.computeBoundingBox();
    const bounds=node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld);
    surfaces.push({node,bounds});
@@ -345,7 +353,8 @@ function updateFakeSpots(scene,faked,activeRoot,showBeams=true){
      beams++;
    }
    if(poolGroundHit){
-     poolPatches.push({node,patch:fakePoolPatch(activeRoot,node,_spotPos,_spotDir,poolRange)});
+     const patch=fakePoolPatch(activeRoot,node,_spotPos,_spotDir,poolRange);
+     if(patch.indices.length)poolPatches.push({node,patch});
    }
  }
  rig.beam.count=beams;
