@@ -1234,6 +1234,8 @@ test('saved layer/object/assembly-part eye toggles and transient isolate preserv
    assert.deepEqual(world.getIsolation('visibility'),isoPart);
    assert.equal(ground.visible,false);
    assert.equal(mainLight.visible,false);
+   assert.equal(world.getLightMarker('visibility','main').visible,false,
+     'isolating an array light hides excluded chapter light handles');
    assert.ok(arrayLights.every(n=>n.visible),'all instances of isolated component remain');
    assert.ok(heads.every(n=>n.visible===false),'non-target parts disappear under isolate');
    const exportRoot=world.getSceneForExport('visibility');

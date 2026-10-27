@@ -453,6 +453,12 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
       node.userData.authoredVisible=spec?.visible!==false&&entry.layerVisibility?.lights!==false;
       node.userData.editorIsolationHidden=!allowed;
       node.visible=node.userData.authoredVisible&&allowed;
+      const marker=lightMarkers.get(shotId)?.get(id);
+      const target=lightTargets.get(shotId)?.get(id);
+      const guide=lightGuides.get(shotId)?.get(id);
+      if(marker)marker.visible=node.visible;
+      if(target)target.visible=node.visible;
+      if(guide){guide.line.visible=node.visible;guide.arrow.visible=node.visible;}
     }
     // Refresh spotlight decals whenever visibility/isolation changes.
     root.userData.fakeGroundVersion=(root.userData.fakeGroundVersion||0)+1;
@@ -557,7 +563,7 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
       positions.setXYZ(0,source.position.x,source.position.y,source.position.z);
       positions.setXYZ(1,target.position.x,target.position.y,target.position.z);
       positions.needsUpdate=true;
-      if(length<.01){arrow.visible=false;continue;}
+      if(!source.visible||!target.visible||length<.01){arrow.visible=false;continue;}
       arrow.visible=true;
       arrow.position.copy(source.position).addScaledVector(_delta,.82);
       arrow.quaternion.setFromUnitVectors(up,_delta.normalize());
