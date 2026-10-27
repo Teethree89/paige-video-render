@@ -1033,15 +1033,15 @@ test('fake spotlight pools sit above actual front and raised right road surfaces
    const beam=rig.children.find(o=>o.isInstancedMesh&&o.geometry.type==='ConeGeometry');
    assert.equal(pool.userData.fakePoolCount,2);assert.equal(beam.count,2);
    const positions=pool.geometry.getAttribute('position');
-   const firstRoadHeight=frontRoad.position[1]+frontRoad.scale[1]/2+.008;
-   const secondRoadHeight=rightRoad.position[1]+rightRoad.scale[1]/2+.008;
+   const firstRoadHeight=frontRoad.position[1]+frontRoad.scale[1]/2+.010;
+   const secondRoadHeight=rightRoad.position[1]+rightRoad.scale[1]/2+.010;
    const heights=Array.from({length:positions.count},(_,i)=>positions.getY(i));
    assert.ok(heights.some(y=>Math.abs(y-firstRoadHeight)<.002));
    assert.ok(heights.some(y=>Math.abs(y-secondRoadHeight)<.002));
    const frontY=firstRoadHeight,rightY=secondRoadHeight;
-   assert.ok(Math.abs(frontY-(frontRoad.position[1]+frontRoad.scale[1]/2+.008))<.001,
+   assert.ok(Math.abs(frontY-(frontRoad.position[1]+frontRoad.scale[1]/2+.010))<.001,
      'front pool should sit just above its pavement');
-   assert.ok(Math.abs(rightY-(rightRoad.position[1]+rightRoad.scale[1]/2+.008))<.001,
+   assert.ok(Math.abs(rightY-(rightRoad.position[1]+rightRoad.scale[1]/2+.010))<.001,
      'right pool should sit just above its raised pavement');
    assert.ok(rightY>frontY+.1,'different road elevations must not share a pool plane');
  }finally{world.dispose();}
@@ -1074,8 +1074,8 @@ test('fake spotlight decals clip to raised ground surfaces without spanning curb
    assert.ok(pos.count>0);
    assert.equal(uv.count,pos.count);assert.equal(color.count,pos.count);
    assert.ok(pos.count<2000,'decal geometry stays bounded for repeated streetlights');
-   const lowerTop=lower.position[1]+lower.scale[1]/2+.008;
-   const upperTop=upper.position[1]+upper.scale[1]/2+.008;
+   const lowerTop=lower.position[1]+lower.scale[1]/2+.010;
+   const upperTop=upper.position[1]+upper.scale[1]/2+.010;
    const left=[],right=[];
    for(let i=0;i<pos.count;i++){
      if(pos.getX(i)<-1)left.push(pos.getY(i));

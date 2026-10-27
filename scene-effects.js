@@ -1,6 +1,7 @@
 // Shared browser preview/video visual pipeline. The scene document stores
 // only safe fog/bloom/tonal settings; no generated shader code is permitted.
 import * as THREE from 'three';
+import {millimetersToSceneUnits,FAKE_SPOTLIGHT_DECAL_LIFT_MM,FAKE_SPOTLIGHT_OCCLUDED_LIFT_MM} from './scene-units.js';
 import {DecalGeometry} from 'three/addons/geometries/DecalGeometry.js';
 import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
 import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
@@ -149,7 +150,8 @@ const FAKE_BEAM_MAX_LENGTH=12,FAKE_POOL_GROUND_Y=.08;
 // Pool illumination follows the authored light's range, independently from
 // the atmospheric cone's intentionally short 12-unit visible beam.
 const FAKE_POOL_MAX_DISTANCE=48;
-const FAKE_POOL_DECAL_LIFT=.008;
+const FAKE_POOL_DECAL_LIFT=millimetersToSceneUnits(FAKE_SPOTLIGHT_DECAL_LIFT_MM);
+const FAKE_POOL_OCCLUDED_LIFT=millimetersToSceneUnits(FAKE_SPOTLIGHT_OCCLUDED_LIFT_MM);
 const _fakePoolProjectorOrientation=new THREE.Euler(-Math.PI/2,0,0);
 const _fakePoolProjectorSize=new THREE.Vector3();
 const _fakePoolProjectorPosition=new THREE.Vector3();
@@ -236,6 +238,17 @@ function fakePoolPatch(root,node,origin,direction,maxLength){
    const x=_fakePoolProjectorPosition.x,z=_fakePoolProjectorPosition.z;
    if(bounds.max.x<x-radius||bounds.min.x>x+radius||
       bounds.max.z<z-radius||bounds.min.z>z+radius)continue;
+   // Exposed terrain receives the nominal 10 mm normal lift. A buried lower
+   // receiver keeps the previous WebGL-tested 8 mm lift: extreme near=.01
+   // perspective depth precision can otherwise show its decal THROUGH an
+   // upper road. The classification is cached with generated patch geometry.
+   const topY=groundHeightAt(root,null,x,z,origin.y);
+   _fakeGroundOrigin.set(x,origin.y+.1,z);
+   _fakeGroundRay.set(_fakeGroundOrigin,_fakeGroundDown);
+   const ownHit=_fakeGroundRay.intersectObject(surface,false)
+     .find(hit=>hit.point.y<=origin.y+.01);
+   const decalLift=ownHit&&topY!==null&&topY-ownHit.point.y>.05
+     ?FAKE_POOL_OCCLUDED_LIFT:FAKE_POOL_DECAL_LIFT;
    // Clip against real surface triangles instead of trying to bend a pool
    // mesh across raised road edges. Reject sides and undersides after clipping.
    _fakePoolProjectorSize.set(
@@ -260,9 +273,9 @@ function fakePoolPatch(root,node,origin,direction,maxLength){
        // Offset along the polygon normal, not vertical Y. This prevents
        // camera-distance z-fighting on sloped ground without pulling the
        // decal through neighbouring raised surfaces.
-       vertices.push(positions.getX(i)+normals.getX(i)*FAKE_POOL_DECAL_LIFT,
-         positions.getY(i)+normals.getY(i)*FAKE_POOL_DECAL_LIFT,
-         positions.getZ(i)+normals.getZ(i)*FAKE_POOL_DECAL_LIFT);
+       vertices.push(positions.getX(i)+normals.getX(i)*decalLift,
+         positions.getY(i)+normals.getY(i)*decalLift,
+         positions.getZ(i)+normals.getZ(i)*decalLift);
        uvs.push(texcoords.getX(i),texcoords.getY(i));
        colors.push(node.color.r,node.color.g,node.color.b);
        indices.push(indices.length);

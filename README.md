@@ -39,6 +39,10 @@ The GitHub Actions secret `zen_api` is used by a **private runner-side workflow*
 
 This is a first one-chapter *backend integration test*, not one-click inference for arbitrary browser-uploaded videos. The initial live tests were **blocked by Zen's FREE_TIER_CLIENT_RESTRICTION (403)**, so no AI scene has been generated yet. The original scene and timeline remain safe, and no API key is embedded in public JavaScript. See [setup, privacy and limitations](docs/ZEN_AI_SCENE_PROTOTYPE.md).
 
+## Scene scale standard
+
+**1 scene unit = 1 meter** in render space. See [scene-units.js](scene-units.js) and the [format reference](docs/PRIMITIVE_SCENE_FORMAT.md#world-scale-and-millimeter-effects). Models are not automatically rescaled; stylized technical scenes may depict much smaller physical objects at exaggerated visual scales. Spotlight decals use a 10 mm normal lift on exposed ground, with a depth-tested 8 mm safeguard for buried receivers.
+
 ## Phase 2 — editable 3D primitive scenes
 
 **The first primitive-building stage is manual and data-driven, not AI-assisted.** Use **Video → timeline** to import and segment a source video. After selecting **Use in editor**, click a shot in the timeline and expand **3D Primitive Scene Editor** under Project settings. Choose **Example room** to get a visible blockout, or add your own box, cylinder, sphere, plane or torus.
