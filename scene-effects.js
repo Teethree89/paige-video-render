@@ -116,8 +116,12 @@ function updateFakeSpots(scene,camera,profile){
  rig.beam.count=rig.pool.count=fake.length;
  fake.forEach((node,i)=>{
    node.getWorldPosition(_spotPos);
-   node.getWorldDirection(_spotDir);
-   const length=Math.min(node.distance||24,60);
+   // SpotLight shines along local -Z toward its target. Object3D.getWorldDirection
+   // reports +Z, so reverse it or the fake beam points away from the scene.
+   node.getWorldDirection(_spotDir).negate();
+   // The authored distance controls illumination falloff, not the visible
+   // atmospheric beam length. Keep the fake cone local to the fixture.
+   const length=Math.min(node.distance||12,12);
    const radius=Math.tan(node.angle)*length;
    _spotQuat.setFromUnitVectors(_spotUp,_spotDir);
    _spotScale.set(radius,length,radius);
