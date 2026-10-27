@@ -290,8 +290,10 @@ test('spotlight fake cone opacity defaults to full, is bounded and round-trips i
    {...makePrimitive('box','lamp'),arrayParts:{objects:[],lights:[source]}}
  ],lights:[source]}]};
  const existing=validatePrimitiveDocument(document,['shot']).scenes[0];
- assert.equal(existing.lights[0].fakeConeOpacity,1);
- assert.equal(existing.objects[0].arrayParts.lights[0].fakeConeOpacity,1);
+ assert.equal('fakeConeOpacity' in existing.lights[0],false,
+   'legacy punctual spots keep their original JSON');
+ assert.equal('fakeConeOpacity' in existing.objects[0].arrayParts.lights[0],false,
+   'legacy array lights keep their original JSON');
  for(const value of [0,.13,1]){
    document.scenes[0].lights[0].fakeConeOpacity=value;
    document.scenes[0].objects[0].arrayParts.lights[0].fakeConeOpacity=value;

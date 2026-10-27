@@ -111,8 +111,10 @@ const sceneLights=(value,shotId)=>{
       out.angle=light.angle==null?.6:finite(light.angle,label+' angle',.05,1.5);
       out.penumbra=light.penumbra==null?.3:finite(light.penumbra,label+' penumbra',0,1);
       // Optional rendering-only fake cone opacity, 1 matches the old beam.
-      out.fakeConeOpacity=light.fakeConeOpacity==null?1:
-        finite(light.fakeConeOpacity,label+' fake cone opacity',0,1);
+      // Missing opacity is intentionally omitted from saved legacy JSON;
+      // runtime fallback of 1 keeps the exact previous beam brightness.
+      if(light.fakeConeOpacity!==undefined)
+        out.fakeConeOpacity=finite(light.fakeConeOpacity,label+' fake cone opacity',0,1);
     }
     return out;
   });
