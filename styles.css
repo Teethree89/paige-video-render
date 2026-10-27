@@ -542,3 +542,6 @@ html,body{font-size:14px}
 .primitive-tree-child-row{display:flex;align-items:center;gap:3px;min-width:0;padding-right:3px}
 .primitive-tree-child-row>.primitive-tree-child{flex:1;width:auto;min-width:0;padding-left:52px}
 .primitive-tree-child-row>.primitive-tree-visibility,.primitive-tree-child-row>.primitive-tree-isolate{flex:0 0 25px}
+
+/* Flexbox field labels must respect conditional spotlight visibility. */
+.primitive-light-editor #primitiveLightFields [hidden]{display:none!important}
