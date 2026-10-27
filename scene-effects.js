@@ -169,6 +169,9 @@ function fakeGroundSurfaces(root){
  root.traverse(node=>{
    if(!node.isMesh||node.isInstancedMesh||node.userData.previewSource||
        node.userData.layer!=='ground'||!node.geometry)return;
+   // Exclude hidden/interactively isolated surfaces from ground receivers.
+   for(let ancestor=node;ancestor&&ancestor!==root;ancestor=ancestor.parent)
+     if(!ancestor.visible)return;
    if(!node.geometry.boundingBox)node.geometry.computeBoundingBox();
    const bounds=node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld);
    surfaces.push({node,bounds});

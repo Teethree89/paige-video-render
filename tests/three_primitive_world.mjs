@@ -1265,3 +1265,31 @@ test('saved layer/object/assembly-part eye toggles and transient isolate preserv
    assert.ok(!rig||rig.beam?.count===0,'hidden authored streetlights create no fake beams');
  }finally{world.dispose();}
 });
+
+test('hidden/isolate ground is not pickable or a fake spotlight decal receiver',async()=>{
+ const {applyShotEffects}=await import('../scene-effects.js');
+ const scene=new THREE.Scene(),world=createPrimitiveWorld(scene,{batchRepeats:true});
+ const road=unit('road','box',{name:'Road',layer:'ground',position:[0,0,0],scale:[24,.2,24]});
+ const light={id:'lamp',type:'spot',name:'Lamp',color:'#ffddaa',
+   intensity:120,position:[0,8,0],target:[0,0,0],distance:25,angle:.6,penumbra:.2};
+ const renderer={toneMappingExposure:1,shadowMap:{enabled:false}};
+ const camera=new THREE.PerspectiveCamera();
+ const fx={shadows:{enabled:false},lights:{enabled:true,spot:true,spotMode:'fake'}};
+ try{
+   world.setDocument({schemaVersion:1,scenes:[{shotId:'test',objects:[road],lights:[light]}]},['test']);
+   world.showShot('test');
+   assert.ok(world.getPickableMeshes('test').some(n=>n.userData.primitiveId==='road'));
+   applyShotEffects(scene,renderer,fx,{shotId:'test',camera});
+   const pool=scene.getObjectByName('Runtime_fake_spotlights')
+     .getObjectByName('Fake spotlight ground pools');
+   assert.equal(pool.visible,true);
+   world.setIsolation('test',{kind:'light',id:'lamp'});
+   assert.equal(world.getPickableMeshes('test').length,0,
+     'hiding ground prevents picking its surface');
+   applyShotEffects(scene,renderer,fx,{shotId:'test',camera});
+   assert.equal(pool.visible,false,'hidden ground gets no fake-light decal');
+   world.setIsolation('test',null);
+   applyShotEffects(scene,renderer,fx,{shotId:'test',camera});
+   assert.equal(pool.visible,true,'restoring ground rebuilds its decal');
+ }finally{world.dispose();}
+});

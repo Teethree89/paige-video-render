@@ -454,6 +454,8 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
       node.userData.editorIsolationHidden=!allowed;
       node.visible=node.userData.authoredVisible&&allowed;
     }
+    // Refresh spotlight decals whenever visibility/isolation changes.
+    root.userData.fakeGroundVersion=(root.userData.fakeGroundVersion||0)+1;
     invalidateShadows(shotId);
   }
   function setIsolation(shotId,next){
@@ -572,7 +574,15 @@ export function createPrimitiveWorld(scene,{batchRepeats=false}={}) {
   }
   function getPickableMeshes(shotId){
     const root=groups.get(shotId),meshes=[];
-    root?.traverse(node=>{if(node.isMesh&&node.userData.primitiveId)meshes.push(node);});
+    root?.traverse(node=>{
+      if(!node.isMesh||!node.userData.primitiveId||
+          node.userData.authoredVisible===false||node.userData.editorIsolationHidden)return;
+      // Instanced preview sources are invisible on purpose, but pickable.
+      if(!node.visible&&!node.userData.previewSource)return;
+      for(let ancestor=node.parent;ancestor&&ancestor!==root;ancestor=ancestor.parent)
+        if(!ancestor.visible)return;
+      meshes.push(node);
+    });
     if(markersEnabled){
       meshes.push(...(lightMarkers.get(shotId)?.values()||[]));
       meshes.push(...(lightTargets.get(shotId)?.values()||[]));
