@@ -2,6 +2,7 @@ import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {blankPrimitiveDocument,validatePrimitiveDocument,makePrimitive,makeExampleBlockout,
   radiansToDegrees,degreesToRadians,lightCastsShadow,applySpotlightSettingsGlobally} from './primitive-schema.js';
 import {insertCreatedAsset} from './scene-asset-catalog.js';
+import {spotlightFieldVisibility} from './spotlight-controls.js';
 
 const el=id=>document.getElementById(id);
 function download(content,filename,mime='application/json'){
@@ -327,6 +328,20 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       el('primitiveLightColor').value=chosen.color;
       el('primitiveLightIntensity').value=chosen.intensity;
       el('primitiveLightIntensity').max=chosen.type==='directional'?10:500;
+      const spotMode=entry?.effects?.lights?.spotMode||'real';
+      const controls=spotlightFieldVisibility(chosen.type,spotMode);
+      for(const [id,visible] of [
+        ['primitiveLightIntensityWrap',controls.intensity],
+        ['primitiveLightShadowWrap',controls.shadows],
+        ['primitiveLightShadowStatus',controls.shadows],
+        ['primitiveLightPenumbraWrap',controls.penumbra],
+        ['primitiveLightFakeConeOpacityWrap',controls.fakeConeOpacity]
+      ]){
+        const field=el(id);
+        if(field)field.hidden=!visible;
+      }
+      const fakeHelp=el('primitiveLightModeHelp');
+      if(fakeHelp)fakeHelp.hidden=!(chosen.type==='spot'&&spotMode==='fake');
       el('primitiveLightCastShadow').checked=lightCastsShadow(chosen);
       const shadowStatus=el('primitiveLightShadowStatus');
       if(shadowStatus)shadowStatus.textContent=lightCastsShadow(chosen)&&

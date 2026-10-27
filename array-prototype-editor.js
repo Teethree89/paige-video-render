@@ -6,6 +6,7 @@ import {CREATE_CATEGORIES,insertCreatedAsset} from './scene-asset-catalog.js';
 import {findMatchingArrays,findArrayCompanions,saveArrayPrototype,arrayGroupKey} from './array-prototype.js';
 import {repeatOffsets,radiansToDegrees,degreesToRadians,lightCastsShadow,validateSceneEffects,validatePrimitiveDocument,applySpotlightSettingsGlobally} from './primitive-schema.js';
 import {DEFAULT_EFFECTS,applyShotEffects,setFakeSpotPreviewGround} from './scene-effects.js';
+import {spotlightFieldVisibility} from './spotlight-controls.js';
 import {listAssemblyTemplates,replaceAssemblyContents,saveAssemblyHierarchy,editableAssembly}
   from './array-assembly-templates.js';
 
@@ -122,7 +123,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    if(!draft||!['real','fake','hybrid'].includes(spotModeSelect.value))return;
    spotMode=spotModeSelect.value;
    previewEffects.lights.spotMode=spotMode;
-   rerender();
+   refreshFields();rerender();
  });
  let sourceTemplates=[],beforeTemplate=null,hoverOutlines=[];
  const originalRoot=()=>source?.scenes?.find(s=>s.shotId===shotId)?.objects.find(o=>o.id===objectId);
@@ -399,18 +400,26 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const typeField=makeEl('label','Light type',{class:'array-property'});
      typeField.append(select);fields.append(typeField);
      property('Light color',item.color,v=>item.color=v,{type:'color'});
-     property('Intensity',item.intensity,v=>item.intensity=v,{min:0,max:item.type==='directional'?10:500});
-     property('Cast shadows',lightCastsShadow(item),v=>item.castShadow=v,{type:'checkbox'});
-     fields.append(makeEl('p','Turning shadows off keeps the light on. This setting applies to all copies; up to 4 lights cast shadows per chapter.'));
+     const controls=spotlightFieldVisibility(item.type,spotMode);
+     if(controls.intensity)
+       property('Intensity',item.intensity,v=>item.intensity=v,{min:0,max:item.type==='directional'?10:500});
+     if(controls.shadows){
+       property('Cast shadows',lightCastsShadow(item),v=>item.castShadow=v,{type:'checkbox'});
+       fields.append(makeEl('p','Turning shadows off keeps the light on. This setting applies to all copies; up to 4 lights cast shadows per chapter.'));
+     }
+     if(item.type==='spot'&&spotMode==='fake')
+       fields.append(makeEl('p','Fake mode draws a cone and ground pool, without real illumination or shadows. Real-light settings are preserved for switching modes.'));
      xyz('Source XYZ',item.position,v=>item.position=v);
      if(item.type!=='point')xyz('Aim XYZ',item.target,v=>item.target=v);
      if(item.type!=='directional')property('Range',item.distance||0,v=>item.distance=v,{min:0,max:1000});
      if(item.type==='spot'){
        property('Cone angle (°)',item.angle,v=>item.angle=v,
          {type:'degrees',min:.05,max:1.5});
-       property('Penumbra',item.penumbra,v=>item.penumbra=v,{min:0,max:1});
-       property('Fake cone opacity (%)',(item.fakeConeOpacity??1)*100,
-         v=>item.fakeConeOpacity=v/100,{step:'1',min:0,max:100});
+       if(controls.penumbra)
+         property('Penumbra',item.penumbra,v=>item.penumbra=v,{min:0,max:1});
+       if(controls.fakeConeOpacity)
+         property('Fake cone opacity (%)',(item.fakeConeOpacity??1)*100,
+           v=>item.fakeConeOpacity=v/100,{step:'1',min:0,max:100});
        const global=makeEl('button','Apply globally to chapter spotlights',{class:'wide secondary'});
        global.type='button';global.title='Stage chapter-wide spotlight settings for Save';
        global.addEventListener('click',()=>{
