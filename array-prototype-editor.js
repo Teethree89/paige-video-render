@@ -225,6 +225,10 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      const doc=previewDocument();
      clearOutlinerHighlight();transform.detach();
      world.setDocument(doc,[sampleShot]);world.showShot(sampleShot);
+     // The mini-editor's floor is outside the authored assembly, but is a
+     // valid decal receiver for this preview only (never saved/exported).
+     const previewRoot=scene.children.find(node=>node.userData.shotId===sampleShot);
+     if(previewRoot)previewRoot.userData.fakeSpotPreviewGround=floor;
      addPreviewLightHandles();
      if(refit){
        const bounds=world.getBounds(sampleShot);
@@ -401,6 +405,8 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
        property('Cone angle (°)',item.angle,v=>item.angle=v,
          {type:'degrees',min:.05,max:1.5});
        property('Penumbra',item.penumbra,v=>item.penumbra=v,{min:0,max:1});
+       property('Fake cone opacity (%)',(item.fakeConeOpacity??1)*100,
+         v=>item.fakeConeOpacity=v/100,{step:'1',min:0,max:100});
      }
    }
    const deleteButton=byId('arrayEditDeletePart');

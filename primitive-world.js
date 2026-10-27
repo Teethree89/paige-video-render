@@ -54,6 +54,7 @@ const light = (spec,castShadow=false,cacheShadow=false) => {
     :new THREE.PointLight(color,spec.intensity,spec.distance);
   node.name=spec.name;
   node.userData.primitiveLight=spec.type;
+  if(spec.type==='spot')node.userData.fakeConeOpacity=spec.fakeConeOpacity??1;
   node.userData.authoredVisible=spec.visible!==false;
   node.visible=spec.visible!==false;
   // Keep the authored choice in GLB extras even if the chapter shadow budget

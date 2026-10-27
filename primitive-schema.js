@@ -110,6 +110,9 @@ const sceneLights=(value,shotId)=>{
     if(light.type==='spot'){
       out.angle=light.angle==null?.6:finite(light.angle,label+' angle',.05,1.5);
       out.penumbra=light.penumbra==null?.3:finite(light.penumbra,label+' penumbra',0,1);
+      // Optional rendering-only fake cone opacity, 1 matches the old beam.
+      out.fakeConeOpacity=light.fakeConeOpacity==null?1:
+        finite(light.fakeConeOpacity,label+' fake cone opacity',0,1);
     }
     return out;
   });
