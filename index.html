@@ -175,7 +175,7 @@
             <button id="primitiveAdd" class="secondary" type="button">+ Add primitive</button>
             <button id="primitiveExample" class="ghost" type="button">Example room</button>
           </div>
-          <label class="field">Show objects from layer
+          <label class="field" hidden>Legacy layer filter
             <select id="primitiveLayerFilter">
               <option value="all">All layers</option>
               <option value="structures">Buildings &amp; structures</option>
@@ -185,7 +185,10 @@
               <option value="manual">Manual shapes</option>
             </select>
           </label>
-          <label class="field">Objects in current shot
+          <div class="section-label">SCENE OUTLINER</div>
+          <p class="field-help">Expand layers and assemblies, click to select; double-click an assembly to edit its parts.</p>
+          <div id="primitiveSceneOutliner" class="array-outliner primitive-scene-outliner" role="tree" aria-label="Chapter hierarchy"></div>
+          <label class="field" hidden>Legacy object picker
             <select id="primitiveObjectSelect"><option value="">No objects yet</option></select>
           </label>
           <div id="primitiveFields" hidden>
@@ -500,6 +503,16 @@
           <p id="arrayEditTemplateStatus" class="field-help array-template-status" role="status" aria-live="polite">Choose an assembly to preview its contents.</p>
           <p class="field-help">Swaps every mesh and light, preserving this parent's XYZ position, rotation, array count and spacing. Nothing changes in the live scene until Save.</p>
           <button id="arrayEditUndoTemplate" type="button" class="wide ghost" hidden>Undo replacement preview</button>
+          <div class="divider"></div>
+          <div class="section-label">CHAPTER SPOTLIGHTS</div>
+          <label class="field">Spotlight rendering · shared chapter setting
+            <select id="arrayEditSpotMode">
+              <option value="real">Real · accurate, slower</option>
+              <option value="fake">Fake · fast beams and ground decals</option>
+              <option value="hybrid">Hybrid · near real, far fake</option>
+            </select>
+          </label>
+          <p class="field-help">Preview updates here; Save applies to chapter and Cancel discards.</p>
           <div class="divider"></div>
           <div class="section-label">SCENE OUTLINER</div>
           <p class="field-help">Select a parent or child to edit. Rename inline, reorder with arrows or drag the rows, and hover to highlight geometry. Children move individually with the 3D gizmo.</p>

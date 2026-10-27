@@ -494,3 +494,30 @@ html,body{font-size:14px}
 .render-stats-foot{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #315064;padding-top:6px;color:#8ba9b9;font-size:9px}
 .render-stats-foot button{border:1px solid #41677b;border-radius:4px;padding:3px 5px;background:#172e3c;color:#b9e7e6;font:inherit;cursor:pointer}
 @media(max-width:680px){.render-diagnostics{bottom:50px;right:7px;width:220px}.render-stats-grid{font-size:9px}}
+
+/* Surface layout for XYZ triples: labels never stretch beyond the mini sidebar. */
+.array-editor-controls .array-xyz{min-width:0;width:100%;box-sizing:border-box}
+.array-editor-controls .array-xyz-title{display:block;margin-bottom:6px;line-height:1.4;overflow-wrap:anywhere}
+.array-editor-controls .array-xyz-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;width:100%;min-width:0}
+.array-editor-controls .array-xyz-grid label{display:flex;flex-direction:column;min-width:0;width:100%;margin:0;gap:5px}
+.array-editor-controls .array-xyz-grid input{box-sizing:border-box;display:block;width:100%;min-width:0;max-width:100%;padding:7px 6px;font-variant-numeric:tabular-nums}
+/* Blender-like chapter outliner, using the mini editor's row styling. */
+.primitive-scene-outliner{max-height:350px;margin:9px 0 16px}
+.primitive-tree-layer{min-width:0}
+.primitive-tree-group{display:block;width:100%;text-align:left;border:0;background:#172b39;color:#bde6ea;font-size:11px;font-weight:700;padding:8px 10px;border-radius:4px;cursor:pointer}
+.primitive-tree-group:hover{background:#244c5c}
+.primitive-tree-row{gap:5px;min-width:0;padding-left:13px}
+.primitive-tree-row[data-selected=true]{background:#244457;border-color:#5ba5ad}
+.primitive-tree-expand{flex:0 0 21px;padding:3px 2px;border:0;background:transparent;color:#9dcad3;cursor:pointer}
+.primitive-tree-expand:disabled{opacity:.35;cursor:default}
+.primitive-tree-pick{flex:1;min-width:0;padding:5px;text-align:left;background:transparent;color:#e0f0f3;border:0;cursor:pointer;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:11px}
+.primitive-tree-pick:hover,.primitive-tree-child:hover,.primitive-tree-light:hover{background:#22495a;color:white}
+.primitive-tree-child,.primitive-tree-light{display:block;box-sizing:border-box;width:100%;min-width:0;padding:5px 8px 5px 52px;text-align:left;border:0;border-radius:4px;background:transparent;color:#a8ccd4;font-size:11px;cursor:pointer;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.primitive-tree-light{padding-left:37px}
+.primitive-tree-light[data-selected=true]{background:#244457;color:#edffff;border:1px solid #5ba5ad}
+
+.primitive-tree-name{flex:1;box-sizing:border-box;min-width:0;width:100%;padding:5px 6px;background:transparent;color:#e0f0f3;border:1px solid transparent;border-radius:4px;font-size:11px}
+.primitive-tree-name:focus{background:#0b1a27;border-color:#75c9d0;outline:none}
+.primitive-tree-drag-handle{flex:0 0 14px;cursor:grab;color:#8eb8bf;font-size:12px;user-select:none}
+.primitive-tree-drag-handle:active{cursor:grabbing}
+.primitive-tree-row .primitive-tree-pick{flex:0 0 25px;width:25px;text-align:center;padding:4px 2px}
