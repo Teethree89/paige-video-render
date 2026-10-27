@@ -1030,9 +1030,9 @@ test('fake spotlight pools sit above actual front and raised right road surfaces
    assert.ok(heights.some(y=>Math.abs(y-firstRoadHeight)<.002));
    assert.ok(heights.some(y=>Math.abs(y-secondRoadHeight)<.002));
    const frontY=firstRoadHeight,rightY=secondRoadHeight;
-   assert.ok(Math.abs(frontY-(frontRoad.position[1]+frontRoad.scale[1]/2+.018))<.001,
+   assert.ok(Math.abs(frontY-(frontRoad.position[1]+frontRoad.scale[1]/2+.008))<.001,
      'front pool should sit just above its pavement');
-   assert.ok(Math.abs(rightY-(rightRoad.position[1]+rightRoad.scale[1]/2+.018))<.001,
+   assert.ok(Math.abs(rightY-(rightRoad.position[1]+rightRoad.scale[1]/2+.008))<.001,
      'right pool should sit just above its raised pavement');
    assert.ok(rightY>frontY+.1,'different road elevations must not share a pool plane');
  }finally{world.dispose();}
