@@ -261,8 +261,8 @@
                   <option value="spot">Spot</option><option value="directional">Directional</option></select>
               </label>
               <label class="field">Light color <input id="primitiveLightColor" type="color" value="#ffffff"></label>
-              <label class="field">Intensity <input id="primitiveLightIntensity" type="number" min="0" max="500" step="0.1"></label>
-              <label class="check-field"><input id="primitiveLightCastShadow" type="checkbox"> Cast shadows</label>
+              <label id="primitiveLightIntensityWrap" class="field">Intensity <input id="primitiveLightIntensity" type="number" min="0" max="500" step="0.1"></label>
+              <label id="primitiveLightShadowWrap" class="check-field"><input id="primitiveLightCastShadow" type="checkbox"> Cast shadows</label>
               <p id="primitiveLightShadowStatus" class="field-help" role="status"></p>
               <div class="input-group-title">Light position (x, y, z)</div>
               <div class="triple-input">
@@ -281,11 +281,12 @@
               <div id="primitiveLightSpotWrap">
                 <label class="field">Cone angle (degrees °)
                   <input id="primitiveLightAngle" type="number" min="2.865" max="85.944" step="1"></label>
-                <label class="field">Penumbra (0–1)
+                <label id="primitiveLightPenumbraWrap" class="field">Penumbra (0–1)
                   <input id="primitiveLightPenumbra" type="number" min="0" max="1" step="0.05"></label>
-                <label class="field">Fake cone opacity (%)
+                <label id="primitiveLightFakeConeOpacityWrap" class="field">Fake cone opacity (%)
                   <input id="primitiveLightFakeConeOpacity" type="number" min="0" max="100" step="1" value="100"></label>
-                <p class="field-help">Controls only the visible fake cone, not the ground pool. Penumbra softens real spotlight edges.</p>
+                <p class="field-help">Fake cone opacity controls the visible atmospheric beam, not its projected ground pool. Real/Hybrid intensity, penumbra, and shadows control the physically rendered spotlight.</p>
+                <p id="primitiveLightModeHelp" class="field-help" hidden>Fake mode draws an instanced cone and projected ground pool, without real illumination or shadows. Real-light settings are preserved for switching modes.</p>
                 <button id="primitiveLightApplyGlobally" type="button" class="wide secondary">Apply globally to chapter spotlights</button>
                 <p class="field-help">Copy color, intensity, range, angle, penumbra, fake cone opacity, and shadow settings to every spotlight (including arrays). Existing XYZ, aim, and names stay unchanged.</p>
               </div>
