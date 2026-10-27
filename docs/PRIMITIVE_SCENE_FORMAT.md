@@ -34,6 +34,14 @@ The existing project still runs from its original `timeline.json` and original G
 
 The standalone **Export JSON** button saves just `primitiveScenes`. Import JSON accepts this document directly or a timeline containing a `primitiveScenes` property. A source MP4 is not embedded in the JSON and must be retained separately.
 
+## World scale and millimeter effects
+
+**Rendering standard:** **1 Three.js scene unit = 1 meter**, so 0.01 units = 1 cm and 0.001 units = 1 mm. See [`scene-units.js`](../scene-units.js) for the authoritative constants and `millimetersToSceneUnits()` converter. Positions, sizes, array spacing, light distances, camera keys and geometry use this world-space convention. The application **does not rescale existing JSON or models** to enforce it.
+
+In the industrial exterior, authored dimensions are plausible at meter scale: a main hall ~134 × 15.6 × 78 units, Front Avenue 18 units wide, and streetlight poles ~8.4 units tall. Other scenes (e.g. an enlarged PCB visualization) are deliberately **not life-size**; their coordinates still use render-space units, but cannot be interpreted as the physical dimensions of the depicted object.
+
+Fake spotlight decals sit **10 mm (0.010 world units)** above ordinary exposed receivers, offset along the mesh surface normal. Where a lower ground surface is covered by higher terrain, its hidden decal uses **8 mm (0.008 world units)** to preserve verified depth occlusion at extreme near-camera settings. No `polygonOffset` is applied. The difference is internal rendering stabilization, not scene scaling. The fake volumetric beam length and decal projection range remain separate.
+
 ## Supported objects and properties
 
 Every object has `id`, `primitive`, `position`, `rotation` (radians, Euler XYZ), `scale` and `material` (`color` as `#RRGGBB`, `metalness` and `roughness` from 0 to 1); `name` and `layer` are optional. Before scale, every solid primitive fills a 1×1×1 cube centered on its position (a plane is flat, and a torus ring is about 1.08 across), so `scale` is its full size in world units (0.01 to 2,000 per axis, enough for a full scene's ground) and a part resting on the ground has `position[1] = scale[1]/2`.

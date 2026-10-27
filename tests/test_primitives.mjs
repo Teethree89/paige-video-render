@@ -236,3 +236,23 @@ test('degree-only editor controls round-trip exact quarter turns without rewriti
  assert.match(mini,/Rotation of each copy \(°\)/);
  assert.match(mini,/Local rotation \(°\)/);
 });
+
+test('render-space units standardize a meter and millimeter conversions',async()=>{
+ const {METERS_PER_SCENE_UNIT,MILLIMETERS_PER_METER,millimetersToSceneUnits,
+  FAKE_SPOTLIGHT_DECAL_LIFT_MM,FAKE_SPOTLIGHT_OCCLUDED_LIFT_MM}=await import('../scene-units.js');
+ assert.equal(METERS_PER_SCENE_UNIT,1);
+ assert.equal(MILLIMETERS_PER_METER,1000);
+ assert.equal(millimetersToSceneUnits(1000),1);
+ assert.equal(millimetersToSceneUnits(10),.01);
+ assert.equal(millimetersToSceneUnits(8),.008);
+ assert.equal(millimetersToSceneUnits(1),.001);
+ assert.equal(FAKE_SPOTLIGHT_DECAL_LIFT_MM,10);
+ assert.equal(FAKE_SPOTLIGHT_OCCLUDED_LIFT_MM,8);
+ assert.throws(()=>millimetersToSceneUnits(-1),/millimeters/);
+ assert.throws(()=>millimetersToSceneUnits(Infinity),/millimeters/);
+ assert.throws(()=>millimetersToSceneUnits('10'),/millimeters/);
+ const original=doc();
+ const result=validatePrimitiveDocument(original);
+ assert.deepEqual(result.scenes[0].objects[0].position,original.scenes[0].objects[0].position);
+ assert.deepEqual(result.scenes[0].objects[0].scale,original.scenes[0].objects[0].scale);
+});
