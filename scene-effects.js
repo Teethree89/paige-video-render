@@ -312,6 +312,9 @@ function updateFakeSpots(scene,faked,activeRoot){
    }
    const groundT=_spotDir.y<-.001?(_spotPos.y-surfaceY)/-_spotDir.y:Infinity;
    const groundHit=groundT>.05&&groundT<=maximum;
+   // The atmospheric beam has a short cap; its projected ground pool does not.
+   const poolRange=Math.min(node.distance>0?node.distance:32,FAKE_POOL_MAX_DISTANCE);
+   const poolGroundHit=groundT>.05&&groundT<=poolRange;
    const length=groundHit?groundT:maximum;
    if(length<=.05)continue;
    const radius=Math.tan(node.angle)*length;
@@ -321,10 +324,7 @@ function updateFakeSpots(scene,faked,activeRoot){
    rig.beam.setMatrixAt(beams,_spotMatrix);
    rig.beam.setColorAt(beams,node.color);
    beams++;
-   if(groundHit){
-     _spotTarget.copy(_spotPos).addScaledVector(_spotDir,groundT);
-     _spotTarget.y=surfaceY;
-     const poolRange=Math.min(node.distance>0?node.distance:32,FAKE_POOL_MAX_DISTANCE);
+   if(poolGroundHit){
      poolPatches.push({node,patch:fakePoolPatch(activeRoot,node,_spotPos,_spotDir,poolRange)});
    }
  }
