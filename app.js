@@ -639,6 +639,7 @@ function seek(t,opts={}){if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
  (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();acceptedCameraSync?.refresh?.();}
 function renderWorld(){requestViewportRender();const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
  world.update(playhead,shot.id,custom);
+ scene.userData.activeCamera=camera;
  const profile=applyShotEffects(scene,renderer,effectsForShot(sequence,shot.id),{review:!!reviewShotId});
  // Cached static shadow maps must be repainted after restoring master shadows.
  if(profile.shadows.enabled&&!lastShadowEnabled)primitiveWorld.invalidateShadows(shot.id);
