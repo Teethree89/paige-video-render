@@ -199,7 +199,7 @@ async function sampleVideo(reference,shot,playhead,detailProfile='standard') {
   }
 }
 export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,onCameraSync=null,onCameraSyncReset=null,
-  getEditCount=()=>0,listEditLibrary=()=>[],restoreEditLibrary=()=>{},deleteEditLibrary=()=>{},
+  getEditCount=()=>0,getLegacyCount=()=>0,listEditLibrary=()=>[],restoreEditLibrary=()=>{},deleteEditLibrary=()=>{},
   generationSounds=createGenerationSounds()}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
@@ -284,7 +284,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
   const resumeArgon=el('aiSceneResumeArgon');
   const downloadArgon=el('aiSceneDownloadArgon');
-  const editChoicePanel=el('aiSceneEditChoice'),editChoice=el('aiSceneEditMode');
+  const editChoicePanel=el('aiSceneEditChoice'),editChoice=el('aiSceneEditMode'),legacyWarning=el('aiSceneLegacyWarning');
   const libraryPicker=el('aiSceneLibraryPicker'),libraryRestore=el('aiSceneLibraryRestore'),
     libraryDelete=el('aiSceneLibraryDelete'),libraryStatus=el('aiSceneLibraryStatus');
   let choiceShot=null;
@@ -292,7 +292,17 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const showEditChoice=shotId=>{
     const count=getEditCount?.(shotId)||0;
     if(!count){if(editChoicePanel)editChoicePanel.hidden=true;return;}
-    if(choiceShot!==shotId){choiceShot=shotId;if(editChoice)editChoice.value='keep';}
+    if(choiceShot!==shotId){
+      choiceShot=shotId;
+      const legacy=getLegacyCount?.(shotId)||0;
+      if(editChoice)editChoice.value=legacy?'library':'keep';
+      if(legacyWarning){
+        legacyWarning.hidden=!legacy;
+        legacyWarning.textContent=legacy+' older object/light(s) have no provenance tags. ' +
+          'To avoid overlapping the original reconstruction, Save to library is preselected. ' +
+          'You can switch to Keep if needed; nothing changes before Accept.';
+      }
+    }
     if(editChoicePanel)editChoicePanel.hidden=false;
   };
   const refreshLibrary=()=>{
