@@ -80,6 +80,12 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
         if(part){if(part.visible===false)delete part.visible;else part.visible=false;}
       });
     };
+    const originKind=item=>item.source==='argon'?
+      (item.editorModified?'edited':item.primitive==='group'?'processed':'argon'):
+      item.source==='editor'?'editor':'legacy';
+    const originLabels={argon:'Argon geometry',processed:'Processed assemblies',
+      edited:'User-edited Argon',editor:'User additions',legacy:'Legacy / unclassified'};
+    const originRank={argon:0,processed:1,edited:2,editor:3,legacy:4};
     for(const [key,label] of [...layerNames,['lights','Scene lights']]){
       const items=key==='lights'?lights:objects.filter(o=>(o.layer||'manual')===key);
       // Keep empty layer collections visible: users can drop an object into
@@ -117,7 +123,14 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
         isolationControl(layerSolo,label,soloActive(layerSolo)));
       wrap.dataset.visible=String(layerVisible);
       wrap.append(groupHeader);
-      if(!collapsedLayers.has(key))for(const item of items){
+      const ordered=[...items].sort((a,b)=>originRank[originKind(a)]-originRank[originKind(b)]);
+      let previousOrigin=null;
+      if(!collapsedLayers.has(key))for(const item of ordered){
+        const origin=originKind(item);
+        if(origin!==previousOrigin){
+          wrap.append(treeEl('div',originLabels[origin],'primitive-tree-origin-heading'));
+          previousOrigin=origin;
+        }
         const light=key==='lights',assembly=!light&&!!(item.repeat||item.arrayParts);
         const row=treeEl('div','','array-outliner-row primitive-tree-row');
         row.dataset.selected=String(light?item.id===selectedLightId:item.id===selectedId);
