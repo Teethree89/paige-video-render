@@ -199,6 +199,7 @@ async function sampleVideo(reference,shot,playhead,detailProfile='standard') {
   }
 }
 export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,onCameraSync=null,onCameraSyncReset=null,
+  getEditCount=()=>0,listEditLibrary=()=>[],restoreEditLibrary=()=>{},deleteEditLibrary=()=>{},
   generationSounds=createGenerationSounds()}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
