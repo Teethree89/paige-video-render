@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {makePrimitive,validatePrimitiveDocument} from '../primitive-schema.js';
+import {cleanupPrimitiveDocument} from '../primitive-cleanup.js';
 import {tagGeneratedScene,markEditorEdits,groupGeneratedArrays,editorItems,
   composeGeneratedChapter,createLibraryEntry,saveEditLibraryEntry,readEditLibrary,
   restoreEditLibraryEntry,deleteEditLibraryEntry,editorEditCount,EDIT_LIBRARY_KEY}
@@ -130,4 +131,13 @@ test('library creates durable copies, restores edited assets without mutating so
   storage.setItem=()=>{throw Error('quota exceeded');};
   assert.throws(()=>saveEditLibraryEntry(storage,created),/quota exceeded/);
   assert.equal(tracked.lights[0].fakeConeOpacity,.6,'failed backup never edits chapter');
+});
+
+test('cleanup does not remove matching geometry from independent user and Argon layers',()=>{
+  const generated=tagGeneratedScene({shotId:'shot',objects:[geometry('base')]});
+  const copy={...geometry('manual_duplicate'),source:'editor'};
+  const scene={...generated,objects:[...generated.objects,copy]};
+  const cleaned=cleanupPrimitiveDocument(doc(scene));
+  assert.equal(cleaned.document.scenes[0].objects.length,2);
+  assert.equal(cleaned.report.removedDuplicates,0);
 });
