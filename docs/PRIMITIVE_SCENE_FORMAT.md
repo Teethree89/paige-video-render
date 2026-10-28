@@ -88,11 +88,37 @@ Shot-specific objects render **only during that shot**. When a draft shot has on
 
 ## Validation / safety for future AI
 
-The validator rejects unsupported geometry, duplicate IDs, unrecognized shot IDs, nonfinite numbers, invalid materials, malformed footprints, repeats, cameras or lights, and oversized responses. Caps: up to 120 scenes, 240 objects per scene, 2000 total objects, 400 copies per repeated object, 2000 rendered copies and 8 lights per scene. The Cloudflare Worker imports this same validator (`primitive-schema.js`) for Gemini 4 Argon results; each Argon detail level asks for at most 120, 150 or 240 objects. It applies it part by part: an invalid object, light or camera is dropped and counted under a fixed repair code, and the rest of the paid scene is kept; the Flash profiles keep their own five-primitive validator and 24/36/48-object budgets. Names are bounded and inserted into HTML via `textContent`. Extra fields in generated content are ignored. No arbitrary JavaScript, URLs, remote textures, custom shaders or eval.
+The validator rejects unsupported geometry, duplicate IDs, unrecognized shot IDs, nonfinite numbers, invalid materials, malformed footprints, repeats, cameras or lights, and oversized responses. Caps: up to 120 scenes, 240 objects per scene, 2000 total objects, 400 copies per repeated object, 2000 rendered copies and 32 lights per AI proposal (manual/imported lights are not count-capped). The Cloudflare Worker imports this same validator (`primitive-schema.js`) for Gemini 4 Argon results; each Argon detail level asks for at most 120, 150 or 240 objects. It applies it part by part: an invalid object, light or camera is dropped and counted under a fixed repair code, and the rest of the paid scene is kept; the Flash profiles keep their own five-primitive validator and 24/36/48-object budgets. Names are bounded and inserted into HTML via `textContent`. Extra fields in generated content are ignored. No arbitrary JavaScript, URLs, remote textures, custom shaders or eval.
 
 The Argon adapter repairs materials before rejecting an object: it expands three-digit hex colors, clamps numeric material fields and defaults missing or unsupported required values to neutral `#8899aa`, metalness `0.1` and roughness `0.7`. Valid supported material values stay intact. Geometry still must pass this shared validator. New direct-image jobs retain the original model text privately for 24 hours, including rejected output, for the authenticated editor's explicit download; downloading does not import it or run another generation.
 
 A future AI model must return a data structure conforming to this contract; **never execute code written by the model**. The model should also attach confidence/explanations in a separate analysis report—not put unsupported keys in the runtime document.
+
+## Generation provenance and editor library
+
+The worker's Argon prompts, output JSON and paid job lifecycle are unchanged. After an
+Argon proposal arrives, the browser performs the existing duplicate/overlap cleanup,
+then cautiously groups repeated parts into editable assemblies only when both their
+name family and every instance location agree. No additional inference is requested.
+The animated PAIGE generation display is visual-only and does not report measured
+percent completion.
+
+Scene-v1 objects and lights may carry optional `source: "argon" | "flash" | "editor"`
+and `editorModified: true`. These are local editing metadata. A new manual object
+or light is tagged `editor`; editing a generated item retains its generator source
+and marks `editorModified`. Rendering, GLB, MP4 and AE use the composed chapter.
+Existing untagged projects remain valid and are conservatively classified as legacy
+unknowns rather than silently deleted.
+
+After an Argon job begins, the editor offers a **keep / save to library / clear**
+choice for existing chapter edits. No edits are changed during the paid job. Upon
+Accept, the chosen policy replaces the generated geometry but can retain user
+additions, archive the modified items for restoration, or discard them. Archive
+entries use browser-local storage, not cloud or provider storage. They can be
+restored to a chapter from the editor without rerunning Gemini. Older scenes
+without origin metadata default to the archive choice to avoid duplicating old
+generated geometry. **Export your timeline/library material separately if you
+need to move to another browser or device.**
 
 ## How to test with the current editor
 

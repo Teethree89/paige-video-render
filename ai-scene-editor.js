@@ -1,6 +1,7 @@
 import {validatePrimitiveDocument,capGeneratedLights,LIMITS} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {appendArgonDetail,argonDetailIndex} from './argon-detail.js';
+import {groupGeneratedArrays,tagGeneratedScene,EDIT_MODES} from './scene-generation-compose.js';
 import {createArgonOverlay} from './ai-generation-overlay.js';
 import {createGenerationSounds} from './generation-sounds.js';
 import {referenceFrameTimes,ENVIRONMENT_PASSES,appendEnvironmentPass} from './environment-generation.js';
@@ -198,6 +199,7 @@ async function sampleVideo(reference,shot,playhead,detailProfile='standard') {
   }
 }
 export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,onCameraSync=null,onCameraSyncReset=null,
+  getEditCount=()=>0,getLegacyCount=()=>0,listEditLibrary=()=>[],restoreEditLibrary=()=>{},deleteEditLibrary=()=>{},
   generationSounds=createGenerationSounds()}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
@@ -282,6 +284,78 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
   const resumeArgon=el('aiSceneResumeArgon');
   const downloadArgon=el('aiSceneDownloadArgon');
+  const editChoicePanel=el('aiSceneEditChoice'),editChoice=el('aiSceneEditMode'),
+    legacyWarning=el('aiSceneLegacyWarning');
+  const overlayChoicePanel=el('argonOverlayEditChoice'),overlayChoice=el('argonOverlayEditMode');
+  const libraryPicker=el('aiSceneLibraryPicker'),libraryRestore=el('aiSceneLibraryRestore'),
+    libraryDelete=el('aiSceneLibraryDelete'),libraryStatus=el('aiSceneLibraryStatus');
+  let choiceShot=null;
+  const editMode=()=>EDIT_MODES.includes(editChoice?.value)?editChoice.value:'keep';
+  const showEditChoice=shotId=>{
+    const count=getEditCount?.(shotId)||0;
+    if(!count){
+      if(editChoicePanel)editChoicePanel.hidden=true;
+      if(overlayChoicePanel)overlayChoicePanel.hidden=true;
+      return;
+    }
+    if(choiceShot!==shotId){
+      choiceShot=shotId;
+      const legacy=getLegacyCount?.(shotId)||0;
+      if(editChoice)editChoice.value=legacy?'library':'keep';
+      if(legacyWarning){
+        legacyWarning.hidden=!legacy;
+        legacyWarning.textContent=legacy+' older object/light(s) have no provenance tags. ' +
+          'To avoid overlapping the original reconstruction, Save to library is preselected. ' +
+          'You can switch to Keep if needed; nothing changes before Accept.';
+      }
+    }
+    if(editChoicePanel)editChoicePanel.hidden=false;
+    if(overlayChoicePanel)overlayChoicePanel.hidden=false;
+    if(overlayChoice)overlayChoice.value=editMode();
+  };
+  const refreshLibrary=()=>{
+    if(!libraryPicker||typeof libraryPicker.replaceChildren!=='function')return;
+    const saved=listEditLibrary?.()||[];
+    const prior=libraryPicker.value;
+    libraryPicker.replaceChildren();
+    for(const item of saved){
+      const option=document.createElement('option');
+      option.value=item.id;option.textContent=item.label+' · '+item.createdAt.slice(0,10)+
+        ' · '+(item.objects.length+item.lights.length)+' item(s)';
+      libraryPicker.append(option);
+    }
+    if(saved.some(item=>item.id===prior))libraryPicker.value=prior;
+    if(libraryRestore)libraryRestore.disabled=!saved.length||busy||!!pending;
+    if(libraryDelete)libraryDelete.disabled=!saved.length||busy;
+    if(libraryStatus)libraryStatus.textContent=saved.length?
+      saved.length+' locally saved edit set(s). These are stored in this browser.':
+      'No saved edits yet. A library backup is created only when you accept a new scene.';
+  };
+  const updateEditMode=value=>{
+    if(!EDIT_MODES.includes(value))return;
+    if(editChoice)editChoice.value=value;
+    if(overlayChoice)overlayChoice.value=value;
+    if(pending&&!busy&&getActiveShot()?.id===pendingShot){
+      resetSync();onPreview(pending,{editsMode:value});
+    }
+  };
+  editChoice?.addEventListener?.('change',()=>updateEditMode(editChoice.value));
+  overlayChoice?.addEventListener?.('change',()=>updateEditMode(overlayChoice.value));
+  libraryRestore?.addEventListener?.('click',()=>{
+    if(busy||pending)return;
+    const saved=(listEditLibrary?.()||[]).find(item=>item.id===libraryPicker?.value);
+    if(!saved)return;
+    try{restoreEditLibrary?.(saved);refreshLibrary();
+      status('Restored saved objects/lights into the current chapter. Original library copy retained.');
+    }catch(error){status('Library restore failed: '+error.message);}
+  });
+  libraryDelete?.addEventListener?.('click',()=>{
+    if(busy)return;
+    const saved=(listEditLibrary?.()||[]).find(item=>item.id===libraryPicker?.value);
+    if(!saved||!confirm('Permanently delete this browser-local edit library entry?'))return;
+    try{deleteEditLibrary?.(saved.id);refreshLibrary();}
+    catch(error){status('Library delete failed: '+error.message);}
+  });
   const checkArgon=el('aiSceneCheckArgon');
   const smokeButton=el('aiArgonSmokeRun'),smokeReset=el('aiArgonSmokeReset'),
     smokeSummary=el('aiArgonSmokeSummary');
@@ -409,7 +483,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     }
     throw Error('Argon is still processing. Use Resume previous Argon job later; do not resubmit a paid request.');
   }
-  function showProposal(doc,shot,fullEnvironment=false){
+  function showProposal(doc,shot,fullEnvironment=false,argon=false){
     doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
     const limited=capGeneratedLights(doc);
     doc=limited.document;
@@ -425,8 +499,16 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     log(cleanupSummary(result.report));
     if(pending){onDiscard();pending=null;pendingShot=null;}
     resetSync();
-    pending=result.document.scenes[0];pendingShot=shot.id;
-    onPreview(pending);
+    if(argon){
+      const grouped=groupGeneratedArrays(result.document.scenes[0]);
+      pending=grouped.scene;
+      log('Local post-processing: '+grouped.grouped+
+        ' array row(s) grouped into editable assemblies; '+grouped.absorbed+
+        ' companion definitions absorbed. No extra Argon request.');
+    }else pending=tagGeneratedScene(result.document.scenes[0],'flash');
+    pendingShot=shot.id;
+    showEditChoice(shot.id);
+    onPreview(pending,{editsMode:editMode()});
     // Repeat arrays render many copies per editable object.
     const rendered=pending.objects.reduce((sum,item)=>sum+(item.repeat?
       item.repeat.count[0]*item.repeat.count[1]*item.repeat.count[2]:1),0);
@@ -470,6 +552,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     accept.hidden=!pending; discard.hidden=!pending;
     if(cleanupButton){cleanupButton.hidden=!pending;cleanupButton.disabled=busy||!pending;}
     accept.disabled=busy;discard.disabled=busy;
+    refreshLibrary();
   };
   const sessionEnded=()=>{
     authenticated=false;csrf=null;
@@ -618,6 +701,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
                 log('Cloudflare did not confirm the start ('+describeLostStart(start.startUnconfirmed)+
                   '). Checking whether the job was created; no new paid request is sent. You may resume it after a page refresh.');
               else log('Paid Argon job started. You may resume it after a page refresh.');
+              showEditChoice(shot.id);
               doc=await pollArgon(shot.id);
               argonJob={shotId:shot.id,status:'completed'};
               break;
@@ -673,7 +757,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
         log('Validating AI scene JSON and transforms…');
         doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
       }
-      showProposal(doc,shot,fullEnvironment);
+      showProposal(doc,shot,fullEnvironment,argon);
       // A salvaged base preview remains useful, but an incomplete requested
       // detail tail is an overall failed/partial generation, not success.
       finalOutcome=detailFailed?'failed':'success';
@@ -836,9 +920,10 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(!argonJob||argonJob.shotId!==shot.id)throw Error('No Argon job for this chapter');
       log('Resuming existing paid Argon job without starting another request.');
       overlay.show({totalStages:1});
+      showEditChoice(shot.id);
       const proposal=await pollArgon(shot.id);
       argonJob={shotId:shot.id,status:'completed'};
-      showProposal(proposal,shot);
+      showProposal(proposal,shot,false,true);
       finalOutcome='success';
     }catch(error){
       if(!unfinished(error))finalOutcome='failed';
@@ -874,24 +959,39 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       status('Chapter changed. Discard and regenerate before accepting.');return;
     }
     const current=getSequence().primitiveScenes?.scenes?.find(x=>x.shotId===pendingShot);
-    if(current?.objects?.length&&!confirm('Replace existing objects in this shot with the proposed geometry?'))return;
+    if(current?.objects?.length&&!confirm(
+      editMode()==='keep'?
+        'Replace original generated geometry while preserving editor additions and modified objects?':
+      editMode()==='library'?
+        'Save your edited objects/lights to the local library and replace this chapter with the new geometry?':
+        'Clear existing chapter objects, lights and scene effects without a library backup?'))return;
     try{
-      onAccept(pending,{syncCamera:syncApply?.checked===true});
+      onAccept(pending,{syncCamera:syncApply?.checked===true,editsMode:editMode()});
       log('Preview accepted into the editable timeline.'+(syncApply?.checked?' Camera motion retargeted.':''));
       status('Accepted. Geometry saved in your working timeline; export JSON for a backup.');
       pending=null;pendingShot=null;resetSync();
+      choiceShot=null;
+      if(editChoicePanel)editChoicePanel.hidden=true;
+      if(overlayChoicePanel)overlayChoicePanel.hidden=true;
+      refreshLibrary();
     }catch(error){status('Could not accept geometry: '+error.message);}
     ui();
   });
   discard.addEventListener('click',()=>{
     if(busy)return;
     onDiscard();pending=null;pendingShot=null;resetSync();
+    choiceShot=null;
+    if(editChoicePanel)editChoicePanel.hidden=true;
+    if(overlayChoicePanel)overlayChoicePanel.hidden=true;
     log('Preview discarded. Saved geometry was not changed.');
     status('Preview discarded; saved geometry is unchanged.');ui();
   });
   ui();checkLogin();
   return {hasPending:()=>!!pending,isBusy:()=>busy||!!(argonJob&&['queued','in_progress'].includes(argonJob.status)),reset:()=>{
     if(pending)onDiscard();
-    pending=null;pendingShot=null;resetSync();ui();
+    pending=null;pendingShot=null;choiceShot=null;
+    if(editChoicePanel)editChoicePanel.hidden=true;
+    if(overlayChoicePanel)overlayChoicePanel.hidden=true;
+    resetSync();ui();
   }};
 }

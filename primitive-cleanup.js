@@ -64,7 +64,8 @@ function same(a,b){
   return a===b;
 }
 function almostDuplicate(a,b){
-  return ['primitive','layer','material','position','rotation','scale','repeat','points']
+  return ['primitive','layer','material','position','rotation','scale','repeat','points',
+    'source','editorModified']
     .every(key=>same(a[key],b[key]));
 }
 function tryMoveOffBox(detail,info,host){

@@ -78,6 +78,14 @@ const sceneCamera=(value,shotId)=>{
 // Lights add to the editor's base lighting, only while their shot is shown.
 // Intensities use Three.js units: directional in lux-like units, point and
 // spot in candela with physical (squared) falloff, like the original world.
+const authoringFields=(item,label)=>{
+  if(item.source!==undefined&&!['argon','flash','editor'].includes(item.source))
+    fail(label+' source must be argon, flash or editor');
+  if(item.editorModified!==undefined&&typeof item.editorModified!=='boolean')
+    fail(label+' editorModified must be boolean');
+  return {...(item.source?{source:item.source}:{}),
+    ...(item.editorModified===true?{editorModified:true}:{})};
+};
 const sceneLights=(value,shotId)=>{
   if(!Array.isArray(value))
     fail(shotId+' lights must be an array');
@@ -93,6 +101,7 @@ const sceneLights=(value,shotId)=>{
       color:hexColor(light.color,label+' color'),
       intensity:finite(light.intensity,label+' intensity',0,light.type==='directional'?10:500),
       position:vec(light.position,label+' position',-10000,10000)};
+    Object.assign(out,authoringFields(light,label));
     if(light.visible!==undefined){
       if(typeof light.visible!=='boolean')fail(label+' visible must be boolean');
       if(!light.visible)out.visible=false;
@@ -290,6 +299,7 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       if(item.visible!==undefined&&typeof item.visible!=='boolean')
         fail(id+' visible must be boolean');
       return {id,name:displayName(item.name,item.primitive+' '+id),
+        ...authoringFields(item,id),
         ...(item.visible===false?{visible:false}:{}),
         primitive:item.primitive,position,rotation,
         ...(instanceRotation?{instanceRotation}:{}),scale,
