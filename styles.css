@@ -554,6 +554,11 @@ html,body{font-size:14px}
 .primitive-light-editor #primitiveLightFields [hidden]{display:none!important}
 
 
+/* Keep all six workspace tabs accessible while scrolling long object/AI controls. */
+.inspector .inspect-head{position:sticky;top:0;z-index:85;background:#101927;
+ padding:12px 15px 11px;box-shadow:0 6px 16px #060c15b3}
+.inspector .inspect-head h2{font-size:16px;margin:8px 0 4px}
+.inspector .inspect-head p{font-size:10px;line-height:1.35}
 /* Folder-style inspector workspaces and source-video comparison overlay. */
 .inspector .inspector-jump{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;
  padding:5px 5px 0;margin-top:14px;background:#0b1420;border:1px solid #344b60;
