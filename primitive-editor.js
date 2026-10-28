@@ -80,12 +80,12 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
         if(part){if(part.visible===false)delete part.visible;else part.visible=false;}
       });
     };
-    const originKind=item=>item.source==='argon'?
-      (item.editorModified?'edited':item.primitive==='group'?'processed':'argon'):
+    const originKind=item=>['argon','flash'].includes(item.source)?
+      (item.editorModified?'edited':item.source==='flash'?'flash':item.primitive==='group'?'processed':'argon'):
       item.source==='editor'?'editor':'legacy';
-    const originLabels={argon:'Argon geometry',processed:'Processed assemblies',
+    const originLabels={argon:'Argon geometry',flash:'Flash / AI geometry',processed:'Processed assemblies',
       edited:'User-edited Argon',editor:'User additions',legacy:'Legacy / unclassified'};
-    const originRank={argon:0,processed:1,edited:2,editor:3,legacy:4};
+    const originRank={argon:0,flash:0,processed:1,edited:2,editor:3,legacy:4};
     for(const [key,label] of [...layerNames,['lights','Scene lights']]){
       const items=key==='lights'?lights:objects.filter(o=>(o.layer||'manual')===key);
       // Keep empty layer collections visible: users can drop an object into
