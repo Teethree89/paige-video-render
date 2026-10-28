@@ -284,14 +284,20 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const discard=el('aiSceneDiscard'),cleanupButton=el('aiSceneCleanup'),message=el('aiSceneStatus');
   const resumeArgon=el('aiSceneResumeArgon');
   const downloadArgon=el('aiSceneDownloadArgon');
-  const editChoicePanel=el('aiSceneEditChoice'),editChoice=el('aiSceneEditMode'),legacyWarning=el('aiSceneLegacyWarning');
+  const editChoicePanel=el('aiSceneEditChoice'),editChoice=el('aiSceneEditMode'),
+    legacyWarning=el('aiSceneLegacyWarning');
+  const overlayChoicePanel=el('argonOverlayEditChoice'),overlayChoice=el('argonOverlayEditMode');
   const libraryPicker=el('aiSceneLibraryPicker'),libraryRestore=el('aiSceneLibraryRestore'),
     libraryDelete=el('aiSceneLibraryDelete'),libraryStatus=el('aiSceneLibraryStatus');
   let choiceShot=null;
   const editMode=()=>EDIT_MODES.includes(editChoice?.value)?editChoice.value:'keep';
   const showEditChoice=shotId=>{
     const count=getEditCount?.(shotId)||0;
-    if(!count){if(editChoicePanel)editChoicePanel.hidden=true;return;}
+    if(!count){
+      if(editChoicePanel)editChoicePanel.hidden=true;
+      if(overlayChoicePanel)overlayChoicePanel.hidden=true;
+      return;
+    }
     if(choiceShot!==shotId){
       choiceShot=shotId;
       const legacy=getLegacyCount?.(shotId)||0;
@@ -304,6 +310,8 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       }
     }
     if(editChoicePanel)editChoicePanel.hidden=false;
+    if(overlayChoicePanel)overlayChoicePanel.hidden=false;
+    if(overlayChoice)overlayChoice.value=editMode();
   };
   const refreshLibrary=()=>{
     if(!libraryPicker||typeof libraryPicker.replaceChildren!=='function')return;
@@ -323,11 +331,16 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       saved.length+' locally saved edit set(s). These are stored in this browser.':
       'No saved edits yet. A library backup is created only when you accept a new scene.';
   };
-  editChoice?.addEventListener?.('change',()=>{
+  const updateEditMode=value=>{
+    if(!EDIT_MODES.includes(value))return;
+    if(editChoice)editChoice.value=value;
+    if(overlayChoice)overlayChoice.value=value;
     if(pending&&!busy&&getActiveShot()?.id===pendingShot){
-      resetSync();onPreview(pending,{editsMode:editMode()});
+      resetSync();onPreview(pending,{editsMode:value});
     }
-  });
+  };
+  editChoice?.addEventListener?.('change',()=>updateEditMode(editChoice.value));
+  overlayChoice?.addEventListener?.('change',()=>updateEditMode(overlayChoice.value));
   libraryRestore?.addEventListener?.('click',()=>{
     if(busy||pending)return;
     const saved=(listEditLibrary?.()||[]).find(item=>item.id===libraryPicker?.value);
@@ -957,14 +970,19 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       log('Preview accepted into the editable timeline.'+(syncApply?.checked?' Camera motion retargeted.':''));
       status('Accepted. Geometry saved in your working timeline; export JSON for a backup.');
       pending=null;pendingShot=null;resetSync();
-      choiceShot=null;if(editChoicePanel)editChoicePanel.hidden=true;refreshLibrary();
+      choiceShot=null;
+      if(editChoicePanel)editChoicePanel.hidden=true;
+      if(overlayChoicePanel)overlayChoicePanel.hidden=true;
+      refreshLibrary();
     }catch(error){status('Could not accept geometry: '+error.message);}
     ui();
   });
   discard.addEventListener('click',()=>{
     if(busy)return;
     onDiscard();pending=null;pendingShot=null;resetSync();
-    choiceShot=null;if(editChoicePanel)editChoicePanel.hidden=true;
+    choiceShot=null;
+    if(editChoicePanel)editChoicePanel.hidden=true;
+    if(overlayChoicePanel)overlayChoicePanel.hidden=true;
     log('Preview discarded. Saved geometry was not changed.');
     status('Preview discarded; saved geometry is unchanged.');ui();
   });
@@ -973,6 +991,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(pending)onDiscard();
     pending=null;pendingShot=null;choiceShot=null;
     if(editChoicePanel)editChoicePanel.hidden=true;
+    if(overlayChoicePanel)overlayChoicePanel.hidden=true;
     resetSync();ui();
   }};
 }
