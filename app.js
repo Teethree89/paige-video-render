@@ -25,6 +25,9 @@ import {createRenderDiagnostics} from './render-diagnostics.js';
 import {editPrimitiveTransform,deletePrimitiveObject,duplicateSceneSelection,setSceneObjectRepeat,editLightTransform,editLightTarget,deleteLightObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
+import {markEditorEdits,composeGeneratedChapter,editorEditCount,createLibraryEntry,
+  readEditLibrary,saveEditLibraryEntry,restoreEditLibraryEntry,deleteEditLibraryEntry}
+  from './scene-generation-compose.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld,createPreviewRenderState,previewPixelRatio} from './primitive-preview.js';
 import {foldHelpText} from './help-toggles.js';
@@ -102,6 +105,10 @@ const cameraBoundsCache=new Map();
 let sceneEffectsPanel=null,lastEffectsShot=null,lastShadowEnabled=true;
 let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,arrayPrototypeEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
+function commitEditedScenes(doc){
+  sequence.primitiveScenes=markEditorEdits(sequence.primitiveScenes,doc,sequence.shots.map(s=>s.id));
+  syncPrimitiveWorld();saveLocal();renderWorld();
+}
 function syncPrimitiveWorld(){
   cameraBoundsCache.clear();
   primitiveWorld.setDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id),primitiveAnchors());
@@ -204,11 +211,7 @@ async function boot(){
    getSequence:()=>sequence,
    getActiveShot:()=>shotAt(playhead),
    world:primitiveWorld,
-   onDocumentChange:doc=>{
-     sequence.primitiveScenes=doc;
-     syncPrimitiveWorld();
-     saveLocal();renderWorld();
-   },
+   onDocumentChange:doc=>commitEditedScenes(doc),
    onSelectionChange:id=>sceneObjectEditor?.select(id,false),
     onEditAssembly:(shotId,id)=>arrayPrototypeEditor?.open(shotId,id)||false
  });
@@ -238,40 +241,33 @@ async function boot(){
    },
    onExit:()=>{el('sceneCreateFeedback').hidden=true;endGeometryReview();},
    onTransform:(shotId,objectId,mode,vector)=>{
-     sequence.primitiveScenes=editPrimitiveTransform(sequence.primitiveScenes,
-       sequence.shots.map(s=>s.id),shotId,objectId,mode,vector);
-     syncPrimitiveWorld();saveLocal();renderWorld();
+     commitEditedScenes(editPrimitiveTransform(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,objectId,mode,vector));
    },
    onMakeArray:(shotId,objectId,count,spacing)=>{
-     sequence.primitiveScenes=setSceneObjectRepeat(sequence.primitiveScenes,
-       sequence.shots.map(s=>s.id),shotId,objectId,count,spacing);
-     syncPrimitiveWorld();saveLocal();renderWorld();
+     commitEditedScenes(setSceneObjectRepeat(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,objectId,count,spacing));
    },
    onDuplicate:(shotId,selectedId)=>{
      const next=duplicateSceneSelection(sequence.primitiveScenes,sequence.shots.map(s=>s.id),shotId,selectedId);
-     sequence.primitiveScenes=next.document;
-     syncPrimitiveWorld();saveLocal();renderWorld();
+     commitEditedScenes(next.document);
      return next.selectedId;
    },
    onDelete:(shotId,objectId)=>{
-     sequence.primitiveScenes=deletePrimitiveObject(sequence.primitiveScenes,
-       sequence.shots.map(s=>s.id),shotId,objectId);
-     syncPrimitiveWorld();saveLocal();renderWorld();
+     commitEditedScenes(deletePrimitiveObject(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,objectId));
    },
    onLightTransform:(shotId,lightId,position)=>{
-     sequence.primitiveScenes=editLightTransform(sequence.primitiveScenes,
-       sequence.shots.map(s=>s.id),shotId,lightId,position);
-     syncPrimitiveWorld();saveLocal();renderWorld();
+     commitEditedScenes(editLightTransform(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,lightId,position));
    },
    onLightTargetTransform:(shotId,lightId,target)=>{
-     sequence.primitiveScenes=editLightTarget(sequence.primitiveScenes,
-       sequence.shots.map(s=>s.id),shotId,lightId,target);
-     syncPrimitiveWorld();saveLocal();renderWorld();
+     commitEditedScenes(editLightTarget(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,lightId,target));
    },
    onDeleteLight:(shotId,lightId)=>{
-     sequence.primitiveScenes=deleteLightObject(sequence.primitiveScenes,
-       sequence.shots.map(s=>s.id),shotId,lightId);
-     syncPrimitiveWorld();saveLocal();renderWorld();
+     commitEditedScenes(deleteLightObject(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,lightId));
    },
    onSelect:id=>id?.startsWith('light-target::')?
      primitiveEditor?.selectLight(id.slice(14)):
@@ -285,8 +281,7 @@ async function boot(){
    getShotIds:()=>sequence.shots.map(shot=>shot.id),
    onSave:doc=>{
      sceneObjectEditor?.clearArrayHighlights?.();
-     sequence.primitiveScenes=doc;
-     syncPrimitiveWorld();saveLocal();renderWorld();
+     commitEditedScenes(doc);
      sceneObjectEditor?.refresh();
      el('primitiveStatus').textContent='Array prototype saved to every matching instance.';
    },
@@ -301,7 +296,17 @@ async function boot(){
    getReferenceVideo:()=>referenceVideo,
    getReferenceFrames:referenceSampler,
    getPlayheadTime:()=>playhead,
-   onPreview:entry=>{
+   getEditCount:shotId=>editorEditCount(
+     sequence.primitiveScenes?.scenes?.find(s=>s.shotId===shotId)),
+   listEditLibrary:()=>readEditLibrary(localStorage),
+   restoreEditLibrary:item=>{
+     const shot=shotAt(playhead);
+     const restored=restoreEditLibraryEntry(sequence.primitiveScenes,shot.id,item,
+       sequence.shots.map(s=>s.id));
+     commitEditedScenes(restored);
+   },
+   deleteEditLibrary:id=>deleteEditLibraryEntry(localStorage,id),
+   onPreview:(entry,{editsMode='keep'}={})=>{
      acceptedCameraSync?.reset();
      acceptedCameraPreview=null;
      sceneObjectEditor?.setActive(false);
@@ -314,8 +319,11 @@ async function boot(){
      }
      cameraSyncPreview=null;
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
+     const oldScene=doc.scenes.find(s=>s.shotId===entry.shotId);
+     const composed=composeGeneratedChapter(oldScene,entry,editsMode,
+       sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
-     doc.scenes.push(entry);
+     doc.scenes.push(composed);
      cameraBoundsCache.clear();
      primitiveWorld.setDocument(doc,sequence.shots.map(s=>s.id),primitiveAnchors());
      renderWorld();
@@ -353,16 +361,22 @@ async function boot(){
      cameraSyncPreview=null;cameraSyncSession=null;
      endGeometryReview();syncPrimitiveWorld();renderWorld();
    },
-   onAccept:(entry,{syncCamera=false}={})=>{
+   onAccept:(entry,{syncCamera=false,editsMode='keep'}={})=>{
      acceptedCameraSync?.reset();
      acceptedCameraPreview=null;
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
      const previous=doc.scenes.find(s=>s.shotId===entry.shotId);
-     const replacement=previous?.effects&&!entry.effects?
-       {...entry,effects:structuredClone(previous.effects)}:entry;
+     const replacement=composeGeneratedChapter(previous,entry,editsMode,
+       sequence.shots.map(s=>s.id));
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
      doc.scenes.push(replacement);
      const accepted=validatePrimitiveDocument(doc,sequence.shots.map(s=>s.id));
+     // No destructive change occurs until composition AND local-library backup succeed.
+     if(editsMode==='library'&&previous&&editorEditCount(previous)){
+       const backup=createLibraryEntry(previous,sequence.shots.find(s=>s.id===entry.shotId)?.name+
+         ' · editor edits');
+       saveEditLibraryEntry(localStorage,backup);
+     }
      if(syncCamera){
        if(cameraSyncSession?.shotId!==entry.shotId||!cameraSyncPreview)
          throw Error('Preview camera synchronization before applying it.');
