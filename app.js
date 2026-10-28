@@ -298,6 +298,10 @@ async function boot(){
    getPlayheadTime:()=>playhead,
    getEditCount:shotId=>editorEditCount(
      sequence.primitiveScenes?.scenes?.find(s=>s.shotId===shotId)),
+   getLegacyCount:shotId=>{
+     const scene=sequence.primitiveScenes?.scenes?.find(s=>s.shotId===shotId);
+     return [...(scene?.objects||[]),...(scene?.lights||[])].filter(item=>!item.source).length;
+   },
    listEditLibrary:()=>readEditLibrary(localStorage),
    restoreEditLibrary:item=>{
      const shot=shotAt(playhead);
