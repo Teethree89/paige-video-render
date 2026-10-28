@@ -15,9 +15,17 @@ export function tagGeneratedScene(input,engine='argon'){
   if(!['argon','flash'].includes(engine))throw Error('Unknown generation source');
   const validated=validatePrimitiveDocument({schemaVersion:1,scenes:[input]});
   const entry=validated.scenes[0];
+  const reserved=new Set((entry.lights||[]).map(item=>item.id).filter(Boolean));
+  const assigned=new Set();
+  const lights=(entry.lights||[]).map((light,i)=>{
+    let id=light.id||'ai_light_'+(i+1),suffix=2;
+    if(!light.id)while(reserved.has(id)||assigned.has(id))
+      id='ai_light_'+(i+1)+'_'+suffix++;
+    assigned.add(id);
+    return {...light,id,source:engine};
+  });
   return {...entry,objects:entry.objects.map(object=>({...object,source:engine})),
-    ...(entry.lights?{lights:entry.lights.map((light,i)=>({
-      ...light,id:light.id||'ai_light_'+(i+1),source:engine}))}:{})};
+    ...(lights.length?{lights}:{})};
 }
 
 // Mark new editor-created nodes and remember modifications to generated nodes.
@@ -54,9 +62,16 @@ export function groupGeneratedArrays(input){
   const used=new Set();
   const replacements=new Map(),absorbed=new Set();
   const document=()=>({schemaVersion:1,scenes:[entry]});
+  const nameCounts=new Map();
+  for(const item of entry.objects){
+    if(!item.repeat||item.arrayParts)continue;
+    const key=arrayGroupKey(item.name);
+    if(key)nameCounts.set(key,(nameCounts.get(key)||0)+1);
+  }
   for(const base of entry.objects){
+    const key=arrayGroupKey(base.name);
     if(used.has(base.id)||!base.repeat||base.arrayParts||
-       base.instanceRotation||!arrayGroupKey(base.name))continue;
+       base.instanceRotation||!key||nameCounts.get(key)<2)continue;
     const matches=findMatchingArrays(document(),entry.shotId,base.id);
     if(matches.some(id=>used.has(id)))continue;
     const companions=findArrayCompanions(document(),entry.shotId,base.id)
