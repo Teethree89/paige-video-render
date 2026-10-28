@@ -135,6 +135,12 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
 .argon-particle-track{height:4px;margin:22px auto 11px;border-radius:4px;max-width:300px;background:#31505b;overflow:hidden;position:relative}
 .argon-particle-track>div{height:100%;width:34%;background:linear-gradient(90deg,#56a59d,#affff4);box-shadow:0 0 15px #8df9e9;animation:argon-unknown-progress 2.3s ease-in-out infinite}
 .argon-particle-info .argon-particle-tip{margin-top:20px;font:11px/1.6 system-ui,sans-serif;color:#6c909b}
+.argon-overlay-edit-choice[hidden]{display:none!important}
+.argon-overlay-edit-choice{pointer-events:auto;text-shadow:none;margin:12px auto 0;padding:13px 16px;background:#0a1f2beb;border:1px solid #4b9295;border-radius:9px;text-align:left;box-shadow:0 8px 24px #0006}
+.argon-overlay-edit-choice label{display:block;font-size:12px;font-weight:700;color:#c8fff0;margin-bottom:7px}
+.argon-overlay-edit-choice select{display:block;box-sizing:border-box;width:100%;min-height:36px;border:1px solid #588f99;border-radius:6px;background:#102c3a;color:#e5faff;padding:6px 8px;font-size:12px;cursor:pointer}
+.argon-particle-info .argon-overlay-edit-choice p{margin:8px 0 0;font-size:11px;color:#9acacf}
+
 .argon-particle-reopen{position:absolute;z-index:1000;right:18px;bottom:59px;width:min(312px,calc(100% - 28px));max-height:calc(100% - 88px);overflow:auto;display:flex;flex-direction:column;gap:7px;text-align:left;padding:14px 15px 12px;border-radius:12px;border:1px solid #458b88;background:linear-gradient(150deg,#102e37f5,#091924f7);color:#e0fcf9;box-shadow:0 12px 34px #010911c9,0 0 0 1px #7bf8e21c;cursor:pointer;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 .argon-particle-reopen:hover,.argon-particle-reopen:focus-visible{border-color:#84f4df;background:linear-gradient(150deg,#19414af9,#102733fa)}
 .argon-mini-top{display:flex;align-items:center;justify-content:space-between;gap:9px;font:800 10px system-ui,sans-serif;letter-spacing:.11em}
