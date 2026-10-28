@@ -507,6 +507,7 @@ html,body{font-size:14px}
 /* Blender-like chapter outliner, using the mini editor's row styling. */
 .primitive-scene-outliner{max-height:350px;margin:9px 0 16px}
 .primitive-tree-layer{min-width:0}
+.primitive-tree-origin-heading{padding:7px 10px 3px 25px;font-size:9px;letter-spacing:.09em;text-transform:uppercase;font-weight:750;color:#88b3bd;opacity:.85}
 .primitive-tree-group{display:block;width:100%;text-align:left;border:0;background:#172b39;color:#bde6ea;font-size:11px;font-weight:700;padding:8px 10px;border-radius:4px;cursor:pointer}
 .primitive-tree-group:hover{background:#244c5c}
 .primitive-tree-row{gap:5px;min-width:0;padding-left:13px}
