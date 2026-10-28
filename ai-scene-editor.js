@@ -296,7 +296,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(editChoicePanel)editChoicePanel.hidden=false;
   };
   const refreshLibrary=()=>{
-    if(!libraryPicker)return;
+    if(!libraryPicker||typeof libraryPicker.replaceChildren!=='function')return;
     const saved=listEditLibrary?.()||[];
     const prior=libraryPicker.value;
     libraryPicker.replaceChildren();
