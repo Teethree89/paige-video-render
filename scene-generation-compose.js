@@ -5,18 +5,19 @@ import {arrayGroupKey,findArrayCompanions,findMatchingArrays} from './array-prot
 export const EDIT_LIBRARY_KEY='paige-scene-edit-library-v1';
 export const EDIT_MODES=Object.freeze(['keep','library','clear']);
 const clone=value=>structuredClone(value);
-const sourceOf=item=>item?.source==='argon'?'argon':'editor';
-const isEdited=item=>sourceOf(item)!=='argon'||item?.editorModified===true;
+const sourceOf=item=>['argon','flash'].includes(item?.source)?item.source:'editor';
+const isEdited=item=>!['argon','flash'].includes(sourceOf(item))||item?.editorModified===true;
 const signature=item=>JSON.stringify(Object.fromEntries(Object.entries(item).filter(
   ([key])=>key!=='source'&&key!=='editorModified')));
 const copies=item=>item.repeat?item.repeat.count.reduce((n,v)=>n*v,1):1;
 
-export function tagGeneratedScene(input){
+export function tagGeneratedScene(input,engine='argon'){
+  if(!['argon','flash'].includes(engine))throw Error('Unknown generation source');
   const validated=validatePrimitiveDocument({schemaVersion:1,scenes:[input]});
   const entry=validated.scenes[0];
-  return {...entry,objects:entry.objects.map(object=>({...object,source:'argon'})),
+  return {...entry,objects:entry.objects.map(object=>({...object,source:engine})),
     ...(entry.lights?{lights:entry.lights.map((light,i)=>({
-      ...light,id:light.id||'argon_light_'+(i+1),source:'argon'}))}:{})};
+      ...light,id:light.id||'ai_light_'+(i+1),source:engine}))}:{})};
 }
 
 // Mark new editor-created nodes and remember modifications to generated nodes.
@@ -31,8 +32,8 @@ export function markEditorEdits(before,after,allowedShots=null){
     const lights=new Map((previous?.lights||[]).filter(l=>l.id).map(item=>[item.id,item]));
     const mark=(item,original)=>{
       if(!original)return {...item,source:item.source||'editor'};
-      if(original.source==='argon'){
-        return {...item,source:'argon',...((original.editorModified===true||
+      if(['argon','flash'].includes(original.source)){
+        return {...item,source:original.source,...((original.editorModified===true||
           signature(item)!==signature(original))?{editorModified:true}:{})};
       }
       return {...item,...(original.source?{source:original.source}:{})};
