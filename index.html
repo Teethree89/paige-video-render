@@ -382,15 +382,7 @@
                 <p id="aiSceneLegacyWarning" class="field-help" hidden></p>
                 <p class="field-help">The generated Argon geometry is replaced independently. Unedited generated objects are not copied to the library. Local library saves remain in this browser; export a project backup for portability.</p>
               </section>
-              <section class="ai-generation-activity" aria-label="Reusable object edit library">
-                <div class="section-label">EDITED OBJECT LIBRARY · THIS BROWSER</div>
-                <select id="aiSceneLibraryPicker" aria-label="Saved editor object sets"></select>
-                <div class="primitive-buttons">
-                  <button id="aiSceneLibraryRestore" class="secondary" type="button">Restore to current chapter</button>
-                  <button id="aiSceneLibraryDelete" class="ghost" type="button">Delete saved set</button>
-                </div>
-                <p id="aiSceneLibraryStatus" class="field-help">No saved edits yet.</p>
-              </section>
+
               <button id="aiSceneResumeArgon" type="button" class="wide secondary" hidden>Resume previous Argon job</button>
               <button id="aiSceneDownloadArgon" type="button" class="wide secondary" hidden>Download original Argon output</button>
               <p class="field-help">Download the latest job's original scene response, even if validation failed. New direct-image jobs keep this output privately for 24 hours; download it before starting another job. Unsupported materials use a neutral fallback in the preview. Older failed direct-image jobs have no saved original output.</p>
@@ -415,6 +407,15 @@
                 <button id="aiSceneDiscard" type="button" class="ghost" hidden>Discard preview</button>
               </div>
             </div>
+              <section class="ai-generation-activity" aria-label="Reusable object edit library">
+                <div class="section-label">EDITED OBJECT LIBRARY · THIS BROWSER</div>
+                <select id="aiSceneLibraryPicker" aria-label="Saved editor object sets"></select>
+                <div class="primitive-buttons">
+                  <button id="aiSceneLibraryRestore" class="secondary" type="button">Restore to current chapter</button>
+                  <button id="aiSceneLibraryDelete" class="ghost" type="button">Delete saved set</button>
+                </div>
+                <p id="aiSceneLibraryStatus" class="field-help">No saved edits yet.</p>
+              </section>
             <p id="aiSceneStatus" role="status" class="field-help">Checking private PHP proxy…</p>
             <div class="ai-generation-activity" aria-label="AI generation activity">
               <div class="section-label">GENERATION ACTIVITY</div>
