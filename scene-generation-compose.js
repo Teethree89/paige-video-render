@@ -128,6 +128,7 @@ export function readEditLibrary(storage){
   let parsed;
   try{parsed=JSON.parse(storage.getItem(EDIT_LIBRARY_KEY)||'[]');}catch{return [];}
   return Array.isArray(parsed)?parsed.filter(item=>item&&typeof item.id==='string'&&
+    typeof item.label==='string'&&typeof item.createdAt==='string'&&
     Array.isArray(item.objects)&&Array.isArray(item.lights)).slice(0,24):[];
 }
 export function saveEditLibraryEntry(storage,entry){
@@ -166,8 +167,10 @@ export function restoreEditLibraryEntry(document,shotId,entry,allowedShots=null)
     copy.source='editor';delete copy.editorModified;
     return copy;
   })];
-  // Saving look settings is useful, but never overwrite current effects on
-  // restore: those have an independent chapter-wide editor control.
+  // Restore stored chapter look only when no newer chapter-level choice exists.
+  if(entry.effects&&!chapter.effects)chapter.effects=clone(entry.effects);
+  if(entry.layerVisibility&&!chapter.layerVisibility)
+    chapter.layerVisibility=clone(entry.layerVisibility);
   return validatePrimitiveDocument(doc,allowedShots);
 }
 export function composeGeneratedChapter(oldScene,newScene,mode='keep',allowedShots=null){
