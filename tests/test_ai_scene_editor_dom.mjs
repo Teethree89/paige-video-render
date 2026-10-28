@@ -432,7 +432,7 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
   const oldDocument=globalThis.document,oldFetch=globalThis.fetch,oldConfirm=globalThis.confirm;
   const ids=new Map();
   const jpeg='data:image/jpeg;base64,'+Buffer.from([0xff,0xd8,0xff,0xd9]).toString('base64');
-  let startCount=0,pollCount=0,preview=null,saved=0;
+  let startCount=0,pollCount=0,preview=null,saved=0,acceptedMode=null;
   globalThis.confirm=message=>{
     assert.match(message,/two potentially billable calls/);
     assert.match(message,/Gemini 3\.5 Flash-Lite/);
@@ -477,10 +477,12 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
   };
   try{
     const shot={id:'shot_a',start:0,end:6};
+    ids.set('aiSceneEditChoice',Object.assign(new Element(),{hidden:true}));
     setupAiSceneEditor({getSequence:()=>({shots:[shot]}),getActiveShot:()=>shot,
       getReferenceVideo:()=>({src:'blob:reference'}),getPlayheadTime:()=>2,
+      getEditCount:()=>3,getLegacyCount:()=>2,
       onPreview:entry=>{preview=entry;},onDiscard:()=>{preview=null;},
-      onAccept:()=>{saved++;}});
+      onAccept:(_entry,options)=>{saved++;acceptedMode=options.editsMode;}});
     await new Promise(resolve=>setImmediate(resolve));
     ids.get('aiSceneScope').value='subject';
     ids.get('aiSceneModel').value='argon_previs';
@@ -489,6 +491,13 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
     assert.equal(pollCount,1);
     assert.equal(preview?.objects[0]?.id,'client_building');
     assert.equal(saved,0);
+    assert.equal(ids.get('aiSceneEditChoice').hidden,false,'edit choice appears after paid start');
+    assert.equal(ids.get('aiSceneEditMode').value,'library','legacy items default to archival');
+    assert.match(ids.get('aiSceneLegacyWarning').textContent,/2 older object/);
+    ids.get('aiSceneEditMode').value='clear';
+    await ids.get('aiSceneAccept').fire('click');
+    assert.equal(saved,1);
+    assert.equal(acceptedMode,'clear','the selected disposition reaches acceptance');
     assert.match(ids.get('aiSceneLog').textContent,/Argon job status: completed/);
     assert.match(ids.get('aiSceneLog').textContent,/Z-fighting cleanup/);
   }finally{
