@@ -19,7 +19,7 @@ test('Argon stays data-only, while generated provenance survives JSON roundtrip'
   assert.deepEqual(raw,original);
   assert.equal(generated.objects[0].source,'argon');
   assert.equal(generated.lights[0].source,'argon');
-  assert.equal(generated.lights[0].id,'argon_light_1');
+  assert.equal(generated.lights[0].id,'ai_light_1');
   assert.deepEqual(validate(JSON.parse(JSON.stringify(generated))),generated);
 });
 
