@@ -176,7 +176,7 @@ test('three sampled video frames become previewable and accepted without alterin
     assert.deepEqual(sequence.primitiveScenes.scenes.find(x=>x.shotId==='shot_b'),untouched);
     assert.deepEqual(sequence.primitiveScenes.scenes.find(x=>x.shotId==='shot_a'),{
       shotId:'shot_a',objects:['structures','ground','vegetation','details'].map(
-        layer=>({...generated.scenes[0].objects[0],id:layer+'_1',layer}))
+        layer=>({...generated.scenes[0].objects[0],id:layer+'_1',layer,source:'flash'}))
     });
     assert.deepEqual(sequence.camera,preservedOriginal.camera);
     assert.deepEqual(sequence.shots,preservedOriginal.shots);
