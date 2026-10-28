@@ -107,8 +107,8 @@ export function groupGeneratedArrays(input){
   return {scene:entry,grouped:replacements.size,absorbed:originalCount-entry.objects.length};
 }
 export function editorItems(scene){
-  return {objects:(scene?.objects||[]).filter(isEdited).map(clone),
-    lights:(scene?.lights||[]).filter(isEdited).map(clone)};
+  return {objects:(scene?.objects||[]).filter(isEdited).map(item=>clone(item)),
+    lights:(scene?.lights||[]).filter(isEdited).map(item=>clone(item))};
 }
 export function editorEditCount(scene){
   const items=editorItems(scene);
