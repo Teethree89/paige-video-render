@@ -55,7 +55,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{}
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onGroup,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{}
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -63,6 +63,9 @@ export function setupSceneObjectEditing({
   const selectionPanel=setupSceneSelectionPanel();
   const move=el('sceneEditMove'),rotate=el('sceneEditRotate');
   const duplicate=el('sceneEditDuplicate'),erase=el('sceneEditDelete'),name=el('sceneEditName'),hint=el('sceneEditStatus');
+  const groupButton=el('sceneEditGroup'),rectangleButton=el('sceneEditRectangle'),rectOverlay=el('sceneSelectionRectangle');
+  const selectedIds=new Set(),extraOutlines=new Map();
+  let rectangleMode=false,selectionRect=null;
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
   const transform=new TransformControls(camera,canvas);
   // The editor pins Three r166, where TransformControls is an Object3D.
@@ -171,7 +174,27 @@ export function setupSceneObjectEditing({
     arrayHighlights=[];pendingArray=null;
     onVisualChange();
   }
+  function clearExtraHighlights(){
+    for(const outline of extraOutlines.values())outline.dispose();
+    extraOutlines.clear();
+  }
+  function syncExtraHighlights(){
+    clearExtraHighlights();
+    if(!active)return;
+    for(const id of selectedIds){
+      if(id===selectedId)continue;
+      const node=id.startsWith('light::')?world.getLightMarker(currentShot(),id.slice(7)):
+        world.getObjectNode(currentShot(),id);
+      if(!node)continue;
+      const outline=createSelectionOutline(node);
+      if(!outline)continue;
+      outline.line.material.color.set(0x62bbff);
+      scene.add(outline.line);extraOutlines.set(id,outline);
+    }
+    onVisualChange();
+  }
   function updateHighlight(){highlight?.update();
+    for(const outline of extraOutlines.values())outline.update();
     for(const outline of arrayHighlights)outline.update();}
   function showHighlight(object){
     clearHighlight();
@@ -191,9 +214,12 @@ export function setupSceneObjectEditing({
     rotate?.setAttribute('aria-pressed',String(operation==='rotate'));
     if(erase)erase.disabled=!active||!selectedId;
     if(duplicate)duplicate.disabled=!active||!selectedId;
+    if(groupButton)groupButton.disabled=!active||selectedIds.size<2;
+    rectangleButton?.classList.toggle('active',rectangleMode);
+    rectangleButton?.setAttribute('aria-pressed',String(rectangleMode));
     if(rotate)rotate.disabled=!!selectedId?.startsWith('light::')||
       !!selectedId?.startsWith('light-target::');
-    if(name)name.textContent=selectedId?(()=>{
+    if(name)name.textContent=selectedIds.size>1?selectedIds.size+' objects selected':selectedId?(()=>{
       const entry=getDocument()?.scenes?.find(s=>s.shotId===selectedShot);
       return selectedId.startsWith('light-target::')?
         (entry?.lights?.find(l=>l.id===selectedId.slice(14))?.name||selectedId)+' · Aim target':
@@ -203,7 +229,7 @@ export function setupSceneObjectEditing({
     })():'No object selected';
     if(canvas)canvas.style.cursor=active?'crosshair':'';
   }
-  function select(id,notify=true){
+  function select(id,notify=true,keepSet=false){
     if(!active)return false;
     const shotId=currentShot();
     const targetId=id?.startsWith('light-target::')?id.slice(14):null;
@@ -212,7 +238,9 @@ export function setupSceneObjectEditing({
       lightId?world.getLightMarker(shotId,lightId):
       id?world.getObjectNode(shotId,id):null;
     if(id&&!node)return false;
+    if(!keepSet)selectedIds.clear();
     selectedId=id||null;selectedShot=shotId;
+    if(selectedId)selectedIds.add(selectedId);
     clearRotationProxy();clearHighlight();
     if(node){
       if(lightId||targetId)setMode('translate');
@@ -224,9 +252,51 @@ export function setupSceneObjectEditing({
             .find(o=>o.id===id)?.repeat?' · E rotates EACH copy in place':'')+
           ' · Delete removes');
     }else message('Click an editable shape to select it; drag to orbit and scroll to zoom.');
+    syncExtraHighlights();
     updateButtons();if(notify)onSelect?.(selectedId);
     return true;
   }
+  function multiSelect(id){
+    if(!id)return;
+    if(selectedIds.has(id)){
+      selectedIds.delete(id);
+      select(selectedIds.size?[...selectedIds].at(-1):null,true,true);
+    }else{
+      selectedIds.add(id);select(id,true,true);
+    }
+  }
+  function selectMany(ids){
+    selectedIds.clear();
+    for(const id of ids)selectedIds.add(id);
+    select(ids.at(-1)||null,true,true);
+    message(ids.length+' visible object(s) selected · Ctrl/Cmd+G to group.');
+  }
+  function visibleSelections(){
+    const entry=getDocument()?.scenes?.find(s=>s.shotId===currentShot());
+    if(!entry)return [];
+    const layers=entry.layerVisibility||{};
+    const solo=world.getIsolation?.(currentShot());
+    const objectAllowed=item=>!solo||
+      (solo.kind==='layer'&&solo.layer===(item.layer||'manual'))||
+      (['object','part'].includes(solo.kind)&&solo.id===item.id);
+    const lightAllowed=item=>!solo||
+      (solo.kind==='layer'&&solo.layer==='lights')||
+      (solo.kind==='light'&&solo.id===item.id);
+    return [...entry.objects.filter(item=>item.visible!==false&&
+      layers[item.layer||'manual']!==false&&objectAllowed(item)).map(o=>o.id),
+      ...(layers.lights===false?[]:(entry.lights||[]).filter(item=>
+        item.visible!==false&&lightAllowed(item)).map(light=>'light::'+light.id))];
+  }
+  function groupSelected(){
+    if(!active||selectedIds.size<2||!onGroup)return false;
+    try{
+      const id=onGroup(currentShot(),[...selectedIds]);
+      if(!id||!select(id))throw Error('Grouped object was not selectable');
+      message('Grouped objects into a single editable assembly. Double-click to open its parts.');
+      return true;
+    }catch(error){message('Group rejected: '+error.message);refresh();return false;}
+  }
+  groupButton?.addEventListener('click',groupSelected);
   function setMode(value){
     if(!['translate','rotate'].includes(value))return;
     if(value==='rotate'&&(selectedId?.startsWith('light::')||
@@ -258,6 +328,8 @@ export function setupSceneObjectEditing({
       if(!select(getInitialObjectId?.()||null,false))select(null,false);
     }else{
       active=false;selectedId=null;selectedShot=null;frameStart=null;
+      selectedIds.clear();clearExtraHighlights();rectangleMode=false;selectionRect=null;
+      if(rectOverlay)rectOverlay.hidden=true;
       closeArrayDialog();clearArrayHighlights();
       world.setLightMarkersVisible?.(false);
       clearRotationProxy();transform.enabled=false;clearHighlight();
@@ -292,7 +364,12 @@ export function setupSceneObjectEditing({
       if(!(id.startsWith('light-target::')?world.getLightTargetMarker(selectedShot,id.slice(14)):
         id.startsWith('light::')?world.getLightMarker(selectedShot,id.slice(7)):
         world.getObjectNode(selectedShot,id))){select(null);return;}
-      select(id,false); // reattach to rebuilt geometry after a committed edit
+      // Drop removed group members rather than keeping stale highlights.
+      for(const key of [...selectedIds]){
+        if(!(key.startsWith('light::')?world.getLightMarker(selectedShot,key.slice(7)):
+          world.getObjectNode(selectedShot,key)))selectedIds.delete(key);
+      }
+      select(id,false,true); // reattach to rebuilt geometry after a committed edit
     }
   }
   function commit(){
@@ -336,7 +413,7 @@ export function setupSceneObjectEditing({
       if(id.startsWith('light-target::'))onDeleteLight?.(shot,id.slice(14));
       else if(id.startsWith('light::'))onDeleteLight?.(shot,id.slice(7));
       else onDelete?.(shot,id);
-      selectedId=null;
+      selectedId=null;selectedIds.clear();clearExtraHighlights();
       clearRotationProxy();clearHighlight();
       updateButtons();onSelect?.(null);
       message('Deleted '+id+' from this chapter. Export timeline JSON to keep a backup.');
@@ -360,11 +437,80 @@ export function setupSceneObjectEditing({
     pointer.x=(event.clientX-box.left)/box.width*2-1;
     pointer.y=-((event.clientY-box.top)/box.height*2-1);
   }
+  function paintRect(x,y){
+    if(!selectionRect||!rectOverlay)return;
+    const bounds=canvas.getBoundingClientRect();
+    const a=selectionRect;
+    rectOverlay.style.left=(Math.min(a.x,x)-bounds.left)+'px';
+    rectOverlay.style.top=(Math.min(a.y,y)-bounds.top)+'px';
+    rectOverlay.style.width=Math.abs(x-a.x)+'px';
+    rectOverlay.style.height=Math.abs(y-a.y)+'px';
+  }
+  function projectedBounds(node){
+    node.updateWorldMatrix(true,true);
+    const box=new THREE.Box3().setFromObject(node);
+    if(box.isEmpty())return null;
+    const corners=[];
+    for(const x of [box.min.x,box.max.x])
+      for(const y of [box.min.y,box.max.y])
+        for(const z of [box.min.z,box.max.z]){
+          const p=new THREE.Vector3(x,y,z).project(camera);
+          if(p.z>=-1&&p.z<=1)corners.push(p);
+        }
+    if(!corners.length)return null;
+    const r=canvas.getBoundingClientRect();
+    const xs=corners.map(p=>r.left+(p.x+1)*r.width/2);
+    const ys=corners.map(p=>r.top+(1-p.y)*r.height/2);
+    return {left:Math.min(...xs),right:Math.max(...xs),
+      top:Math.min(...ys),bottom:Math.max(...ys)};
+  }
+  function finishRectangle(end,additive){
+    const start=selectionRect;selectionRect=null;
+    if(rectOverlay)rectOverlay.hidden=true;
+    if(!start)return;
+    const rect={left:Math.min(start.x,end.x),right:Math.max(start.x,end.x),
+      top:Math.min(start.y,end.y),bottom:Math.max(start.y,end.y)};
+    if(rect.right-rect.left<5&&rect.bottom-rect.top<5)return;
+    const selected=additive?[...selectedIds]:[];
+    const crossing=end.x<start.x;
+    for(const id of visibleSelections()){
+      const node=id.startsWith('light::')?world.getLightMarker(currentShot(),id.slice(7)):
+        world.getObjectNode(currentShot(),id);
+      if(!node)continue;
+      const bounds=projectedBounds(node);
+      const overlap=bounds&&bounds.right>=rect.left&&bounds.left<=rect.right&&
+        bounds.bottom>=rect.top&&bounds.top<=rect.bottom;
+      const contained=bounds&&bounds.left>=rect.left&&bounds.right<=rect.right&&
+        bounds.top>=rect.top&&bounds.bottom<=rect.bottom;
+      // L→R is precise containment; R→L is crossing-selection.
+      if((crossing?overlap:contained)&&!selected.includes(id))selected.push(id);
+    }
+    selectMany(selected);
+  }
+  rectangleButton?.addEventListener('click',()=>{
+    rectangleMode=!rectangleMode;orbitControls.enabled=!rectangleMode;
+    transform.enabled=!rectangleMode;
+    updateButtons();message(rectangleMode?
+      'Drag left-to-right to contain objects, right-to-left to cross-select; Shift adds.':
+      'Rectangle selection off. Drag to orbit.');
+  });
   canvas.addEventListener('pointerdown',event=>{
+    if(active&&rectangleMode&&event.button===0){
+      selectionRect={x:event.clientX,y:event.clientY,additive:event.shiftKey};
+      if(rectOverlay)rectOverlay.hidden=false;
+      paintRect(event.clientX,event.clientY);frameStart=null;return;
+    }
     frameStart=active&&event.button===0?{x:event.clientX,y:event.clientY}:null;
     if(active&&transform.axis)skipClick=true;
   });
+  canvas.addEventListener('pointermove',event=>{
+    if(selectionRect)paintRect(event.clientX,event.clientY);
+  });
   canvas.addEventListener('pointerup',event=>{
+    if(active&&selectionRect&&event.button===0){
+      finishRectangle({x:event.clientX,y:event.clientY},event.shiftKey||selectionRect.additive);
+      return;
+    }
     if(!active||!frameStart||event.button!==0)return;
     const from=frameStart;frameStart=null;
     if(Math.hypot(event.clientX-from.x,event.clientY-from.y)>5||
@@ -372,10 +518,15 @@ export function setupSceneObjectEditing({
     ndc(event);raycaster.setFromCamera(pointer,camera);
     const hits=raycaster.intersectObjects(world.getPickableMeshes(currentShot()),false);
     const hit=hits[0]?.object?.userData;
-    select(hit?.primitiveLightTargetId?'light-target::'+hit.primitiveLightTargetId:
-      hit?.primitiveLightId?'light::'+hit.primitiveLightId:hit?.primitiveId||null);
+    const id=hit?.primitiveLightTargetId?'light-target::'+hit.primitiveLightTargetId:
+      hit?.primitiveLightId?'light::'+hit.primitiveLightId:hit?.primitiveId||null;
+    if(event.shiftKey||event.ctrlKey||event.metaKey)multiSelect(id);
+    else select(id);
   });
-  canvas.addEventListener('pointercancel',()=>{frameStart=null;skipClick=false;});
+  canvas.addEventListener('pointercancel',()=>{
+    frameStart=null;skipClick=false;selectionRect=null;
+    if(rectOverlay)rectOverlay.hidden=true;
+  });
   function closeArrayDialog(){
     if(arrayConfirm?.open)arrayConfirm.close();
     if(arrayConfirm)arrayConfirm.hidden=true;
@@ -456,10 +607,16 @@ export function setupSceneObjectEditing({
   erase?.addEventListener('click',deleteSelected);
   duplicate?.addEventListener('click',duplicateSelected);
   document.addEventListener?.('keydown',event=>{
-    if(!active||!selectedId||!(event.ctrlKey||event.metaKey)||
-       event.key.toLowerCase()!=='d'||event.target?.closest?.('input,textarea,select,[contenteditable]')||
-       !el('arrayEditModal')?.hidden)return;
-    event.preventDefault();duplicateSelected();
+    if(!active||!(event.ctrlKey||event.metaKey)||
+      event.target?.closest?.('input,textarea,select,[contenteditable]')||
+      !el('arrayEditModal')?.hidden)return;
+    if(event.key.toLowerCase()==='a'){
+      event.preventDefault();selectMany(visibleSelections());
+    }else if(event.key.toLowerCase()==='g'){
+      event.preventDefault();groupSelected();
+    }else if(event.key.toLowerCase()==='d'&&selectedId){
+      event.preventDefault();duplicateSelected();
+    }
   });
   updateButtons();
   return {
@@ -479,8 +636,11 @@ export function setupSceneObjectEditing({
       askArrayEdit(currentShot(),id,0);return true;
     },
     get selectedId(){return selectedId;},
+    get selectedIds(){return [...selectedIds];},
+    isSelected(id){return selectedIds.has(id);},
+    groupSelected,
     setActive,refresh,select,setMode,duplicateSelected,deleteSelected,updateHighlight,focusSelectionIfOffscreen,clearArrayHighlights,
     dispose(){setActive(false,{skipExit:true});clearRotationProxy();selectionPanel.restore();
-      closeMakeArray();transform.dispose?.();scene.remove(helper);clearHighlight();clearArrayHighlights();}
+      closeMakeArray();transform.dispose?.();scene.remove(helper);clearHighlight();clearExtraHighlights();clearArrayHighlights();}
   };
 }

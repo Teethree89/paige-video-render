@@ -31,7 +31,9 @@
           <button type="button" data-object-action="array" role="menuitem">▦ Make / edit array…</button>
           <button type="button" data-object-action="edit" role="menuitem">✎ Edit group / array components…</button>
           <button type="button" data-object-action="duplicate" role="menuitem">⧉ Duplicate object</button>
+          <button type="button" data-object-action="group" role="menuitem">▣ Group selected objects</button>
         </div>
+        <div id="sceneSelectionRectangle" class="scene-selection-rectangle" hidden></div>
         <div id="sceneCreateMenu" class="scene-create-menu" role="group" aria-label="Create scene object" hidden>
           <div id="sceneCreateWheel" class="scene-create-wheel"></div>
           <div id="sceneCreateSubmenu" class="scene-create-submenu" hidden></div>
@@ -45,6 +47,8 @@
             <button id="sceneEditMove" type="button" title="Move selected object on X Y Z (W)" aria-pressed="true">↔ Move (W)</button>
             <button id="sceneEditRotate" type="button" title="Rotate selected object around X Y Z (E)" aria-pressed="false">⟳ Rotate (E)</button>
             <button id="sceneEditDuplicate" type="button" title="Duplicate selected shape, repeated array, or light (Ctrl/Cmd+D)" disabled>⧉ Duplicate</button>
+            <button id="sceneEditRectangle" type="button" title="Rectangle select visible objects (drag over viewport)">▧ Select area</button>
+            <button id="sceneEditGroup" class="secondary" type="button" title="Combine selected objects into one editable group (Ctrl/Cmd+G)" disabled>▣ Group</button>
             <button id="sceneEditDelete" class="scene-edit-delete" type="button" disabled>Delete</button>
           </div>
           <div id="sceneEditFields" class="scene-edit-fields" aria-label="Selected object's editable properties" hidden></div>
@@ -304,6 +308,7 @@
           <div class="primitive-buttons">
             <button id="primitiveImport" class="ghost" type="button">Import JSON</button>
             <button id="primitiveExportJSON" class="secondary" type="button">Export JSON</button>
+            <button id="primitiveExportArrays" class="secondary" type="button">Export chapter arrays only</button>
           </div>
           <button id="primitiveCleanupSaved" class="wide ghost" type="button">Clean up saved chapter geometry</button>
           <div class="divider"></div>
@@ -377,20 +382,6 @@
                 <button id="aiArgonSmokeReset" type="button" class="wide ghost">Restart diagnostics</button>
               </div>
               <button id="aiSceneGenerate" type="button" class="wide primary">Generate 3D scene for this chapter</button>
-              <section id="aiSceneEditChoice" class="ai-generation-activity" aria-label="Keep or archive manual edits" hidden>
-                <div class="section-label">CHAPTER REGENERATION · EDITOR ADDED OBJECTS</div>
-                <p class="field-help">Argon has started. Choose how existing scene edits are handled when you ACCEPT the new geometry. Nothing is deleted while generation runs.</p>
-                <label class="field">Existing chapter edits
-                  <select id="aiSceneEditMode">
-                    <option value="keep" selected>Keep edited objects, spotlights and other user additions</option>
-                    <option value="library">Save edited objects/lights to library, then clear from chapter</option>
-                    <option value="clear">Clear chapter edits without a library backup</option>
-                  </select>
-                </label>
-                <p id="aiSceneLegacyWarning" class="field-help" hidden></p>
-                <p class="field-help">The generated Argon geometry is replaced independently. Unedited generated objects are not copied to the library. Local library saves remain in this browser; export a project backup for portability.</p>
-              </section>
-
               <button id="aiSceneResumeArgon" type="button" class="wide secondary" hidden>Resume previous Argon job</button>
               <button id="aiSceneDownloadArgon" type="button" class="wide secondary" hidden>Download original Argon output</button>
               <p class="field-help">Download the latest job's original scene response, even if validation failed. New direct-image jobs keep this output privately for 24 hours; download it before starting another job. Unsupported materials use a neutral fallback in the preview. Older failed direct-image jobs have no saved original output.</p>
@@ -415,15 +406,6 @@
                 <button id="aiSceneDiscard" type="button" class="ghost" hidden>Discard preview</button>
               </div>
             </div>
-              <section class="ai-generation-activity" aria-label="Reusable object edit library">
-                <div class="section-label">EDITED OBJECT LIBRARY · THIS BROWSER</div>
-                <select id="aiSceneLibraryPicker" aria-label="Saved editor object sets"></select>
-                <div class="primitive-buttons">
-                  <button id="aiSceneLibraryRestore" class="secondary" type="button">Restore to current chapter</button>
-                  <button id="aiSceneLibraryDelete" class="ghost" type="button">Delete saved set</button>
-                </div>
-                <p id="aiSceneLibraryStatus" class="field-help">No saved edits yet.</p>
-              </section>
             <p id="aiSceneStatus" role="status" class="field-help">Checking private PHP proxy…</p>
             <div class="ai-generation-activity" aria-label="AI generation activity">
               <div class="section-label">GENERATION ACTIVITY</div>
@@ -562,6 +544,22 @@
           <p class="field-help">Swaps every mesh and light, preserving this parent's XYZ position, rotation, array count and spacing. Nothing changes in the live scene until Save.</p>
           <button id="arrayEditUndoTemplate" type="button" class="wide ghost" hidden>Undo replacement preview</button>
           <div class="divider"></div>
+          <div class="section-label">PORTABLE ASSEMBLIES · JSON</div>
+          <div class="primitive-buttons">
+            <button id="arrayEditExportJSON" class="secondary" type="button">Export this assembly</button>
+            <button id="arrayEditImportJSON" class="ghost" type="button">Import assembly JSON</button>
+          </div>
+          <input id="arrayEditImportFile" type="file" accept=".json,application/json" hidden>
+          <button id="arrayEditAddToLibrary" class="wide secondary" type="button">＋ Save this assembly to library</button>
+          <label class="field">Previously saved assembly
+            <select id="arrayEditLibraryPicker"></select>
+          </label>
+          <div class="primitive-buttons">
+            <button id="arrayEditLoadLibrary" class="secondary" type="button">Preview library assembly</button>
+            <button id="arrayEditRemoveLibrary" class="ghost" type="button">Remove from library</button>
+          </div>
+          <p id="arrayEditLibraryStatus" class="field-help" role="status">Library is saved in this browser. Export JSON for portability.</p>
+          <div class="divider"></div>
           <div class="section-label">CHAPTER SPOTLIGHTS</div>
           <label class="field">Spotlight rendering · shared chapter setting
             <select id="arrayEditSpotMode">
@@ -615,6 +613,15 @@
       <button id="sceneMakeArraySave" class="primary" type="button">Create / update copies</button>
     </div>
   </dialog>
+  <dialog id="aiSceneReplaceConfirm" class="confirm-dialog" aria-labelledby="aiSceneReplaceTitle">
+    <div id="aiSceneReplaceTitle" class="section-label">REPLACE CHAPTER GEOMETRY?</div>
+    <p id="aiSceneReplaceText">Applying the proposal replaces this chapter's current 3D objects, lights, and manual adjustments. Other chapters, camera keys and text remain untouched. Export the timeline JSON first if you want a restorable copy of the existing scene.</p>
+    <div class="confirm-actions">
+      <button id="aiSceneReplaceExport" type="button" class="secondary">Export timeline JSON</button>
+      <button id="aiSceneReplaceCancel" type="button" class="ghost">Cancel</button>
+      <button id="aiSceneReplaceApply" type="button" class="primary">Replace chapter</button>
+    </div>
+  </dialog>
   <dialog id="aiConfirm" class="confirm-dialog" aria-labelledby="aiConfirmTitle">
     <form method="dialog">
       <div id="aiConfirmTitle" class="section-label">CONFIRM PAID REQUEST</div>
@@ -634,15 +641,6 @@
       <p id="argonParticleDetail">Waiting for Cloudflare job</p>
       <div class="argon-particle-track" role="progressbar" aria-label="Argon operation in progress; completion percentage unknown"><div id="argonParticleMeter"></div></div>
       <p id="argonParticleElapsed">0:00 elapsed · finish time unknown</p>
-      <div id="argonOverlayEditChoice" class="argon-overlay-edit-choice" hidden>
-        <label for="argonOverlayEditMode">Your existing chapter edits (applies only on Accept)</label>
-        <select id="argonOverlayEditMode">
-          <option value="keep">Keep edits and added lights in chapter</option>
-          <option value="library">Save edited objects/lights to library, then clear</option>
-          <option value="clear">Clear edits without saving</option>
-        </select>
-        <p>Argon continues generating while you decide. Nothing is deleted now.</p>
-      </div>
       <p class="argon-particle-tip">Move your cursor through the particle cloud · generation continues while you view the editor</p>
     </div>
   </section>

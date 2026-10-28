@@ -3,6 +3,7 @@ import {blankPrimitiveDocument,validatePrimitiveDocument,makePrimitive,makeExamp
   radiansToDegrees,degreesToRadians,lightCastsShadow,applySpotlightSettingsGlobally} from './primitive-schema.js';
 import {insertCreatedAsset} from './scene-asset-catalog.js';
 import {spotlightFieldVisibility} from './spotlight-controls.js';
+import {makeAssemblyPack} from './assembly-library.js';
 
 const el=id=>document.getElementById(id);
 function download(content,filename,mime='application/json'){
@@ -548,6 +549,15 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
   el('primitiveExportJSON').addEventListener('click',()=>{
     download(JSON.stringify(getPrimitiveDocument(),null,2),'editable-primitives.json');
     status.textContent='Exported all primitive scenes as JSON.';
+  });
+  el('primitiveExportArrays')?.addEventListener('click',()=>{
+    const shot=getActiveShot();
+    if(!shot)return;
+    const scene=getPrimitiveDocument().scenes.find(s=>s.shotId===shot.id);
+    const pack=makeAssemblyPack(scene);
+    if(!pack.assets.length){status.textContent='No repeated arrays or grouped assemblies in this chapter.';return;}
+    download(JSON.stringify(pack,null,2),safeFile(shot.id)+'-assemblies.json');
+    status.textContent='Exported '+pack.assets.length+' reusable array/group definitions. Import the pack in the mini editor to populate its library.';
   });
   el('primitiveImport').addEventListener('click',()=>file.click());
   file.addEventListener('change',async()=>{

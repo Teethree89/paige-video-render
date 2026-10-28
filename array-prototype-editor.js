@@ -9,6 +9,8 @@ import {DEFAULT_EFFECTS,applyShotEffects,setFakeSpotPreviewGround} from './scene
 import {spotlightFieldVisibility} from './spotlight-controls.js';
 import {listAssemblyTemplates,replaceAssemblyContents,saveAssemblyHierarchy,editableAssembly}
   from './array-assembly-templates.js';
+import {makeAssemblyFile,parseAssemblyFile,readAssemblyLibrary,
+  addAssembliesToLibrary,removeAssemblyFromLibrary} from './assembly-library.js';
 
 const sampleShot='arrayPreview';
 const finite=value=>Number.isFinite(Number(value))?Number(value):null;
@@ -126,6 +128,93 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
    refreshFields();rerender();
  });
  let sourceTemplates=[],beforeTemplate=null,hoverOutlines=[];
+
+ const libraryPicker=byId('arrayEditLibraryPicker');
+ const libraryStatus=byId('arrayEditLibraryStatus');
+ const sayLibrary=message=>{if(libraryStatus)libraryStatus.textContent=message;};
+ const downloadJSON=(payload,name)=>{
+   const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));
+   const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();
+   setTimeout(()=>URL.revokeObjectURL(url),15000);
+ };
+ const libraryEntries=()=>{try{return readAssemblyLibrary(localStorage);}catch{return [];}};
+ function refreshLibrary(){
+   const saved=libraryEntries(),prior=libraryPicker?.value;
+   if(libraryPicker){
+     libraryPicker.replaceChildren();
+     for(const entry of saved){
+       const option=document.createElement('option');option.value=entry.id;option.textContent=entry.label;
+       libraryPicker.append(option);
+     }
+     if(saved.some(x=>x.id===prior))libraryPicker.value=prior;
+   }
+   const available=!!saved.length;
+   if(byId('arrayEditLoadLibrary'))byId('arrayEditLoadLibrary').disabled=!available;
+   if(byId('arrayEditRemoveLibrary'))byId('arrayEditRemoveLibrary').disabled=!available;
+ }
+ function portableDraft(){
+   if(!draft)throw Error('Open an assembly before exporting.');
+   const parts=structuredClone(draft.parts);
+   parts.order=orderedKeys().filter(key=>!!itemForKey(key));
+   const item={...structuredClone(draft.base),arrayParts:parts};
+   return makeAssemblyFile(item);
+ }
+ // A template is a complete replaceable object; destination world placement
+ // and array layout stay put, as when using another chapter assembly.
+ function previewImportedAssembly(asset){
+   if(!draft)throw Error('Open an assembly before importing.');
+   const converted=editableAssembly(asset);
+   const original=draft.base;
+   const base={...converted.base,id:objectId,name:original.name,
+     position:[...original.position],rotation:[...original.rotation]};
+   // Imported array count, spacing and layer must not leak onto a destination.
+   delete base.repeat;delete base.layer;delete base.instanceRotation;
+   if(original.repeat)base.repeat=structuredClone(original.repeat);
+   if(original.layer)base.layer=original.layer;
+   if(original.instanceRotation)base.instanceRotation=structuredClone(original.instanceRotation);
+   // Former spatially aligned companion rows are replaced with the imported
+   // complete assembly, not left behind as duplicate meshes.
+   const absorbed=new Map([...draft.absorbed].map(([key,item])=>
+     [key,{...item,ids:[...item.ids]}]));
+   draft={base,parts:converted.parts,absorbed};
+   candidates=[];selected='root';beforeTemplate=null;globalSpotTemplate=null;
+   if(undoTemplate)undoTemplate.hidden=true;
+   renderCompanions();refreshList();updateAssemblySummary();rerender({refit:true});
+   setStatus('Imported prototype staged. Review the mesh/light outliner, then Save or Cancel.');
+ }
+ byId('arrayEditExportJSON')?.addEventListener('click',()=>{
+   try{const asset=portableDraft();
+     downloadJSON(asset,(draft.base.name||'assembly').replace(/[^a-z0-9_-]/gi,'-')+'.json');
+     sayLibrary('Exported one assembly, including its meshes, lights and array layout.');
+   }catch(error){sayLibrary('Export failed: '+error.message);}
+ });
+ byId('arrayEditAddToLibrary')?.addEventListener('click',()=>{
+   try{const n=addAssembliesToLibrary(localStorage,portableDraft());
+     refreshLibrary();sayLibrary(n?'Saved prototype to this browser library.':'Already saved in library.');
+   }catch(error){sayLibrary('Could not save: '+error.message);}
+ });
+ byId('arrayEditImportJSON')?.addEventListener('click',()=>byId('arrayEditImportFile')?.click());
+ byId('arrayEditImportFile')?.addEventListener('change',async event=>{
+   const file=event.target.files?.[0];event.target.value='';if(!file)return;
+   try{
+     const assets=parseAssemblyFile(JSON.parse(await file.text()));
+     const count=addAssembliesToLibrary(localStorage,assets);
+     refreshLibrary();previewImportedAssembly(assets[0]);
+     sayLibrary('Imported '+assets.length+' assembly(s); '+count+' added to library. First is staged.');
+   }catch(error){sayLibrary('Import rejected: '+error.message);}
+ });
+ byId('arrayEditLoadLibrary')?.addEventListener('click',()=>{
+   const found=libraryEntries().find(e=>e.id===libraryPicker?.value);
+   if(!found)return;
+   try{previewImportedAssembly(found.asset);sayLibrary('Library assembly staged. Save applies to linked copies.');}
+   catch(error){sayLibrary('Load rejected: '+error.message);}
+ });
+ byId('arrayEditRemoveLibrary')?.addEventListener('click',()=>{
+   const id=libraryPicker?.value;if(!id)return;
+   if(!confirm('Delete this assembly from the local browser library? Previously exported JSON files are unaffected.'))return;
+   try{removeAssemblyFromLibrary(localStorage,id);refreshLibrary();sayLibrary('Library entry removed.');}
+   catch(error){sayLibrary('Remove failed: '+error.message);}
+ });
  const originalRoot=()=>source?.scenes?.find(s=>s.shotId===shotId)?.objects.find(o=>o.id===objectId);
  const pose=()=>{
    const old=originalRoot();
@@ -878,6 +967,7 @@ export function setupArrayPrototypeEditor({getDocument,getShotIds,onSave,onClose
      spotMode=initialSpotMode=previewEffects.lights.spotMode;
      if(spotModeSelect)spotModeSelect.value=spotMode;
      candidates=base.repeat?findArrayCompanions(doc,id,partId):[];
+     refreshLibrary();
      sourceTemplates=listAssemblyTemplates(doc,id).filter(t=>t.id!==partId);
      selectOptions(templateSelect||makeEl('select'),
        [['','Choose an assembly…'],...sourceTemplates.map(t=>[t.id,t.label])]);
