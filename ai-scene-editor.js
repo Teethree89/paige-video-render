@@ -482,7 +482,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       log('Local post-processing: '+grouped.grouped+
         ' array row(s) grouped into editable assemblies; '+grouped.absorbed+
         ' companion definitions absorbed. No extra Argon request.');
-    }else pending=tagGeneratedScene(result.document.scenes[0]);
+    }else pending=tagGeneratedScene(result.document.scenes[0],'flash');
     pendingShot=shot.id;
     showEditChoice(shot.id);
     onPreview(pending,{editsMode:editMode()});
