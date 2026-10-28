@@ -93,43 +93,71 @@ export function setupWorkspaceControls(root=document){
       if(key==='ArrowRight')showWidth(state.inspectorWidth-step);});
   el('timelineResizeHandle')?.addEventListener('dblclick',()=>showHeight(320));
   el('inspectorResizeHandle')?.addEventListener('dblclick',()=>showWidth(360));
-  const objectTab=el('inspectorObjectsButton'),generationTab=el('inspectorGenerationButton');
-  const objectPanel=el('inspectorObjectsPanel'),generationPanel=el('inspectorGenerationPanel');
-  // Keep one live instance of the AI controls. Reparenting happens before
-  // app.js initializes any paid-job handlers and leaves all IDs unchanged.
-  const aiPanel=el('aiScenePanel');
-  if(generationPanel&&aiPanel)generationPanel.appendChild(aiPanel);
-  const setInspectorTab=(value,{focus=false}={})=>{
-    const generation=value==='generation';
-    if(objectPanel)objectPanel.hidden=generation;
-    if(generationPanel)generationPanel.hidden=!generation;
-    for(const [tab,selected] of [[objectTab,!generation],[generationTab,generation]]){
-      if(!tab)continue;
-      tab.setAttribute('aria-selected',String(selected));
-      tab.tabIndex=selected?0:-1;
-      if(selected&&focus)tab.focus?.();
-    }
-    const heading=el('inspectorHeading'),hint=el('inspectorHint');
-    if(generation){
-      if(heading)heading.textContent='AI generation';
-      if(hint)hint.textContent='Generate or review an editable 3D scene for the current chapter.';
-    }else{
-      if(heading)heading.textContent='Project settings';
-      if(hint)hint.textContent='Select a timeline item to adjust its animation.';
-    }
-    const aside=objectTab?.closest?.('.inspector');
-    if(aside)aside.scrollTop=0;
+  const tabs=[
+    {key:'objects',button:'inspectorObjectsButton',panel:'inspectorObjectsPanel',title:'Project overview',hint:'Project summary, chapters and timeline reset.'},
+    {key:'scene',button:'inspectorSceneButton',panel:'inspectorScenePanel',title:'3D objects',hint:'Edit chapter geometry, assemblies, lights and external models.'},
+    {key:'look',button:'inspectorLookButton',panel:'inspectorLookPanel',title:'Scene effects',hint:'Control chapter fog, lighting, shadows, bloom and exposure.'},
+    {key:'motion',button:'inspectorMotionButton',panel:'inspectorMotionPanel',title:'Motion & text',hint:'Select a timeline camera key or text overlay to edit.'},
+    {key:'source',button:'inspectorSourceButton',panel:'inspectorSourcePanel',title:'Source video',hint:'Inspect source media and compare it with the 3D view.'},
+    {key:'generation',button:'inspectorGenerationButton',panel:'inspectorGenerationPanel',title:'AI generation',hint:'Generate or review an editable 3D scene for the current chapter.'}
+  ].map(tab=>({...tab,element:el(tab.button),target:el(tab.panel)}));
+  // Move controls once before app.js initialization. All IDs and editor state stay intact.
+  const move=(id,key)=>{
+    const element=el(id),panel=tabs.find(tab=>tab.key===key)?.target;
+    if(element&&panel)panel.appendChild(element);
   };
-  objectTab?.addEventListener('click',()=>setInspectorTab('objects'));
-  generationTab?.addEventListener('click',()=>setInspectorTab('generation'));
-  [objectTab,generationTab].forEach(tab=>tab?.addEventListener('keydown',event=>{
-    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
-    event.preventDefault();
-    const target=event.key==='Home'?'objects':event.key==='End'?'generation':
-      tab===objectTab?'generation':'objects';
-    setInspectorTab(target,{focus:true});
-  }));
-  setInspectorTab('objects');
+  move('sceneEffectsPanel','look');
+  move('primitiveEditor','scene');
+  move('externalModelLibrary','scene');
+  move('acceptedCameraSyncPanel','motion');
+  move('cameraPanel','motion');
+  move('textPanel','motion');
+  const sourceCard=root.querySelector('.reference-card');
+  if(sourceCard)tabs.find(tab=>tab.key==='source')?.target?.appendChild(sourceCard);
+  move('aiScenePanel','generation');
+  // Remove the dividers left behind by moving controls into their own workspaces.
+  const projectPanel=el('projectPanel');
+  if(projectPanel){
+    const dividers=[...projectPanel.children].filter(child=>child.classList.contains('divider'));
+    dividers.slice(1).forEach(divider=>divider.remove());
+  }
+  const primitiveEditor=el('primitiveEditor'),effectsPanel=el('sceneEffectsPanel');
+  if(primitiveEditor)primitiveEditor.open=true;
+  if(effectsPanel)effectsPanel.open=true;
+  const setInspectorTab=(value,{focus=false}={})=>{
+    const key=tabs.some(tab=>tab.key===value)?value:'objects';
+    for(const tab of tabs){
+      const active=tab.key===key;
+      if(tab.target)tab.target.hidden=!active;
+      if(tab.element){
+        tab.element.setAttribute('aria-selected',String(active));
+        tab.element.tabIndex=active?0:-1;
+        if(active&&focus)tab.element.focus?.();
+      }
+    }
+    const current=tabs.find(tab=>tab.key===key);
+    const heading=el('inspectorHeading'),hint=el('inspectorHint');
+    const cameraPanel=el('cameraPanel'),textPanel=el('textPanel');
+    if(heading)heading.textContent=key==='motion'&&!cameraPanel?.hidden?'Camera keyframe':
+      key==='motion'&&!textPanel?.hidden?'Text overlay':current.title;
+    if(hint)hint.textContent=current.hint;
+    const aside=current.element?.closest?.('.inspector');
+    if(aside)aside.scrollTop=0;
+    try{localStorage.setItem('paige-inspector-tab-v2',key);}catch{}
+  };
+  tabs.forEach((tab,index)=>{
+    tab.element?.addEventListener('click',()=>setInspectorTab(tab.key));
+    tab.element?.addEventListener('keydown',event=>{
+      if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+      event.preventDefault();
+      const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:
+        (index+(event.key==='ArrowLeft'?-1:1)+tabs.length)%tabs.length;
+      setInspectorTab(tabs[next].key,{focus:true});
+    });
+  });
+  let initialTab='objects';
+  try{initialTab=localStorage.getItem('paige-inspector-tab-v2')||'objects';}catch{}
+  setInspectorTab(initialTab);
   return {setZoom:showZoom,setHeight:showHeight,setInspectorTab};
 }
 if(typeof document!=='undefined')setupWorkspaceControls();

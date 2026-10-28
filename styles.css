@@ -552,3 +552,46 @@ html,body{font-size:14px}
 
 /* Flexbox field labels must respect conditional spotlight visibility. */
 .primitive-light-editor #primitiveLightFields [hidden]{display:none!important}
+
+
+/* Keep all six workspace tabs accessible while scrolling long object/AI controls. */
+.inspector .inspect-head{position:sticky;top:0;z-index:85;background:#101927;
+ padding:12px 15px 11px;box-shadow:0 6px 16px #060c15b3}
+.inspector .inspect-head h2{font-size:16px;margin:8px 0 4px}
+.inspector .inspect-head p{font-size:10px;line-height:1.35}
+/* Folder-style inspector workspaces and source-video comparison overlay. */
+.inspector .inspector-jump{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;
+ padding:5px 5px 0;margin-top:14px;background:#0b1420;border:1px solid #344b60;
+ border-radius:10px 10px 5px 5px}
+.inspector .inspector-jump [role="tab"]{min-width:0;min-height:33px;padding:7px 3px;
+ font:650 11px Inter,system-ui,sans-serif;letter-spacing:.15px;
+ color:#a7c2d0;background:#142335;border:1px solid #304457;border-bottom:3px solid #304457;
+ border-radius:8px 8px 3px 3px}
+.inspector .inspector-jump [role="tab"][aria-selected="true"]{color:#eafffb;background:#234858;
+ border-color:#64c5bd;border-bottom-color:#8affdf;box-shadow:inset 0 1px 0 #ffffff22}
+.inspector .inspector-jump [role="tab"]:hover:not([aria-selected="true"]){background:#203548}
+#inspectorScenePanel,#inspectorLookPanel,#inspectorMotionPanel,#inspectorSourcePanel{
+ padding:10px 16px 24px;min-width:0}
+#inspectorScenePanel .primitive-inspector,#inspectorLookPanel .scene-effects-panel{
+ display:block;margin:4px 0 14px}
+#inspectorScenePanel #externalModelLibrary{margin-top:16px;padding:15px 4px 5px;
+ border-top:1px solid #304355}
+#inspectorMotionPanel .panel-block{padding:16px 4px}
+#inspectorMotionPanel #motionEmptyState{margin:12px 4px}
+#inspectorSourcePanel .reference-card{margin:4px 0;padding:12px}
+.source-overlay-controls{border-top:1px solid #304457;margin-top:15px;padding-top:10px}
+.source-overlay-controls[hidden],#sourceOverlayUnavailable[hidden]{display:none!important}
+.source-overlay-controls .checkbox-field{line-height:1.45;margin:8px 0 16px}
+.source-overlay-controls output{display:inline-block;margin-left:6px;font:600 11px ui-monospace,monospace;color:#9df7e8}
+.source-overlay-controls input[type="range"]{width:100%;accent-color:#82e9d6}
+.reference-card #referenceVideoHome:empty::after{content:"Source video currently displayed over the main 3D viewport";
+ display:block;padding:18px 10px;border:1px dashed #415466;border-radius:5px;
+ color:#93b9c5;text-align:center;font-size:11px;line-height:1.5}
+.source-viewport-overlay[hidden]{display:none!important}
+.source-viewport-overlay{position:absolute;inset:0;z-index:2;pointer-events:none;
+ display:flex;align-items:center;justify-content:center;overflow:hidden}
+.source-viewport-overlay video{display:block;width:100%;height:100%;object-fit:contain;
+ background:transparent;pointer-events:none}
+.viewport>.vignette{z-index:3}
+.viewport>.overlay-layer,.viewport>.cut-flash{z-index:4}
+.viewport>.stage-top,.viewport>.stage-footer{z-index:6}
