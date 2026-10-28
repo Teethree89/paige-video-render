@@ -84,7 +84,7 @@ export function setupPrimitiveEditor({getSequence,getActiveShot,onDocumentChange
       (item.editorModified?'edited':item.source==='flash'?'flash':item.primitive==='group'?'processed':'argon'):
       item.source==='editor'?'editor':'legacy';
     const originLabels={argon:'Argon geometry',flash:'Flash / AI geometry',processed:'Processed assemblies',
-      edited:'User-edited Argon',editor:'User additions',legacy:'Legacy / unclassified'};
+      edited:'User-edited AI geometry',editor:'User additions',legacy:'Legacy / unclassified'};
     const originRank={argon:0,flash:0,processed:1,edited:2,editor:3,legacy:4};
     for(const [key,label] of [...layerNames,['lights','Scene lights']]){
       const items=key==='lights'?lights:objects.filter(o=>(o.layer||'manual')===key);
