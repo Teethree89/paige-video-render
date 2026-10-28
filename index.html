@@ -607,6 +607,15 @@
       <p id="argonParticleDetail">Waiting for Cloudflare job</p>
       <div class="argon-particle-track" role="progressbar" aria-label="Argon operation in progress; completion percentage unknown"><div id="argonParticleMeter"></div></div>
       <p id="argonParticleElapsed">0:00 elapsed · finish time unknown</p>
+      <div id="argonOverlayEditChoice" class="argon-overlay-edit-choice" hidden>
+        <label for="argonOverlayEditMode">Your existing chapter edits (applies only on Accept)</label>
+        <select id="argonOverlayEditMode">
+          <option value="keep">Keep edits and added lights in chapter</option>
+          <option value="library">Save edited objects/lights to library, then clear</option>
+          <option value="clear">Clear edits without saving</option>
+        </select>
+        <p>Argon continues generating while you decide. Nothing is deleted now.</p>
+      </div>
       <p class="argon-particle-tip">Move your cursor through the particle cloud · generation continues while you view the editor</p>
     </div>
   </section>
