@@ -79,8 +79,8 @@ const sceneCamera=(value,shotId)=>{
 // Intensities use Three.js units: directional in lux-like units, point and
 // spot in candela with physical (squared) falloff, like the original world.
 const authoringFields=(item,label)=>{
-  if(item.source!==undefined&&!['argon','editor'].includes(item.source))
-    fail(label+' source must be argon or editor');
+  if(item.source!==undefined&&!['argon','flash','editor'].includes(item.source))
+    fail(label+' source must be argon, flash or editor');
   if(item.editorModified!==undefined&&typeof item.editorModified!=='boolean')
     fail(label+' editorModified must be boolean');
   return {...(item.source?{source:item.source}:{}),
