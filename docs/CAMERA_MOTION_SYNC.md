@@ -1,5 +1,14 @@
 # Sync Camera Motion — regenerated chapters
 
+## Video-derived estimates
+
+Imported-video chapters can now use **Use analyzed video motion (estimate)**.
+This builds a path from a separately saved video analysis rather than retargeting
+the placeholder path. See [VIDEO_CAMERA_MOTION.md](VIDEO_CAMERA_MOTION.md).
+The original motion/fit/model-view modes described below still retarget existing
+keys and do not themselves recover motion from footage.
+
+
 ## What it solves
 
 New AI-generated geometry can have a different size and world-space center than
@@ -86,3 +95,4 @@ interpolation and clip calculation.
   restricted outside this explicit preview/accept transaction.
 - Preview the accepted geometry and exported video before final delivery;
   automated tests cannot fully validate visual composition in a browser.
+

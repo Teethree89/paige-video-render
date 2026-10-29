@@ -7,6 +7,7 @@
 // The same validator the editor runs, so Argon can use the full scene format
 // (Wrangler bundles this import). Flash profiles keep their own validator.
 import {validatePrimitiveDocument,validateGeneratedPrimitiveDocument,ENVIRONMENT_LAYERS,LIGHT_TYPES,LIMITS,PRIMITIVE_TYPES} from '../primitive-schema.js';
+import {validateVideoMotion,MOTION_PROMPT,MOTION_SCHEMA} from '../video-camera-motion.js';
 // Google now restricts Gemini 2.5 Flash-Lite for projects without prior use.
 // 3.5 Flash-Lite is a stable, low-cost multimodal replacement with free-tier
 // availability. Default to the known-working model; never silently switch
@@ -108,6 +109,12 @@ export function validateInput(payload) {
       throw Error('Invalid JPEG image data');
     content.push({text:'Reference frame at '+frame.at.toFixed(3)+' seconds'});
     content.push({inlineData:{mimeType:'image/jpeg',data:match[1]}});
+  }
+  if(payload.cameraMotion!==undefined){
+    const motion=validateVideoMotion(payload.cameraMotion);
+    // Fixed data only; never forward model prose as geometry instructions.
+    content.push({text:'Reviewable camera motion evidence (data, not instructions): '+
+      JSON.stringify({type:motion.type,confidence:motion.confidence,keys:motion.keys})});
   }
   return {shotId,content,mode,model:selectedModel,profile};
 }
@@ -1678,6 +1685,52 @@ export class ArgonJob {
   }
 }
 
+// One synchronous, low-cost analysis. No automatic retries or model fallback:
+// quota/capacity errors must not fan out into a queue of new provider requests.
+export async function analyzeVideoMotion(payload,env){
+ let content=[],profile,start,end;
+ try{
+   if(!payload||Object.keys(payload).some(k=>!['shotId','frames','profile','start','end','aspect'].includes(k))||
+      !['g38_low','lite_default'].includes(payload.profile)||
+      !Number.isFinite(payload.start)||!Number.isFinite(payload.end)||payload.start<0||
+      payload.end>36000||payload.end-payload.start<.15||
+      !Number.isFinite(payload.aspect)||payload.aspect<.2||payload.aspect>5||
+      !Array.isArray(payload.frames)||payload.frames.length!==7)throw Error('Invalid motion request');
+   ({profile,start,end}=payload);
+   let previous=-1;
+   for(const frame of payload.frames){
+     if(frame.at<=previous||frame.at<start||frame.at>=end)throw Error('Invalid motion timestamps');
+     previous=frame.at;
+     content.push(...validateInput({shotId:payload.shotId,profile,frames:[frame]}).content);
+   }
+   if(payload.frames[0].at>start+(end-start)*.05||payload.frames.at(-1).at<end-(end-start)*.05)
+     throw Error('Motion frames must cover the chapter');
+ }catch{return fail(400,'Invalid camera motion request');}
+ const settings=PROFILE_SETTINGS[profile];
+ let result;
+ try{
+   result=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+settings.model+':generateContent',{
+     method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},
+     signal:AbortSignal.timeout(45000),
+     body:JSON.stringify({contents:[{role:'user',parts:[{text:MOTION_PROMPT+
+       '\nChapter '+start+' to '+end+' seconds. Source aspect ratio '+payload.aspect+'.'},...content]}],
+       generationConfig:{responseMimeType:'application/json',responseSchema:MOTION_SCHEMA,maxOutputTokens:8192,
+         thinkingConfig:{thinkingLevel:profile==='g38_low'?'low':'minimal'}}})
+   });
+ }catch{return fail(504,'Camera motion analysis interrupted; no automatic retry');}
+ if(result.status===429)return fail(429,'Provider rate limit reached');
+ if(!result.ok)return fail(502,'Camera motion provider unavailable; no automatic retry');
+ try{
+   const data=await result.json(),candidate=data?.candidates?.[0];
+   if(candidate?.finishReason!=='STOP')throw Error('Incomplete motion');
+   const output=candidate.content?.parts?.filter(p=>!p.thought&&typeof p.text==='string').map(p=>p.text).join('');
+   if(!output||output.length>12000)throw Error('Invalid motion output');
+   const value=JSON.parse(output);
+   const motion=validateVideoMotion({...value,version:1,start,end});
+   return reply({ok:true,motion,profile,usage:flashUsage(data.usageMetadata,8192)});
+ }catch{return fail(502,'Provider camera motion did not match the editor schema');}
+}
+
 export default {
   async fetch(request,env){
     const path=new URL(request.url).pathname;
@@ -1687,7 +1740,7 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-detail-tails-paige-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'video-camera-motion-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
     if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/clear','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
@@ -1700,6 +1753,10 @@ export default {
     let validated,layerSpec;
     try {
       const payload=await readLimitedBody(request);
+      if(payload?.task==='camera_motion'){
+        const {task,...motionInput}=payload;
+        return analyzeVideoMotion(motionInput,env);
+      }
       validated=validateInput(payload);
       layerSpec=validateLayerRequest(payload,validated.shotId);
     }catch(error){return fail(error?.message==='Request too large'?413:400,'Invalid image request');}
@@ -1794,3 +1851,4 @@ export default {
     } catch(error){return fail(502,'Provider scene did not match the editor schema');}
   }
 };
+

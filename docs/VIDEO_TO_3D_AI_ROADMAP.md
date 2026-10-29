@@ -1,5 +1,12 @@
 # Video → Editable 3D Flythrough: AI Roadmap
 
+**2026-10-29 camera checkpoint:** the single-video flow now supports a separately
+confirmed seven-frame Gemini camera estimate, saved per chapter and fitted to
+actual generated geometry for preview/acceptance. Fresh drafts use stationary
+placeholders. This is approximate inference, not calibrated camera tracking.
+See [VIDEO_CAMERA_MOTION.md](VIDEO_CAMERA_MOTION.md); historical phase notes below
+describe the original implementation.
+
 **Project:** Teethree89/paige-video-render  
 **Status:** Phases 1–2 implemented; Phase 3 Zen inference prototype (first one-shot experiment), not yet integrated into the browser.  
 **Design principle:** Replicate our successful *Atoms to AI* workflow rather than claiming full automatic 3D reconstruction from 2D video.
@@ -115,3 +122,4 @@ A frame-by-frame check of the original source confirms the final aerial campus/t
 ### Implementation checkpoint
 
 The first Phase 3 adapter is described in [ZEN_AI_SCENE_PROTOTYPE.md](ZEN_AI_SCENE_PROTOTYPE.md): it reads the `zen_api` secret only inside GitHub Actions, sends three extracted frames from the already-public reference video, and validates an importable `primitiveScenes` JSON artifact. It is a backend benchmark, not a public browser button or a complete scene-reconstruction solution. Only the free Muse Contributor variant is allowlisted until its actual image support is verified.
+

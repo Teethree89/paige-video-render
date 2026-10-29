@@ -21,7 +21,8 @@ export function prepareAcceptedCameraSync(sequence,shotId,{
   // from the saved camera path and the model's *current actual world bounds*.
   // This is deterministic and does not request or bill a Gemini model.
   const proposal=syncChapterCameraMotion(sequence,shotId,{
-    oldBounds:null,newBounds:bounds,anchor,modelCamera,mode,aspect
+    oldBounds:null,newBounds:bounds,anchor,modelCamera,mode,aspect,
+    referenceAt:sequence.shots.find(s=>s.id===shotId)?.cameraReferenceAt
   });
   return {...proposal,shotId,snapshot};
 }
@@ -108,3 +109,4 @@ export function setupAcceptedCameraSync({
   refresh();
   return {refresh,reset:()=>discard({notify:false}),get hasPreview(){return !!staged;}};
 }
+

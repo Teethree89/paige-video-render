@@ -79,7 +79,7 @@ export function createDraftTimeline({ duration, fps = 30, cuts = [], title = 'Im
   for (let i = 0; i < bounds.length - 1; i++) {
     const start = rnd(bounds[i]), end = i === bounds.length-2 ? duration : rnd(bounds[i+1]);
     const shotId = 'draft_' + String(i + 1).padStart(3, '0');
-    const span = end-start, drift = (i % 3 - 1) * 1.5;
+    const span = end-start;
     shots.push({
       id: shotId, start, end, name: 'Shot ' + String(i+1).padStart(2, '0') + ' · blockout pending',
       title: 'VIDEO SHOT ' + String(i+1).padStart(2, '0'),
@@ -87,15 +87,19 @@ export function createDraftTimeline({ duration, fps = 30, cuts = [], title = 'Im
       sourceFrameTime: rnd(start + span * 0.5),
       endFrameTime: rnd(Math.max(start, end - Math.min(0.5, span * 0.12)))
     });
-    camera.push({ id:'video_cam_'+(i+1)+'_start', at:start, p:[drift,5,22], t:[0,3,0], fov:55, cut:i!==0, generated:'placeholder' });
+    camera.push({ id:'video_cam_'+(i+1)+'_start', at:start, p:[0,5,22], t:[0,3,0], fov:55, cut:i!==0, generated:'placeholder' });
     if (span > 0.12) camera.push({
       id:'video_cam_'+(i+1)+'_end', at:rnd(end - Math.min(0.04, span * .2)),
-      p:[drift*.5,4.5,17], t:[0,3,0], fov:53, generated:'placeholder'
+      p:[0,5,22], t:[0,3,0], fov:55, generated:'placeholder'
     });
+    // A generated label survives manual edits in older projects. Compare the
+    // original values too before automatically staging a replacement path.
+    shots.at(-1).placeholderCameraKeys=structuredClone(camera.filter(k=>k.at>=start&&k.at<end));
   }
   return {
     title, duration, fps, shots, camera, text: [],
     videoIntake: { version:1, mode:'cut-detection-only', referenceVideo:title,
-      note:'Shots are estimated from pixel changes. Geometry is a generic placeholder, and cameras are NOT recovered from footage. Manually review every cut.' }
+      note:'Shots are estimated from pixel changes. Geometry and stationary cameras are placeholders. Analyze video camera motion, then review the estimate against generated geometry. Manually review every cut.' }
   };
 }
+

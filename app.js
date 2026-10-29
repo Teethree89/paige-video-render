@@ -416,7 +416,13 @@ async function boot(){
      if(entry.objects.length)showGeneratedGeometry(entry.shotId,true);
    },
    onInspect:shotId=>showGeneratedGeometry(shotId,true),
-   onCameraSync:(entry,mode)=>{
+   onMotionAnalysis:(shotId,motion)=>{
+     const shot=sequence.shots.find(s=>s.id===shotId);
+     if(!shot||shot.start!==motion.start||shot.end!==motion.end)throw Error('Chapter changed during analysis');
+     shot.videoCameraMotion=motion;
+     saveLocal();
+   },
+   onCameraSync:(entry,mode,{referenceAt=null}={})=>{
      if(cameraSyncSession?.shotId!==entry.shotId)
        throw Error('The reference chapter changed. Generate a new preview.');
      if(!primitiveWorld.hasObjects(entry.shotId))
@@ -426,7 +432,7 @@ async function boot(){
        newBounds:primitiveWorld.getBounds(entry.shotId),
        modelCamera:primitiveWorld.getCamera(entry.shotId),
        anchor:cameraSyncSession.anchor,mode,
-       aspect:16/9
+       aspect:16/9,referenceAt
      });
      cameraSyncPreview=proposal.sequence;
      // Leave orbit review so the editor displays the synchronized CINEMATIC
@@ -447,7 +453,7 @@ async function boot(){
      cameraSyncPreview=null;cameraSyncSession=null;
      endGeometryReview();syncPrimitiveWorld();renderWorld();
    },
-   onAccept:(entry,{syncCamera=false,editsMode='clear'}={})=>{
+   onAccept:(entry,{syncCamera=false,editsMode='clear',referenceAt=null}={})=>{
      acceptedCameraSync?.reset();
      acceptedCameraPreview=null;
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
@@ -469,6 +475,9 @@ async function boot(){
      }else{
        sequence.primitiveScenes=accepted;
      }
+     const acceptedShot=sequence.shots.find(s=>s.id===entry.shotId);
+     if(Number.isFinite(referenceAt))acceptedShot.cameraReferenceAt=referenceAt;
+     else delete acceptedShot.cameraReferenceAt;
      cameraSyncPreview=null;cameraSyncSession=null;
      endGeometryReview();syncPrimitiveWorld();
      refreshAll();seek(Math.min(playhead,sequence.duration));saveLocal();
@@ -808,7 +817,7 @@ function renderChapters(){let parent=el('chapterList');parent.replaceChildren();
 function refreshAll(){el('projectName').textContent=sequence.title||'Advanced Materials';el('projectRuntime').textContent=fmt(sequence.duration);el('workspaceStartOpenBtn').hidden=!isEmptyWorkspace(sequence);renderTimeline();renderChapters();rebuildOverlayDom();renderInspector();refreshPlayhead();}
 function select(type,id){selection={type,id};el('inspectorMotionButton')?.click();renderInspector();renderTimeline();}
 function selectedData(){return selection?sequence[selection.type==='camera'?'camera':'text'].find(i=>i.id===selection.id):null;}
-function renderInspector(){let item=selectedData();el('projectPanel').hidden=false;el('cameraPanel').hidden=!item||selection.type!=='camera';el('textPanel').hidden=!item||selection.type!=='text';el('motionEmptyState').hidden=!!item;if(el('inspectorMotionButton')?.getAttribute('aria-selected')==='true'){
+function renderInspector(){aiSceneEditor?.refresh?.();let item=selectedData();el('projectPanel').hidden=false;el('cameraPanel').hidden=!item||selection.type!=='camera';el('textPanel').hidden=!item||selection.type!=='text';el('motionEmptyState').hidden=!!item;if(el('inspectorMotionButton')?.getAttribute('aria-selected')==='true'){
   el('inspectorHeading').textContent=!item?'Project settings':selection.type==='camera'?'Camera keyframe':'Text overlay';
   el('inspectorHint').textContent=!item?'Select a timeline item to adjust its animation.':selection.type==='camera'?'Edit position, focal target, lens and cut behavior.':'Adjust wording, timing, screen location and styling.';
  }
@@ -950,3 +959,4 @@ window.addEventListener('keydown',e=>{if(el('workspaceStartDialog')?.open)return
  if(e.code==='Space'){e.preventDefault();if(ready)setPlaying(!playing);}if(e.code==='ArrowRight'){e.preventDefault();if(ready){setPlaying(false);seek(playhead+1/30);}}if(e.code==='ArrowLeft'){e.preventDefault();if(ready){setPlaying(false);seek(playhead-1/30);}}if(e.code==='Delete'||e.code==='Backspace'){e.preventDefault();if(ready)deleteSelected();}});
 new ResizeObserver(()=>{let w=viewport.clientWidth,h=viewport.clientHeight;if(w<=0||h<=0)return;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);studioPost.setSize(w,h);requestViewportRender();}).observe(viewport);
 boot().catch(error=>{el('errorBanner').hidden=false;el('errorBanner').textContent='Project could not start: '+error.message;console.error(error);});
+
