@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PRIMITIVE_TYPES,LIMITS,blankPrimitiveDocument,
-  validatePrimitiveDocument,makePrimitive,makeExampleBlockout,repeatOffsets,lightCastsShadow,applySpotlightSettingsGlobally,GLOBAL_SPOTLIGHT_KEYS
+  validatePrimitiveDocument,validateGeneratedPrimitiveDocument,makePrimitive,makeExampleBlockout,repeatOffsets,lightCastsShadow,applySpotlightSettingsGlobally,GLOBAL_SPOTLIGHT_KEYS
 } from '../primitive-schema.js';
 
 const doc=(shotId='draft_001')=>({schemaVersion:1,scenes:[{
@@ -67,10 +67,23 @@ test('input validation rejects unsafe, non-finite, duplicate, or unknown data',(
   const duplicate=doc();duplicate.scenes[0].objects.push(structuredClone(duplicate.scenes[0].objects[0]));
   assert.throws(()=>validatePrimitiveDocument(duplicate),/duplicate object/);
 });
-test('limit object count to prevent runaway model responses',()=>{
-  const invalid=doc();
-  invalid.scenes[0].objects=Array.from({length:LIMITS.objectsPerScene+1},(_,i)=>makePrimitive('box','b'+i));
-  assert.throws(()=>validatePrimitiveDocument(invalid),/objects array/);
+test('manual edits can exceed AI object and project budgets, but generated proposals cannot',async()=>{
+  const manual=doc();
+  manual.scenes[0].objects=Array.from({length:LIMITS.objectsPerScene+1},
+    (_,i)=>makePrimitive('box','b'+i));
+  assert.equal(validatePrimitiveDocument(manual).scenes[0].objects.length,241);
+  assert.throws(()=>validateGeneratedPrimitiveDocument(manual),/240 generated objects/);
+  // A full imported timeline may exceed the former 2,000-object ceiling.
+  const large={schemaVersion:1,scenes:Array.from({length:9},(_,index)=>({
+    shotId:'shot_'+index,
+    objects:Array.from({length:230},(_,i)=>makePrimitive('box','obj_'+i))
+  }))};
+  const normalized=validatePrimitiveDocument(large);
+  assert.equal(normalized.scenes.reduce((n,scene)=>n+scene.objects.length,0),2070);
+  assert.throws(()=>validateGeneratedPrimitiveDocument(large),/generated objects/);
+  assert.deepEqual(validatePrimitiveDocument(JSON.parse(JSON.stringify(normalized))),normalized);
+  assert.throws(()=>validatePrimitiveDocument({schemaVersion:1,scenes:[
+    {shotId:'bad',objects:null}]}),/objects array/);
 });
 test('canonicalization removes unknown metadata without modifying source',()=>{
   const input=doc();
@@ -167,10 +180,12 @@ test('richer vocabulary is still strictly bounded data',()=>{
   bad([base('x','box')],{position:[0,0,5],target:[0,0,0],fov:5},/fov/);
   bad([base('x','box')],{position:[0,0,5],fov:40},/camera target/);
   bad([base('x','box')],'front',/camera must be/);
-  // 2000 rendered copies per scene, however they are split across objects.
+  // Aggregate instance limits are AI-only; manual array editing stays valid.
   const arrays=n=>Array.from({length:n},(_,i)=>base('a'+i,'box',{repeat:{count:[20,20,1],spacing:[1,1,0]}}));
   assert.equal(validatePrimitiveDocument(richDoc(arrays(5))).scenes[0].objects.length,5);
-  bad(arrays(5).concat([base('one_more','box')]),undefined,/more than 2000 rendered copies/);
+  const expanded=richDoc(arrays(5).concat([base('one_more','box')]));
+  assert.equal(validatePrimitiveDocument(expanded).scenes[0].objects.length,6);
+  assert.throws(()=>validateGeneratedPrimitiveDocument(expanded),/more than 2000 rendered copies/);
 });
 
 test('scene light types and values remain bounded but light count is unlimited',()=>{

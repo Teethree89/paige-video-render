@@ -300,3 +300,18 @@ test('real, fake and hybrid spotlight UI controls match the rendering pipeline',
  assert.match(effects,/0\.16\*axial\*feather\*nearFade\*vConeOpacity/);
  assert.doesNotMatch(effects,/vec4\(vColor,0\.026\*axial/);
 });
+
+test('manual Create and Duplicate continue past 240 authored chapter objects',async()=>{
+ const {makePrimitive}=await import('../primitive-schema.js');
+ const {duplicateSceneSelection}=await import('../scene-object-operations.js');
+ const original={schemaVersion:1,scenes:[{shotId:'shot_a',objects:
+   Array.from({length:LIMITS.objectsPerScene},(_,i)=>makePrimitive('box','original_'+i))}]};
+ const before=structuredClone(original);
+ const created=insertCreatedAsset(original,'shot_a','primitives','box',[2,1,0]);
+ assert.equal(created.document.scenes[0].objects.length,241);
+ assert.deepEqual(original,before,'Create does not mutate the source timeline');
+ const duplicated=duplicateSceneSelection(created.document,['shot_a'],'shot_a','original_0');
+ assert.equal(duplicated.document.scenes[0].objects.length,242);
+ assert.ok(duplicated.document.scenes[0].objects.some(x=>x.id==='original_0_copy'));
+ assert.equal(validatePrimitiveDocument(duplicated.document).scenes[0].objects.length,242);
+});
