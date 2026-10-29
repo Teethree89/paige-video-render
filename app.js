@@ -30,7 +30,7 @@ import {markEditorEdits,composeGeneratedChapter} from './scene-generation-compos
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld,createPreviewRenderState,previewPixelRatio} from './primitive-preview.js';
 import {foldHelpText} from './help-toggles.js';
-import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace,clearWorkspaceStorage,clearServerWorkspace,markWorkspaceSaved} from './workspace-reset.js';
+import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace,clearWorkspaceStorage,clearServerWorkspace,markWorkspaceSaved,isEmptyWorkspace,shouldShowWorkspaceWelcome,dismissWorkspaceWelcome} from './workspace-reset.js';
 
 foldHelpText();
 
@@ -660,6 +660,22 @@ async function boot(){
    onUndo:()=>applyHistory(timelineHistory?.undo?.()),
    onRedo:()=>applyHistory(timelineHistory?.redo?.())
  });
+ setupWorkspaceStart();
+}
+function setupWorkspaceStart(){
+ const dialog=el('workspaceStartDialog');
+ if(!dialog)return;
+ const open=()=>{if(!dialog.open)dialog.showModal();};
+ const close=()=>{if(dialog.open)dialog.close();};
+ dialog.addEventListener('close',()=>dismissWorkspaceWelcome(localStorage));
+ el('workspaceStartClose').addEventListener('click',close);
+ el('workspaceStartOpenBtn').addEventListener('click',open);
+ const launch=(id,action)=>el(id).addEventListener('click',()=>{close();action();});
+ launch('workspaceStartVideo',()=>el('videoImportOpenBtn').click());
+ launch('workspaceStartReference',()=>referenceBuilder?.open());
+ launch('workspaceStartImport',()=>el('loadBtn').click());
+ launch('workspaceStartBlank',()=>el('inspectorSceneButton')?.click());
+ if(shouldShowWorkspaceWelcome(sequence,localStorage))open();
 }
 function validSequence(s){return !!(s&&Number.isFinite(s.duration)&&s.duration>0&&Array.isArray(s.shots)&&s.shots.length&&Array.isArray(s.camera)&&s.camera.length&&Array.isArray(s.text));}
 function syncReferenceMedia(time){
@@ -789,7 +805,7 @@ function renderTimeline(){let ruler=el('ruler'),shotTrack=el('shotTrack'),camTra
  // Re-apply chapter selection styling after replacing the clip nodes.
  timelineEditing?.refresh?.();}
 function renderChapters(){let parent=el('chapterList');parent.replaceChildren();for(let s of sequence.shots){let d=document.createElement('button');d.className='chapter-item';d.dataset.shot=s.id;const time=document.createElement('span');time.className='chapter-time';time.textContent=fmt(s.start).slice(0,5);const dot=document.createElement('span');dot.className='chapter-dot '+(s.tone==='amber'?'amber':s.tone==='purple'?'purple':'');let label=document.createElement('span');label.textContent=s.name;d.append(time,dot,label);d.onclick=()=>{selection=null;orbitMode=false;controls.enabled=false;renderInspector();timelineEditing?.selectChapter?.(s.id);renderTimeline();seek(s.start+.001);};parent.append(d);}renderShotName();}
-function refreshAll(){el('projectName').textContent=sequence.title||'Advanced Materials';el('projectRuntime').textContent=fmt(sequence.duration);renderTimeline();renderChapters();rebuildOverlayDom();renderInspector();refreshPlayhead();}
+function refreshAll(){el('projectName').textContent=sequence.title||'Advanced Materials';el('projectRuntime').textContent=fmt(sequence.duration);el('workspaceStartOpenBtn').hidden=!isEmptyWorkspace(sequence);renderTimeline();renderChapters();rebuildOverlayDom();renderInspector();refreshPlayhead();}
 function select(type,id){selection={type,id};el('inspectorMotionButton')?.click();renderInspector();renderTimeline();}
 function selectedData(){return selection?sequence[selection.type==='camera'?'camera':'text'].find(i=>i.id===selection.id):null;}
 function renderInspector(){let item=selectedData();el('projectPanel').hidden=false;el('cameraPanel').hidden=!item||selection.type!=='camera';el('textPanel').hidden=!item||selection.type!=='text';el('motionEmptyState').hidden=!!item;if(el('inspectorMotionButton')?.getAttribute('aria-selected')==='true'){
