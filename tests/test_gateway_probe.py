@@ -286,7 +286,7 @@ function forwarded() { global $workerInput; echo json_encode(['status' => 200, '
         self.assertIn("$_SESSION['ai_calls']", php)
         self.assertIn("'created' => time()", php)
         self.assertIn("'argonJob' => $active === null ? null", php)
-        self.assertIn("if ($action !== 'generate' && $action !== 'argon_start' && $action !== 'camera_motion')", php)
+        self.assertIn("if ($action !== 'generate' && $action !== 'argon_start' && $action !== 'camera_motion' && $action !== 'camera_align')", php)
         self.assertNotIn("$input['jobId']", php)
         self.assertIn("CURLOPT_TIMEOUT => in_array($action, ['start','direct-start','diagnostic'], true) ? 45 : 30", php)
         self.assertIn("CURLOPT_SSL_VERIFYPEER => true", php)
@@ -368,7 +368,7 @@ function argon_worker_call($endpoint, $secret, $action, $body) {
         start = php.index("$argonProfiles = ['argon_previs', 'argon_direct'];")
         end = php.index("if (in_array($workerInput['profile'] ?? '', $argonProfiles, true))", start)
         status = php[php.index("if ($action === 'argon_status') {"):
-                     php.index("if ($action !== 'generate' && $action !== 'argon_start' && $action !== 'camera_motion')")]
+                     php.index("if ($action !== 'generate' && $action !== 'argon_start' && $action !== 'camera_motion' && $action !== 'camera_align')")]
         helpers = php[php.index("function safe_worker_diagnostic("):
                       php.index("/** Fixed-target Argon background job transport")]
         # The real start and status routes with a scripted Worker transport:

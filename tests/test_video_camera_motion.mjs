@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createDraftTimeline} from '../shot-analysis.js';
-import {motionFrameTimes,validateVideoMotion,savedVideoMotion,buildVideoCameraMotion,hasUntouchedPlaceholderCamera} from '../video-camera-motion.js';
+import {motionFrameTimes,validateVideoMotion,savedVideoMotion,buildVideoCameraMotion,hasUntouchedPlaceholderCamera,cameraSceneIndex,validateCameraSceneIndex} from '../video-camera-motion.js';
 import worker from '../worker/scene-worker.mjs';
 import {setupAiSceneEditor} from '../ai-scene-editor.js';
 import {syncChapterCameraMotion} from '../camera-motion-sync.js';
@@ -23,18 +23,47 @@ const project=()=>{
 };
 const payload=()=>({task:'camera_motion',shotId:'draft_001',start:0,end:6,aspect:16/9,profile:'g38_low',
  frames:motionFrameTimes({start:0,end:6}).map(at=>({at,imageDataUrl:image}))});
-const call=body=>worker.fetch(new Request('https://mock.workers.dev/api/scene',{
+const call=body=>worker.fetch(new Request('https://mock.workers.dev/api/scene'+(body.task==='camera_alignment'?'/camera-align':''),{
  method:'POST',headers:{Authorization:'Bearer '+token},body:JSON.stringify(body)}),env);
 const provider=value=>new Response(JSON.stringify({candidates:[{finishReason:'STOP',content:{parts:[
  {thought:true,text:'private thought must be ignored'},{text:JSON.stringify(value)}]}}],
  usageMetadata:{promptTokenCount:100,candidatesTokenCount:200,thoughtsTokenCount:30,secret:'private'}}));
+const modelScene={objects:[{id:'main_building',name:'Main building front',primitive:'box',
+ position:[12,5,-8],rotation:[0,.7,0],scale:[40,10,20]}]};
+test('scene-aware camera matching sends actual dimensions/rotation and returns one view without geometry generation',async()=>{
+ const old=globalThis.fetch;let calls=0;
+ const alignment={position:[70,50,80],target:[12,5,-8],fov:48,confidence:.8,uncertainty:'Facade correspondence is approximate.'};
+ const input={...payload(),task:'camera_alignment',frames:[{at:3,imageDataUrl:image},{at:1,imageDataUrl:image},{at:5,imageDataUrl:image}],sceneIndex:cameraSceneIndex(modelScene)};
+ globalThis.fetch=async(url,opts)=>{
+   calls++;assert.match(url,/gemini-3.8-flash/);
+   const body=JSON.parse(opts.body);assert.match(body.contents[0].parts[0].text,/ANY side/);
+   assert.match(JSON.stringify(body),/Main building front/);assert.match(JSON.stringify(body),/rotation/);
+   assert.equal(body.contents[0].parts.filter(p=>p.inlineData).length,3);
+   return provider(alignment);
+ };
+ try{
+   const r=await call(input);assert.equal(r.status,200);
+   const data=await r.json();assert.deepEqual(data.alignment,alignment);assert.equal(data.referenceAt,3);
+   assert.equal(calls,1);assert.equal(data.motion,undefined);
+   assert.equal((await call({...input,sceneIndex:[{...input.sceneIndex[0],script:'do not execute'}]})).status,400);
+   assert.equal(calls,1,'malformed geometry context must fail before another call');
+ }finally{globalThis.fetch=old;}
+});
+test('camera index budgets inference context without capping or mutating manual objects',()=>{
+ const scene={objects:Array.from({length:300},(_,i)=>({...modelScene.objects[0],id:'part_'+i,scale:[i+1,2,3]}))};
+ const index=cameraSceneIndex(scene);
+ assert.equal(index.length,240);assert.equal(scene.objects.length,300);
+ assert.equal(index[0].scale[0],300);
+ assert.throws(()=>validateCameraSceneIndex([{...index[0],position:[Infinity,0,0]}]));
+ assert.ok(JSON.stringify(index).length<=60000);
+});
 
-test('clean video draft is stationary and seven camera frames cover only their own chapter',()=>{
+test('clean video draft is stationary and eleven camera frames cover only their own chapter',()=>{
  const seq=project();
  assert.deepEqual(seq.camera[0].p,seq.camera[1].p);
  assert.equal(seq.camera[0].fov,seq.camera[1].fov);
  const times=motionFrameTimes({start:6,end:12});
- assert.equal(times.length,7);assert.ok(times[0]>6&&times[6]<12);
+ assert.equal(times.length,11);assert.ok(times[0]>6&&times[10]<12);
  assert.ok(times.every((t,i)=>!i||t>times[i-1]));
 });
 test('editing a placeholder position, curve or time makes its camera authored even if its generated marker survives',()=>{
@@ -97,7 +126,7 @@ test('generated reference camera aligns the sampled timestamp rather than assumi
    mode:'video-motion',bounds:{center:[100,0,0],radius:10},anchor:[100,0,0],modelCamera:view});
  assert.deepEqual(accepted.sequence.camera,next.camera);
 });
-test('camera analysis authenticates and validates all seven timestamps before any provider call',async()=>{
+test('camera analysis authenticates and validates all eleven timestamps before any provider call',async()=>{
  const old=globalThis.fetch;let count=0;
  globalThis.fetch=async()=>{count++;return provider(motion());};
  try{
@@ -122,7 +151,7 @@ test('analysis uses one low/minimal call, filters thoughts and emits only numeri
        count++;const body=JSON.parse(opts.body);
        assert.match(url,new RegExp(profile==='g38_low'?'gemini-3.8-flash':'gemini-3.5-flash-lite'));
        assert.equal(body.generationConfig.thinkingConfig.thinkingLevel,profile==='g38_low'?'low':'minimal');
-       assert.equal(body.contents[0].parts.filter(p=>p.inlineData).length,7);
+       assert.equal(body.contents[0].parts.filter(p=>p.inlineData).length,11);
        return provider(motion());
      };
      const response=await call({...payload(),profile}),value=await response.json();
@@ -154,7 +183,7 @@ class Element {
 test('real editor analyzes once, reuses the saved estimate, previews both changes and accepts them together',async()=>{
  const old={document:globalThis.document,fetch:globalThis.fetch,confirm:globalThis.confirm};
  const ids=new Map(),seq=createDraftTimeline({duration:12,cuts:[6]});
- let preview=null,staged=null,accepted=null,calls=[],confirmations=[],analysisFailure=false;
+ let preview=null,staged=null,accepted=null,calls=[],confirmations=[],analysisFailure=false,alignmentResult=null;
  globalThis.document={getElementById(id){if(!ids.has(id))ids.set(id,new Element());return ids.get(id);},
  createElement(tag){
    if(tag==='canvas')return {getContext:()=>({drawImage(){}}),toDataURL:()=>image};
@@ -168,9 +197,14 @@ test('real editor analyzes once, reuses the saved estimate, previews both change
  globalThis.fetch=async(url,opts={})=>{
    if(!opts.method)return new Response(JSON.stringify({ok:true,authenticated:true,csrf:'test'}));
    const p=JSON.parse(opts.body);calls.push(p.action);
+   if(p.action==='camera_align'){
+     assert.equal(p.frames.length,3);assert.deepEqual(p.sceneIndex,cameraSceneIndex(modelScene));
+     return new Response(JSON.stringify({ok:true,alignment:{position:[70,50,80],target:[12,5,-8],fov:48,
+       confidence:.8,uncertainty:'Approximate camera match.'}}));
+   }
    if(p.action==='camera_motion'){
      if(analysisFailure)return new Response(JSON.stringify({ok:false,error:'Gemini rate limit reached'}),{status:429});
-     assert.equal(p.frames.length,7);assert.deepEqual(p.frames.map(f=>f.at),motionFrameTimes(seq.shots[0]));
+     assert.equal(p.frames.length,11);assert.deepEqual(p.frames.map(f=>f.at),motionFrameTimes(seq.shots[0]));
      return new Response(JSON.stringify({ok:true,motion:motion()}));
    }
    assert.equal(p.action,'generate');assert.equal(p.frames.length,3);assert.deepEqual(p.cameraMotion,motion());
@@ -182,6 +216,7 @@ test('real editor analyzes once, reuses the saved estimate, previews both change
    const editor=setupAiSceneEditor({getSequence:()=>seq,getActiveShot:()=>seq.shots[0],getPlayheadTime:()=>3,
      getReferenceVideo:()=>({src:'blob:test-video',videoWidth:640,videoHeight:360}),
      onMotionAnalysis:(id,m)=>{assert.equal(id,'draft_001');seq.shots[0].videoCameraMotion=m;},
+     getAcceptedScene:()=>modelScene,onReferenceAlignment:(id,alignment,at)=>{alignmentResult={id,alignment,at};},
      onPreview:entry=>{preview=entry;},onInspect(){},onDiscard(){preview=null;},onCameraSyncReset(){staged=null;},
      onCameraSync:(entry,mode,options)=>{
        assert.equal(mode,'video-motion');assert.equal(options.referenceAt,3);
@@ -216,6 +251,11 @@ test('real editor analyzes once, reuses the saved estimate, previews both change
    assert.deepEqual(calls,['camera_motion','generate','generate','camera_motion']);
    assert.equal(seq.shots[0].videoCameraMotion,undefined);
    assert.equal(editor.isBusy(),false,'quota failure releases editor for explicit later action');
+   const savedBeforeMatch=JSON.stringify(seq);
+   await ids.get('acceptedCameraMatchReference').fire('click');
+   assert.equal(calls.at(-1),'camera_align');assert.equal(alignmentResult.id,'draft_001');
+   assert.equal(alignmentResult.at,3);assert.equal(alignmentResult.alignment.position[0],70);
+   assert.equal(JSON.stringify(seq),savedBeforeMatch,'matching must stage, not save camera keys');
    delete seq.videoIntake;editor.reset();editor.refresh();
    assert.equal(ids.get('videoMotionPanel').hidden,true,'fresh workspace cannot reuse the old estimate');
  }finally{Object.assign(globalThis,old);}

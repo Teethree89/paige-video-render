@@ -86,9 +86,10 @@ function median(values){const v=[...values].sort((a,b)=>a-b);return v[Math.floor
  * @param {object|null} options.modelCamera - Optional validated world-space model camera.
  */
 export function syncChapterCameraMotion(source,shotId,{
- oldBounds=null,newBounds,anchor,mode='motion',modelCamera=null,aspect=16/9,margin=1.12,referenceAt=null
+ oldBounds=null,newBounds,anchor,mode='motion',modelCamera=null,aspect=16/9,margin=1.12,referenceAt=null,view=null
 }={}){
  if(mode==='video-motion')return buildVideoCameraMotion(source,shotId,{newBounds,anchor,modelCamera,referenceAt});
+ if(mode==='current-view'||mode==='reference-view')return alignChapterCameraToView(source,shotId,{anchor,view,referenceAt,mode});
  if(!source?.shots?.length||!source?.camera?.length)throw Error('Camera timeline is missing');
  const shot=source.shots.find(s=>s.id===shotId);
  if(!shot)throw Error('Selected chapter no longer exists');
@@ -163,6 +164,35 @@ export function syncChapterCameraMotion(source,shotId,{
    syncDistance:round(median(updated.map(k=>norm(sub(k.p,k.t))))),
    estimatedOrientationUsed:mode==='model-view'
  }};
+}
+
+// Fit the WHOLE saved path to a matched frame. Never rotate/move the model.
+// This works with existing imported projects and needs no geometry generation.
+export function alignChapterCameraToView(source,shotId,{anchor,view,referenceAt,mode='current-view'}={}){
+ const shot=source?.shots?.find(s=>s.id===shotId);
+ if(!shot||!source.camera?.length)throw Error('Select a chapter with camera keys.');
+ if(!orientationEstimate(view)||!Number.isFinite(view.fov)||view.fov<10||view.fov>110||
+    !limited(view.position)||!limited(view.target)||!limited(anchor)||
+    !Number.isFinite(referenceAt)||referenceAt<shot.start||referenceAt>=shot.end)
+   throw Error('Match a valid view at a time inside this chapter.');
+ const before=chosenKeys(source,shot),at=Math.min(referenceAt,before.at(-1).at);
+ const ref=evaluateCamera(before,at),oldAxis=sub(ref.p,ref.t),newAxis=sub(view.position,view.target);
+ if(norm(oldAxis)<.01)throw Error('Saved camera has no usable viewing direction.');
+ const scale=norm(newAxis)/norm(oldAxis),rotate=rotateBetween(oldAxis,newAxis);
+ const fovOffset=view.fov-ref.fov;
+ const updated=before.map(k=>({...k,
+   p:add(view.target,rotate(mul(sub(k.p,ref.t),scale))).map(round),
+   t:add(view.target,rotate(mul(sub(k.t,ref.t),scale))).map(round),
+   fov:round(k.fov+fovOffset)}));
+ if(updated.some(k=>!limited(k.p)||!limited(k.t)||k.fov<10||k.fov>110))
+   throw Error('Aligned path exceeds camera limits; adjust the view or lens.');
+ const output=structuredClone(source),ids=new Set(before.map(k=>k.id));
+ output.camera=[...output.camera.filter(k=>!ids.has(k.id)),...updated].sort((a,b)=>a.at-b.at);
+ const next=output.shots.find(s=>s.id===shotId);
+ next.sceneAnchor=[...anchor];
+ next.cameraSync={version:1,mode,source:'matched-view',scale:round(scale),referenceAt:at};
+ return {sequence:output,report:{mode,source:'matched-view',scale:round(scale),referenceAt:at,
+   updatedKeys:updated.length,addedKeys:updated.filter(k=>!source.camera.some(x=>x.id===k.id)).length}};
 }
 
 /** Dynamic 3D camera clip planes for much larger regenerated scenes.

@@ -5,7 +5,7 @@ import {groupGeneratedArrays,tagGeneratedScene,EDIT_MODES} from './scene-generat
 import {createArgonOverlay} from './ai-generation-overlay.js';
 import {createGenerationSounds} from './generation-sounds.js';
 import {referenceFrameTimes,ENVIRONMENT_PASSES,appendEnvironmentPass} from './environment-generation.js';
-import {motionFrameTimes,validateVideoMotion,savedVideoMotion,hasUntouchedPlaceholderCamera} from './video-camera-motion.js';
+import {motionFrameTimes,validateVideoMotion,savedVideoMotion,hasUntouchedPlaceholderCamera,cameraSceneIndex,validateCameraAlignment} from './video-camera-motion.js';
 
 const el=id=>document.getElementById(id);
 const api='./scene-proxy.php';
@@ -15,7 +15,7 @@ async function request(action,data={}) {
   // Bound free polls, including a stalled response body. Never replay a paid
   // start: a lost start response can still represent a submitted paid request.
   const polling=action==='argon_status',readOnly=polling||action==='argon_output';
-  const cameraAnalysis=action==='camera_motion';
+  const cameraAnalysis=action==='camera_motion'||action==='camera_align';
   const controller=readOnly||cameraAnalysis?new AbortController():null;
   const timer=controller?setTimeout(()=>controller.abort(),cameraAnalysis?60000:40000):null;
   let response,result;
@@ -170,7 +170,7 @@ export async function sampleVideo(reference,shot,playhead,detailProfile='standar
       canvas.width=width;
       canvas.height=Math.max(2,Math.round(width*aspect));
     };
-    configureWidth(motion?480:detailed?768:640);
+    configureWidth(motion?400:detailed?768:640);
     const ctx=canvas.getContext('2d',{alpha:false});
     if(!ctx)throw Error('Cannot sample video frames');
     for(const at of motion?motionFrameTimes(shot):referenceFrameTimes(shot,playhead,video.duration)){
@@ -184,7 +184,7 @@ export async function sampleVideo(reference,shot,playhead,detailProfile='standar
       ctx.drawImage(video,0,0,canvas.width,canvas.height);
       let quality=detailed?.78:.65;
       let imageDataUrl=canvas.toDataURL('image/jpeg',quality);
-      const maxChars=motion?180000:460000;
+      const maxChars=motion?110000:460000;
       while(imageDataUrl.length>maxChars&&quality>.5){
         quality=Math.max(.5,Math.round((quality-.08)*100)/100);
         imageDataUrl=canvas.toDataURL('image/jpeg',quality);
@@ -202,7 +202,7 @@ export async function sampleVideo(reference,shot,playhead,detailProfile='standar
     video.removeAttribute('src');video.load();
   }
 }
-export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,onCameraSync=null,onCameraSyncReset=null,onMotionAnalysis=null,
+export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,onCameraSync=null,onCameraSyncReset=null,onMotionAnalysis=null,getAcceptedScene=null,onReferenceAlignment=null,
   getEditCount=()=>0,getLegacyCount=()=>0,listEditLibrary=()=>[],restoreEditLibrary=()=>{},deleteEditLibrary=()=>{},
   onExportTimeline=()=>{},generationSounds=createGenerationSounds()}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
@@ -217,6 +217,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     syncStatus=el('aiCameraSyncStatus');
   const motionPanel=el('videoMotionPanel'),motionProfile=el('videoMotionProfile'),
     motionAuto=el('videoMotionAuto'),motionButton=el('videoMotionAnalyze'),motionStatus=el('videoMotionStatus');
+  const matchReference=el('acceptedCameraMatchReference');
   let pendingReferenceAt=null;
   const motionAvailable=()=>!!(getSequence()?.videoIntake&&!getSequence()?.referenceSequence&&onMotionAnalysis);
   function refreshMotion(){
@@ -224,6 +225,11 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     if(motionButton)motionButton.disabled=busy||!authenticated||!!pending||!!(argonJob&&['queued','in_progress'].includes(argonJob.status));
     if(motionProfile)motionProfile.disabled=busy||!!pending;
     if(motionAuto)motionAuto.disabled=busy||!!pending;
+    if(matchReference){
+      matchReference.hidden=!motionAvailable()||!getAcceptedScene?.(getActiveShot()?.id)?.objects?.length||!onReferenceAlignment;
+      matchReference.disabled=busy||!authenticated||!!pending||!!(argonJob&&['queued','in_progress'].includes(argonJob.status));
+      matchReference.title=authenticated?'Estimate a camera using the existing model layout.':'Unlock AI generation to match the reference camera.';
+    }
     const motion=savedVideoMotion(getActiveShot());
     if(motionStatus)motionStatus.textContent=motion
       ?'Saved estimate: '+motion.type+' · '+Math.round(motion.confidence*100)+'% confidence. '+motion.uncertainty
@@ -283,7 +289,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     const profile=motionProfile?.value==='lite_default'?'lite_default':'g38_low';
     if(!await askPaid('Analyze this chapter’s camera motion with '+
       (profile==='g38_low'?'Gemini 3.8 Flash · low thinking':'Gemini 3.5 Flash-Lite · minimal thinking')+
-      '? This sends seven small chronological reference JPEGs in ONE potentially billable call through your existing API key. '+
+      '? This sends eleven small chronological reference JPEGs in ONE potentially billable call through your existing API key. '+
       'Free-tier eligibility and limits depend on your Google project. No automatic retry or model fallback. '+
       'The estimate is saved for reuse; camera keys change only after preview and Apply or Accept.',
       'Analyze video motion'))return false;
@@ -291,7 +297,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       throw Error('Chapter changed before camera analysis.');
     const source=getSequence(),bounds={start:shot.start,end:shot.end};
     const reference=getReferenceVideo(),sourceUrl=reference?.src||reference?.currentSrc;
-    status('Analyzing camera motion from seven chronological video frames…');
+    status('Analyzing camera motion from eleven chronological video frames…');
     const frames=await sampleVideo(reference,shot,null,'motion');
     const aspect=reference.videoWidth/reference.videoHeight;
     const result=await request('camera_motion',{csrf,shotId:shot.id,frames,profile,
@@ -315,6 +321,43 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(await analyzeMotion(shot))status('Video motion estimate saved. Generate geometry, then preview its camera path.');
       else notStarted();
     }catch(error){status('Camera analysis stopped: '+error.message);}
+    finally{busy=false;ui();}
+  });
+  matchReference?.addEventListener('click',async()=>{
+    if(busy||pending||!authenticated||!motionAvailable()||!onReferenceAlignment||
+       (argonJob&&['queued','in_progress'].includes(argonJob.status)))return;
+    const shot=getActiveShot(),scene=getAcceptedScene?.(shot?.id);
+    if(!scene?.objects?.length)return;
+    const tellMatch=message=>{status(message);const note=el('acceptedCameraSyncStatus');if(note)note.textContent=message;};
+    busy=true;ui();
+    try{
+      const session=await readServerSession();if(!session.authenticated){sessionEnded();return;}csrf=session.csrf;
+      const profile=motionProfile?.value==='lite_default'?'lite_default':'g38_low';
+      if(!await askPaid('Match the camera to the reference using '+
+        (profile==='g38_low'?'Gemini 3.8 Flash Low':'Gemini 3.5 Flash-Lite Minimal')+
+        '? One potentially billable call sends three reference JPEGs and a bounded model layout index. '+
+        'The scene is not regenerated. No automatic retry or fallback. Preview and Apply change only camera keys.',
+        'Match reference camera')){tellMatch('Camera matching cancelled. No request sent.');return;}
+      if(getActiveShot()?.id!==shot.id)throw Error('Chapter changed before camera matching.');
+      const source=getSequence(),sourceUrl=getReferenceVideo()?.src||getReferenceVideo()?.currentSrc;
+      const snapshot=JSON.stringify({shot,scene,camera:source.camera});
+      const frames=await sampleVideo(getReferenceVideo(),shot,getPlayheadTime?.(),'standard');
+      const ref=getReferenceVideo(),aspect=ref.videoWidth/ref.videoHeight;
+      tellMatch('Matching the camera to reference facades, roof visibility and actual model axes…');
+      const result=await request('camera_align',{csrf,shotId:shot.id,frames,profile,start:shot.start,end:shot.end,
+        aspect:Number.isFinite(aspect)&&aspect>0?aspect:16/9,sceneIndex:cameraSceneIndex(scene)});
+      if(source!==getSequence()||getActiveShot()?.id!==shot.id||
+         JSON.stringify({shot:getActiveShot(),scene:getAcceptedScene(shot.id),camera:source.camera})!==snapshot||
+         (getReferenceVideo()?.src||getReferenceVideo()?.currentSrc)!==sourceUrl)
+        throw Error('Scene, reference or camera changed during matching; result discarded.');
+      const alignment=validateCameraAlignment(result.alignment);
+      busy=false;ui();
+      onReferenceAlignment(shot.id,alignment,frames[0].at);
+      log('Reference camera match: '+Math.round(alignment.confidence*100)+'% model confidence. '+alignment.uncertainty);
+      if(result.usage)log(describeUsage('Camera matching',result.usage));
+      status('Reference-matched camera path staged · '+Math.round(alignment.confidence*100)+
+        '% model confidence. '+alignment.uncertainty+' Review and Apply under Sync Accepted Model Camera.');
+    }catch(error){tellMatch('Camera matching stopped: '+error.message);}
     finally{busy=false;ui();}
   });
   // The thinking and detail selectors apply to Argon only.

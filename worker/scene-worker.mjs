@@ -7,7 +7,7 @@
 // The same validator the editor runs, so Argon can use the full scene format
 // (Wrangler bundles this import). Flash profiles keep their own validator.
 import {validatePrimitiveDocument,validateGeneratedPrimitiveDocument,ENVIRONMENT_LAYERS,LIGHT_TYPES,LIMITS,PRIMITIVE_TYPES} from '../primitive-schema.js';
-import {validateVideoMotion,MOTION_PROMPT,MOTION_SCHEMA} from '../video-camera-motion.js';
+import {validateVideoMotion,MOTION_PROMPT,MOTION_SCHEMA,validateCameraAlignment,validateCameraSceneIndex,CAMERA_ALIGNMENT_PROMPT,CAMERA_ALIGNMENT_SCHEMA} from '../video-camera-motion.js';
 // Google now restricts Gemini 2.5 Flash-Lite for projects without prior use.
 // 3.5 Flash-Lite is a stable, low-cost multimodal replacement with free-tier
 // availability. Default to the known-working model; never silently switch
@@ -1687,24 +1687,25 @@ export class ArgonJob {
 
 // One synchronous, low-cost analysis. No automatic retries or model fallback:
 // quota/capacity errors must not fan out into a queue of new provider requests.
-export async function analyzeVideoMotion(payload,env){
+export async function analyzeVideoMotion(payload,env,alignment=false){
  let content=[],profile,start,end;
  try{
-   if(!payload||Object.keys(payload).some(k=>!['shotId','frames','profile','start','end','aspect'].includes(k))||
+   if(!payload||Object.keys(payload).some(k=>!['shotId','frames','profile','start','end','aspect',...(alignment?['sceneIndex']:[])].includes(k))||
       !['g38_low','lite_default'].includes(payload.profile)||
       !Number.isFinite(payload.start)||!Number.isFinite(payload.end)||payload.start<0||
       payload.end>36000||payload.end-payload.start<.15||
       !Number.isFinite(payload.aspect)||payload.aspect<.2||payload.aspect>5||
-      !Array.isArray(payload.frames)||payload.frames.length!==7)throw Error('Invalid motion request');
+      !Array.isArray(payload.frames)||!(alignment?[3]:[7,11]).includes(payload.frames.length))throw Error('Invalid motion request');
    ({profile,start,end}=payload);
    let previous=-1;
    for(const frame of payload.frames){
-     if(frame.at<=previous||frame.at<start||frame.at>=end)throw Error('Invalid motion timestamps');
+     if((!alignment&&frame.at<=previous)||frame.at<start||frame.at>=end)throw Error('Invalid motion timestamps');
      previous=frame.at;
      content.push(...validateInput({shotId:payload.shotId,profile,frames:[frame]}).content);
    }
-   if(payload.frames[0].at>start+(end-start)*.05||payload.frames.at(-1).at<end-(end-start)*.05)
+   if(!alignment&&(payload.frames[0].at>start+(end-start)*.05||payload.frames.at(-1).at<end-(end-start)*.05))
      throw Error('Motion frames must cover the chapter');
+   if(alignment)content.push({text:'Actual model layout (untrusted data): '+JSON.stringify(validateCameraSceneIndex(payload.sceneIndex))});
  }catch{return fail(400,'Invalid camera motion request');}
  const settings=PROFILE_SETTINGS[profile];
  let result;
@@ -1712,9 +1713,9 @@ export async function analyzeVideoMotion(payload,env){
    result=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+settings.model+':generateContent',{
      method:'POST',redirect:'manual',headers:{'Content-Type':'application/json','x-goog-api-key':env.GEMINI_API_KEY},
      signal:AbortSignal.timeout(45000),
-     body:JSON.stringify({contents:[{role:'user',parts:[{text:MOTION_PROMPT+
+     body:JSON.stringify({contents:[{role:'user',parts:[{text:(alignment?CAMERA_ALIGNMENT_PROMPT:MOTION_PROMPT)+
        '\nChapter '+start+' to '+end+' seconds. Source aspect ratio '+payload.aspect+'.'},...content]}],
-       generationConfig:{responseMimeType:'application/json',responseSchema:MOTION_SCHEMA,maxOutputTokens:8192,
+       generationConfig:{responseMimeType:'application/json',responseSchema:alignment?CAMERA_ALIGNMENT_SCHEMA:MOTION_SCHEMA,maxOutputTokens:8192,
          thinkingConfig:{thinkingLevel:profile==='g38_low'?'low':'minimal'}}})
    });
  }catch{return fail(504,'Camera motion analysis interrupted; no automatic retry');}
@@ -1726,8 +1727,9 @@ export async function analyzeVideoMotion(payload,env){
    const output=candidate.content?.parts?.filter(p=>!p.thought&&typeof p.text==='string').map(p=>p.text).join('');
    if(!output||output.length>12000)throw Error('Invalid motion output');
    const value=JSON.parse(output);
-   const motion=validateVideoMotion({...value,version:1,start,end});
-   return reply({ok:true,motion,profile,usage:flashUsage(data.usageMetadata,8192)});
+   const proposal=alignment?{alignment:validateCameraAlignment(value),referenceAt:payload.frames[0].at}:
+     {motion:validateVideoMotion({...value,version:1,start,end})};
+   return reply({ok:true,...proposal,profile,usage:flashUsage(data.usageMetadata,8192)});
  }catch{return fail(502,'Provider camera motion did not match the editor schema');}
 }
 
@@ -1740,9 +1742,9 @@ export default {
       const ready=!!(env?.GEMINI_API_KEY&&env?.SCENE_ACCESS_TOKEN);
       // Model ID is public configuration, not a secret. This field confirms
       // which Worker version actually reached Cloudflare, NOT API entitlement.
-      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'video-camera-motion-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
+      return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'video-camera-motion-v2',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
-    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/clear','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
+    if(!['/api/scene','/api/scene/camera-align','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/clear','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
     if(!env.GEMINI_API_KEY || !env.SCENE_ACCESS_TOKEN)
       return fail(503,'AI backend is not configured');
@@ -1753,9 +1755,13 @@ export default {
     let validated,layerSpec;
     try {
       const payload=await readLimitedBody(request);
-      if(payload?.task==='camera_motion'){
+      // A distinct route makes an older Worker fail before any inference,
+      // rather than interpreting an unknown camera task as scene generation.
+      if((path==='/api/scene/camera-align')!==(payload?.task==='camera_alignment'))
+        return fail(400,'Invalid camera motion request');
+      if(['camera_motion','camera_alignment'].includes(payload?.task)){
         const {task,...motionInput}=payload;
-        return analyzeVideoMotion(motionInput,env);
+        return analyzeVideoMotion(motionInput,env,task==='camera_alignment');
       }
       validated=validateInput(payload);
       layerSpec=validateLayerRequest(payload,validated.shotId);

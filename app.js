@@ -422,6 +422,17 @@ async function boot(){
      shot.videoCameraMotion=motion;
      saveLocal();
    },
+   getAcceptedScene:shotId=>sequence.primitiveScenes?.scenes?.find(s=>s.shotId===shotId),
+   onReferenceAlignment:(shotId,alignment,at)=>{
+     if(shotAt(playhead)?.id!==shotId)throw Error('Selected chapter changed.');
+     acceptedCameraSync.reset();
+     const anchor=primitiveAnchors()[shotId]||[0,0,0];
+     acceptedCameraSync.previewReference({position:alignment.position.map((n,i)=>n+anchor[i]),
+       target:alignment.target.map((n,i)=>n+anchor[i]),fov:alignment.fov},at);
+     el('acceptedCameraSyncStatus').textContent='Reference-matched camera preview · '+
+       Math.round(alignment.confidence*100)+'% model confidence. '+alignment.uncertainty+
+       ' Scrub to review, then Apply. The model has not moved.';
+   },
    onCameraSync:(entry,mode,{referenceAt=null}={})=>{
      if(cameraSyncSession?.shotId!==entry.shotId)
        throw Error('The reference chapter changed. Generate a new preview.');
@@ -496,6 +507,8 @@ async function boot(){
    getActiveShot:()=>shotAt(playhead),
    getBounds:id=>primitiveWorld.getBounds(id),
    getCamera:id=>primitiveWorld.getCamera(id),
+   getView:()=>({position:camera.position.toArray(),target:controls.target.toArray(),fov:camera.fov}),
+   getPlayheadTime:()=>playhead,
    getAnchor:id=>[...(primitiveAnchors()[id]||[0,0,0])],
    canEdit:()=>ready&&!aiSceneEditor?.isBusy?.()&&!aiSceneEditor?.hasPending?.(),
    onPreview:proposal=>{
@@ -504,7 +517,7 @@ async function boot(){
      // Camera alignment is reversible: never change sequence here.
      endGeometryReview();
      acceptedCameraPreview=proposal;
-     seek(sequence.shots.find(shot=>shot.id===proposal.shotId).start+.01);
+     seek(proposal.report.referenceAt??sequence.shots.find(shot=>shot.id===proposal.shotId).start+.01);
    },
    onApply:proposal=>{
      const next=proposal.sequence;
