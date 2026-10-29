@@ -207,3 +207,16 @@ camera-ready chapters ask for a name (`shot.nameConfirmed`, title = upper-case
 name) and offer **Save & next chapter**. Overlays hide during AI jobs,
 proposals, geometry review and Edit mode. Original authored timelines are not
 treated as pending.
+
+## Local media expiry (48 hours)
+
+`local-media-store.js` keeps original files in this browser's IndexedDB only:
+the single imported video (`paige-source-video-v1`, matched by
+`videoIntake.sourceId`) and every Reference Builder image or clip
+(`paige-reference-media-v1`, keyed by `mediaId`). Each file expires a fixed
+48 hours after it was saved, like a cookie: reading does not extend it,
+re-adding or relinking restarts it. Expired files are deleted on read, at
+startup and every 30 minutes; files already open keep working until reload.
+After a reload, Reference Builder restores whatever is still stored and lists
+the rest as RE-LINK. Files are never uploaded; export a portable media ZIP to
+keep them longer. Entries saved before this change get a fresh 48 hours.

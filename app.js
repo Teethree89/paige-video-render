@@ -4,7 +4,8 @@ import {buildWorld} from './world.js';
 import {setupModelTools} from './model-tools.js';
 import {buildAfterEffectsPackage} from './ae-package-export.js';
 import {setupVideoImport} from './video-import.js';
-import {createSingleVideoStore} from './single-video-source.js';
+import {createSingleVideoStore,createReferenceMediaStore} from './single-video-source.js';
+import {formatExpiry} from './local-media-store.js';
 import {setupReferenceBuilder} from './reference-builder.js';
 import {referenceAt} from './reference-sequence.js';
 import {createTimelineHistory,checkTimeline} from './timeline-operations.js';
@@ -93,6 +94,8 @@ const draftWorld=createDraftWorld(scene);
 const primitiveWorld=createPrimitiveWorld(scene,{batchRepeats:true});
 const studioPost=createScenePostprocessor(renderer,scene,camera);
 studioPost.setSize(viewport.clientWidth,viewport.clientHeight);
+// On phones the stats panel would cover half the preview: start it collapsed there.
+if(window.matchMedia?.('(max-width: 760px)').matches)el('renderDiagnostics')?.removeAttribute('open');
 const renderStats=createRenderDiagnostics({
   renderer,scene,root:el('renderDiagnostics'),
   getDocument:()=>sequence?.primitiveScenes,
@@ -125,7 +128,11 @@ const referenceVideo=el('referenceVideo');referenceVideo.volume=0;
 for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=true;
 let sequence,originalSequence,ready=false,playhead=0,playing=false,lastFrame=performance.now(),speed=1,selection=null,orbitMode=false;
 let activeSingleVideoUrl=null,relinkOwnedVideoUrl=null;
-const singleVideoStore=createSingleVideoStore();
+const singleVideoStore=createSingleVideoStore(),referenceMediaStore=createReferenceMediaStore();
+// Saved originals expire 48 hours after they were added; drop stale bytes on
+// start and periodically. Files already open in this session keep working.
+const purgeExpiredMedia=()=>Promise.allSettled([singleVideoStore.purgeExpired(),referenceMediaStore.purgeExpired()]);
+purgeExpiredMedia();setInterval(purgeExpiredMedia,30*60*1000);
 const sourceOverlay=el('sourceViewportOverlay'),sourceVideoHome=el('referenceVideoHome');
 function sourceVideoOverlayAvailable(){return !!(sequence?.videoIntake&&!sequence.referenceSequence&&activeSingleVideoUrl);}
 function refreshSourceVideoOverlay(){
@@ -143,7 +150,7 @@ function refreshSourceVideoOverlay(){
   if(singleVideo){
     el('referenceMediaStatus').textContent=allowed?
       (sequence.videoIntake.sourceName||'Attached source video')+' · synced to playhead':
-      'Source video missing · reattach the original file below';
+      'Source video missing · not in this browser (saved files are removed after 48 hours) · reattach it below';
     el('referenceSyncState').textContent=allowed?'SYNCED TO PLAYHEAD':'SOURCE NOT ATTACHED';
     if(!allowed){
       referenceVideo.pause();referenceVideo.removeAttribute('poster');
@@ -182,10 +189,11 @@ function cacheSingleVideo(file,targetSequence){
   saveLocal();
   refreshSourceVideoOverlay();
   const note=el('sourceRelinkStatus');note.hidden=false;
-  note.textContent='Saving source video locally for refresh…';
-  return singleVideoStore.save(id,file).then(()=>{
+  note.textContent='Saving source video in this browser…';
+  return singleVideoStore.save(id,file).then(({expiresAt})=>{
     if(sequence===targetSequence&&targetSequence.videoIntake.sourceId===id)
-      note.textContent='Source video saved locally. It will reconnect after refresh in this browser.';
+      note.textContent='Source video saved in this browser until '+formatExpiry(expiresAt)+
+        '. It reconnects after refresh and is removed automatically 48 hours after saving. Nothing is uploaded.';
   }).catch(()=>{
     if(sequence!==targetSequence||targetSequence.videoIntake.sourceId!==id)return;
     note.textContent='Video is attached for this session. Local storage is unavailable or full; reattach it after refreshing.';
@@ -204,6 +212,9 @@ async function restoreSingleVideo(targetSequence){
     attachSingleVideo(relinkOwnedVideoUrl);
     if(previousOwned)URL.revokeObjectURL(previousOwned);
     el('saveStatus').textContent='● SOURCE RESTORED · SAVED LOCALLY';
+    const note=el('sourceRelinkStatus');note.hidden=false;
+    note.textContent='Source video restored from this browser. It is removed automatically '+formatExpiry(saved.expiresAt)+
+      ' (48 hours after it was saved); reattach it then if you still need it.';
     return true;
   }catch{return false;}
 }
@@ -703,7 +714,13 @@ async function boot(){
   referenceBuilder?.loadFromSequence(null);
   timelineHistory?.reset(sequence);
  }});
- referenceBuilder=setupReferenceBuilder({getSequence:()=>sequence,onApply:({timeline})=>{
+ referenceBuilder=setupReferenceBuilder({getSequence:()=>sequence,mediaStore:referenceMediaStore,
+   onMediaRestored:count=>{
+     if(!count||!sequence?.referenceSequence)return;
+     seek(playhead);cameraTracking?.refresh();
+     el('saveStatus').textContent='● MEDIA RESTORED FROM THIS BROWSER';
+   },
+   onApply:({timeline})=>{
    if(!validSequence(timeline))throw Error('Reference Builder created an invalid timeline');
    if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.())throw Error('Finish the active AI job or proposal before changing the timeline');
    endGeometryReview();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;
@@ -1088,7 +1105,7 @@ el('clearWorkspaceBtn').addEventListener('click',async()=>{
      if(!window.confirm('Private server cleanup failed: '+error.message+
        '\\n\\nClear this browser workspace only instead? Server jobs will remain.'))return;
    }
-   await singleVideoStore.clear();
+   await Promise.all([singleVideoStore.clear(),referenceMediaStore.clear()]);
    clearWorkspaceStorage(localStorage);
    // Discard in-memory video object URLs, reference-builder media, scene previews
    // and undo history by reinitializing the editor with the empty marker.

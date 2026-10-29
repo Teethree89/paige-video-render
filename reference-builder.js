@@ -1,6 +1,7 @@
 import {buildReferenceTimeline,validateReferenceItems} from './reference-sequence.js';
 import {mountReferenceBuilderUI} from './reference-builder-ui.js';
 import {makePortableProject,openPortableProject} from './portable-reference.js';
+import {formatExpiry} from './local-media-store.js';
 
 const el=id=>document.getElementById(id);
 const rounded=n=>Math.round(n*1000)/1000;
@@ -41,14 +42,47 @@ async function loadVideoMetadata(url){
 }
 let counter=0;
 const newId=prefix=>prefix+'_'+Date.now().toString(36)+'_'+(++counter).toString(36);
-export function setupReferenceBuilder({onApply,getSequence=()=>null}){
+export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=null,onMediaRestored=()=>{}}){
   mountReferenceBuilderUI();
   const modal=el('referenceBuilderModal'),status=el('rbStatus'),
     list=el('rbScenes'),image=el('rbImage'),video=el('rbVideo'),
     fileInput=el('rbFiles'),relinkInput=el('rbRelink');
   if(!modal||!list||!fileInput)throw Error('Reference Builder markup is missing');
   const assets=new Map();
-  let items=[],selectedId=null,busy=false;
+  let items=[],selectedId=null,busy=false,restoring=null;
+  // Originals are kept in this browser for 48 hours (local-media-store.js), never uploaded.
+  let storageProblem=false;
+  async function remember(mediaId,file,kind){
+    if(!mediaStore)return null;
+    try{const saved=await mediaStore.put(mediaId,{file,name:file.name,kind});storageProblem=false;return saved.expiresAt;}
+    catch{storageProblem=true;return null;}
+  }
+  const keepNote=expiresAt=>storageProblem||!Number.isFinite(expiresAt)?
+    ' Browser storage is full or unavailable, so re-link these files after reloading.':
+    ` Saved in this browser until ${formatExpiry(expiresAt)}, then removed automatically (48 hours). Export with media ZIP to keep them longer.`;
+  async function restoreMissing(){
+    if(!mediaStore)return;
+    const wanted=[...new Set(items.map(i=>i.mediaId))].filter(id=>!assets.has(id));
+    if(!wanted.length)return;
+    let restored=0,missing=0,earliest=null;
+    for(const mediaId of wanted){
+      let entry=null;try{entry=await mediaStore.get(mediaId);}catch{}
+      const item=items.find(i=>i.mediaId===mediaId);
+      if(assets.has(mediaId))continue; // Relinked meanwhile.
+      if(!entry||!item){missing++;continue;}
+      const url=URL.createObjectURL(entry.file);
+      let details={duration:5,thumbnail:item.kind==='image'?url:''};
+      try{if(item.kind==='video')details=await loadVideoMetadata(url);}
+      catch{URL.revokeObjectURL(url);missing++;continue;}
+      assets.set(mediaId,{file:entry.file,url,kind:item.kind,...details,expiresAt:entry.expiresAt});
+      earliest=Math.min(earliest??Infinity,entry.expiresAt);restored++;
+    }
+    render();
+    if(restored)say(`Restored ${restored} media file(s) from this browser; the first is removed automatically ${formatExpiry(earliest)}.`+
+      (missing?` ${missing} file(s) expired after 48 hours or were never saved here: use Relink files.`:''));
+    else if(missing)say(`${missing} media file(s) are not in this browser (removed after 48 hours, or added elsewhere). Use Relink files.`);
+    onMediaRestored(restored);
+  }
   let previewPlaying=false,previewElapsed=0,previewFrame=0,lastTick=0;
   const transport=el('rbPlaySequence');
   function stopSequence(){
@@ -92,6 +126,7 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null}){
     if(!loaded){items=[];selectedId=null;render();return;}
     try{items=validateReferenceItems(loaded);}catch(error){say(error.message);return;}
     selectedId=items[0]?.id||null;render();
+    restoring=restoreMissing();
   }
   function preview(){
     video.pause();
@@ -182,7 +217,7 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null}){
     if(busy)return;
     busy=true;el('rbApply').disabled=true;
     try{
-      let count=0;
+      let count=0,expiresAt=null;
       for(const file of files){
         const kind=mediaKind(file);
         if(!kind){say('Unsupported file: '+file.name);continue;}
@@ -200,6 +235,8 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null}){
         const old=assets.get(mediaId);
         assets.set(mediaId,{file,url,kind,...details});
         if(old?.url&&old.url!==url)URL.revokeObjectURL(old.url);
+        expiresAt=await remember(mediaId,file,kind);
+        if(expiresAt)assets.get(mediaId).expiresAt=expiresAt;
         if(!onlyRelink){
           const duration=kind==='image'?5:details.duration;
           const item={id:newId('ref'),mediaId,kind,fileName:file.name,fileSize:file.size,
@@ -209,7 +246,7 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null}){
         }
         count++;
       }
-      say((onlyRelink?'Relinked ':'Added ')+count+' media file(s). Files remain local to your browser.');
+      say((onlyRelink?'Relinked ':'Added ')+count+' media file(s). Nothing is uploaded.'+(count?keepNote(expiresAt):''));
     }finally{busy=false;render();}
   }
   fileInput.addEventListener('change',async()=>{await addFiles(fileInput.files||[]);fileInput.value='';});
@@ -266,7 +303,7 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null}){
       const timeline=buildReferenceTimeline(items);
       if(items.some(i=>!assetFor(i)))throw Error('Relink all source media before applying.');
       if(!confirm('Use this reference sequence in the editor? This replaces the current working timeline. Export existing edits first.'))return;
-      onApply({timeline});stopSequence();modal.hidden=true;say('Reference sequence applied. Media stays local.');
+      onApply({timeline});stopSequence();modal.hidden=true;say('Reference sequence applied. Media stays in this browser for 48 hours after it was added.');
     }catch(error){say(error.message);}
   });
   const bundlePicker=el('rbBundlePicker');
@@ -287,11 +324,14 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null}){
         catch(err){URL.revokeObjectURL(url);throw Error('Bundled video cannot be decoded: '+err.message);}
         assets.set(item.mediaId,{file:item.file,url,kind:item.kind,...details});
         if(old?.url&&old.url!==url)URL.revokeObjectURL(old.url);
+        const expiresAt=await remember(item.mediaId,item.file,item.kind);
+        if(expiresAt)assets.get(item.mediaId).expiresAt=expiresAt;
       }
       onApply({timeline:loaded.timeline,fromBundle:true});
       loadFromSequence(loaded.timeline);
       modal.hidden=true;
-      say('Portable project and all '+loaded.media.length+' sources restored locally.');
+      say('Portable project and all '+loaded.media.length+' sources restored locally.'+
+        keepNote(Math.min(...loaded.media.map(m=>assets.get(m.mediaId)?.expiresAt).filter(Number.isFinite))));
     }catch(err){say('Could not open portable project: '+err.message);}
     finally{busy=false;render();}
   });
@@ -324,5 +364,6 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null}){
   });
   render();
   return {loadFromSequence,sourceForShot,hasSourceForShot:id=>!!sourceForShot(id),
+    whenRestored:()=>restoring||Promise.resolve(),
     open:()=>{modal.hidden=false;render();}};
 }
