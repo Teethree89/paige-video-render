@@ -18,7 +18,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
     "index.html", "render.html", "403.html", "private-denied.html", "styles.css", "app.js", "world.js", "render.js",
-    "model-tools.js", "ae-package-export.js", "ae-package-plan.js", "zip-utils.js", "shot-analysis.js", "video-import.js",
+    "model-tools.js", "ae-package-export.js", "ae-package-plan.js", "zip-utils.js", "shot-analysis.js", "video-import.js", "single-video-source.js",
     "draft-world.js", "chapter-analysis.js", "primitive-schema.js", "primitive-cleanup.js",
     "primitive-world.js", "render-diagnostics.js", "primitive-editor.js", "workspace-controls.js", "workspace-reset.js", "timeline-operations.js", "timeline-tools.js", "animation-curves.js", "animation-graph.js", "camera-motion-sync.js", "accepted-camera-sync.js", "scene-asset-catalog.js", "radial-create.js", "spotlight-controls.js", "scene-effects.js", "scene-units.js", "scene-effects-panel.js", "scene-object-edit.js", "scene-selection-panel.js", "scene-object-operations.js", "array-prototype.js", "array-prototype-editor.js", "array-assembly-templates.js", "assembly-library.js", "scene-group-selection.js",
     "ai-scene-editor.js", "primitive-preview.js", "environment-generation.js", "video-camera-motion.js",

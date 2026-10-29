@@ -101,6 +101,27 @@ button:disabled{opacity:.45;cursor:not-allowed;filter:none;pointer-events:none}
   font:10px/1.65 ui-monospace,SFMono-Regular,monospace;color:#b7d6df;min-height:34px;}
 
 
+.ai-intro,.ai-diagnostic-note{font-size:11px;line-height:1.5;color:#aac5d2;margin:0 0 14px}
+.ai-workflow-section{margin-top:16px}
+.ai-workflow-section>.section-label{margin-bottom:10px}
+#aiScenePanel .ai-option{display:flex;flex-direction:row;align-items:flex-start;gap:9px;
+  margin:12px 0;text-align:left;cursor:pointer;color:#d5e9ef;font-size:11px;line-height:1.45}
+#aiScenePanel input[type=checkbox]{flex:0 0 16px;width:16px;height:16px;
+  align-self:flex-start;margin:1px 0 0;padding:0;accent-color:#8ae5d4}
+.ai-option>span{min-width:0}
+.ai-option strong{display:block;font-weight:600}
+.ai-option small{display:block;margin-top:3px;color:#9cb8c6;font-size:10px;line-height:1.5}
+.ai-generation-wait:empty{display:none}
+.ai-diagnostics{margin-top:20px;border-top:1px solid #34556a;padding-top:13px}
+.ai-diagnostics>summary{cursor:pointer;color:#aac5d2;font-size:11px;font-weight:600;
+  letter-spacing:0;line-height:1.5}
+.ai-diagnostics>.ai-generation-activity:first-of-type{border-top:0;padding-top:0}
+.ai-diagnostics .ai-diagnostic-note{color:#e5cfa7;margin:8px 0}
+.ai-diagnostics>summary:focus-visible{outline:2px solid #8ae5d4;outline-offset:4px;border-radius:2px}
+.ai-model-guide{margin:14px 0;color:#9cb8c6;font-size:11px;line-height:1.5}
+.ai-model-guide>summary{cursor:pointer;font-weight:600}
+.ai-guide-copy{font-size:11px;line-height:1.6;color:#aac5d2;margin:12px 0}
+
 /* In-place 3D review mode; CSS [hidden] must win against the display rule. */
 .review-return{position:absolute;right:16px;top:56px;z-index:45;background:#102c39e8;border:1px solid #7ce8dc;color:#d6fffa;border-radius:5px;padding:10px 12px;font-size:12px;font-weight:700;box-shadow:0 5px 22px #0008;touch-action:manipulation}
 .review-return[hidden]{display:none!important}
@@ -627,3 +648,4 @@ html,body{font-size:14px}
 .workspace-start-dialog>.workspace-start-note{font-size:10px;line-height:1.5;margin:16px 0 0;color:#819da8}
 #workspaceStartOpenBtn[hidden]{display:none!important}
 @media(max-width:520px){.workspace-start-dialog{padding:17px}.workspace-start-top h2{font-size:19px}.workspace-start-choices{grid-template-columns:1fr}.workspace-start-choice{min-height:0;padding:13px}}
+

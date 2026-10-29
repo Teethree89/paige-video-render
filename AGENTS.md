@@ -83,6 +83,15 @@ the existing largest-repeat-dropping repair loop, which could delete base parts.
 
 ## Editor help text
 
+Single-video imports cache one original File in local IndexedDB, matched only by
+`videoIntake.sourceId`. Restore a fresh blob URL after reload; never attach an
+unrelated cached video or upload the original for persistence. Storage failure
+must leave the active source usable with a reattach notice. Clear workspace
+awaits pending cache writes and removes the cached source, preserving libraries.
+Keep missing-source status truthful: no bundled poster or enabled overlay until
+the original is available. AI diagnostics stay in the bottom closed accordion;
+live generation status and elapsed time remain outside it.
+
 Static explainer paragraphs (`p.field-help` without an `id` or `role`) are folded behind "?" buttons by `help-toggles.js`; live status lines must keep an `id` or `role` so they stay visible. Without the script every explanation stays open. Paid requests (Argon starts and paid diagnostics) confirm in the page's `#aiConfirm` dialog, never `window.confirm()`: Chrome silently dismisses that in a background tab, which reads as Cancel. Only an explicit OK starts a paid call; Cancel, Escape or a dismissed dialog logs that nothing was sent. Orbit zoom-out has no distance limit; the clip planes follow the orbit distance and reset to the cinematic camera's fixed planes in `applyCamera`.
 
 
