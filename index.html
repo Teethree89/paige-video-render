@@ -120,7 +120,7 @@
       <div id="inspectorObjectsPanel" role="tabpanel" aria-labelledby="inspectorObjectsButton">
       <div id="projectPanel" class="panel-block">
         <div class="section-label">SEQUENCE</div><div class="stat-row"><span>Project</span><b>Advanced Materials</b></div><div class="stat-row"><span>Runtime</span><b>56.47 s</b></div><div class="stat-row"><span>Camera keys</span><b id="keyCount">—</b></div><div class="stat-row"><span>Text overlays</span><b id="textCount">—</b></div>
-        <button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><div class="divider"></div>
+        <button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><button id="clearWorkspaceBtn" disabled class="wide danger" type="button" title="Start with an empty workspace; keep the saved object and array libraries">Clear workspace…</button><p class="field-help">Remove this project’s video, scenes, and timeline without deleting reusable library assets.</p><div class="divider"></div>
         <section id="acceptedCameraSyncPanel" class="camera-sync-panel accepted-camera-sync" hidden aria-label="Sync camera to already accepted 3D chapter model">
           <div class="section-label">SYNC ACCEPTED MODEL CAMERA · FREE</div>
           <p class="field-help">Already accepted a 3D model? Align this chapter's existing pan, orbit, and dolly path to its actual model size. Preview first; your geometry and saved camera keys remain unchanged until you apply.</p>
@@ -644,6 +644,15 @@
       <p class="argon-particle-tip">Move your cursor through the particle cloud · generation continues while you view the editor</p>
     </div>
   </section>
+  <dialog id="workspaceClearDialog" class="confirm-dialog" aria-labelledby="workspaceClearTitle">
+    <div id="workspaceClearTitle" class="section-label">CLEAR WORKSPACE</div>
+    <p>This removes the current timeline, uploaded-video links, reference scenes, accepted 3D objects and saved server job results. The editor will reopen with one empty scene.</p>
+    <p><strong>Preserved:</strong> your reusable object / array library, downloaded exports, account sign-in and AI usage limits. An in-progress paid job cannot be cleared. Provider-side retention is not changed.</p>
+    <form method="dialog" class="confirm-actions">
+      <button type="submit" value="cancel" class="secondary">Cancel</button>
+      <button type="submit" value="clear" class="danger">Clear workspace</button>
+    </form>
+  </dialog>
   <script type="module" src="workspace-controls.js"></script>
   <script type="module" src="app.js"></script>
 </body>

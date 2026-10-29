@@ -179,7 +179,7 @@ function argon_transport_reason($errno, $received) {
 /** Fixed-target Argon background job transport (only after session+CSRF). */
 function argon_worker_call(string $endpoint, string $secret, string $action, array $body,
                            $onRejected = null, array $headers = [], $onLost = null): array {
-    if (!in_array($action, ['start', 'direct-start', 'status', 'output', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
+    if (!in_array($action, ['start', 'direct-start', 'status', 'output', 'clear', 'check', 'diagnostic', 'diagnostic-status'], true)) reject(400, 'Invalid Argon action');
     $route = preg_replace('~/api/scene$~', '/api/scene/argon/' . $action, $endpoint);
     // The metadata-only check accepts an empty JSON OBJECT, not an array.
     // PHP json_encode([]) serializes as "[]", which the Worker correctly rejects
@@ -396,6 +396,29 @@ if ($action === 'logout') {
     $_SESSION = [];
     session_destroy();
     answer(200, ['ok' => true, 'authenticated' => false]);
+}
+// Clear only this authenticated session's workspace state. Keep rate limits,
+// authentication and CSRF intact so resetting cannot replenish paid quota.
+if ($action === 'workspace_clear') {
+    if (count(array_diff(array_keys($input), ['action','csrf'])) > 0)
+        reject(400, 'Invalid workspace clear request');
+    $job = $_SESSION['argon_job'] ?? null;
+    if (is_array($job) && (int) ($job['created'] ?? 0) >= time() - 86400 &&
+        in_array($job['status'] ?? '', ['queued','in_progress'], true))
+        reject(409, 'Finish the active Argon job before clearing the workspace');
+    if (($_SESSION['argon_smoke']['state'] ?? '') === 'running')
+        reject(409, 'Finish the active diagnostic before clearing the workspace');
+    // Direct-image results live in private Worker Durable Object storage.
+    // Never forget the session pointer until deletion was confirmed there.
+    if (is_array($job) && is_string($job['id'] ?? null) &&
+        preg_match('/^(?:dk_|do_)[0-9a-f]{64}$/', $job['id'])) {
+        argon_worker_call($workerEndpoint, $secret, 'clear',
+            ['jobId' => $job['id'], 'shotId' => $job['shotId']]);
+    }
+    // Older Previs interactions are stored by Google; unlink this PHP session
+    // but do not imply deletion of the provider's independently held records.
+    unset($_SESSION['argon_job'], $_SESSION['argon_smoke']);
+    answer(200, ['ok' => true, 'cleared' => true]);
 }
 // Five explicit, fixed-input, potentially billable Argon tests.
 // Only one manually confirmed diagnostic submission at a time. Earlier
