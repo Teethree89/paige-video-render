@@ -12,6 +12,9 @@ export const LIGHT_TYPES = Object.freeze(['directional','point','spot']);
 export const lightCastsShadow = light => light.castShadow ?? (light.type !== 'point');
 // A repeat array renders every copy as its own mesh, so copies are capped per
 // object and per scene to keep mobile WebGL, GLB and After Effects responsive.
+// Aggregate object/instance budgets apply to paid/generated AI output only.
+ // Manual scene editing and imported timeline JSON are not quantity-capped.
+ // Per-array repetition and geometry safety constraints remain shared.
 export const LIMITS = Object.freeze({scenes:120, objectsPerScene:240, totalObjects:2000,
   instancesPerScene:2000, copiesPerObject:400, repeatPerAxis:100, footprintPoints:32,
   // Only AI-authored proposals have a quantity ceiling; manually authored
@@ -208,7 +211,10 @@ export function capGeneratedLights(document,limit=LIMITS.aiLightsPerScene){
 }
 
 
-export function validatePrimitiveDocument(value, allowedShotIds = null) {
+// Ordinary scene validation must never reject human edits just because an
+// AI generation budget has been reached. Generated proposals opt in explicitly.
+export function validatePrimitiveDocument(value, allowedShotIds = null,
+  {enforceGenerationBudget=false}={}) {
   if (value === undefined || value === null) return blankPrimitiveDocument();
   if (typeof value !== 'object' || Array.isArray(value)||value.schemaVersion!==1 || !Array.isArray(value.scenes))
     fail('expected {schemaVersion:1,scenes:[...]}');
@@ -221,10 +227,13 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
     if(allowed&&!allowed.has(shotId))fail('unknown shotId: '+shotId);
     if(sceneIds.has(shotId))fail('duplicate shotId: '+shotId);
     sceneIds.add(shotId);
-    if(!Array.isArray(scene.objects)||scene.objects.length>LIMITS.objectsPerScene)
-      fail('scene '+shotId+' needs an objects array with at most '+LIMITS.objectsPerScene+' objects');
+    if(!Array.isArray(scene.objects))
+      fail('scene '+shotId+' needs an objects array');
+    if(enforceGenerationBudget&&scene.objects.length>LIMITS.objectsPerScene)
+      fail('AI scene '+shotId+' exceeds '+LIMITS.objectsPerScene+' generated objects');
     total+=scene.objects.length;
-    if(total>LIMITS.totalObjects)fail('too many total objects');
+    if(enforceGenerationBudget&&total>LIMITS.totalObjects)
+      fail('AI project exceeds '+LIMITS.totalObjects+' generated objects');
     const ids=new Set();let instances=0;
     const objects=scene.objects.map((item,j)=>{
       if(!item||typeof item!=='object'||Array.isArray(item))fail(shotId+' object '+j+' is invalid');
@@ -258,8 +267,8 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       const arrayCopies=repeat?repeat.count[0]*repeat.count[1]*repeat.count[2]:1;
       const partCount=item.arrayParts?.objects?.length||0;
       instances+=arrayCopies*((item.primitive==='group'?0:1)+partCount);
-      if(instances>LIMITS.instancesPerScene)
-        fail(shotId+' has more than '+LIMITS.instancesPerScene+' rendered copies');
+      if(enforceGenerationBudget&&instances>LIMITS.instancesPerScene)
+        fail('AI scene '+shotId+' has more than '+LIMITS.instancesPerScene+' rendered copies');
       const points=item.primitive==='extrude'?footprint(item.points,id):undefined;
       if(item.primitive==='group'&&item.arrayParts==null)
         fail(id+' group requires arrayParts of meshes and lights');
@@ -279,7 +288,7 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
           fail(id+' array components cannot contain nested arrays');
         const sceneParts=validatePrimitiveDocument({schemaVersion:1,scenes:[
           {shotId:'array_parts',objects:raw.objects,lights:raw.lights}
-        ]},['array_parts']).scenes[0];
+        ]},['array_parts'],{enforceGenerationBudget}).scenes[0];
         const objects=sceneParts.objects,lights=sceneParts.lights||[];
         let order;
         if(raw.order!=null){
@@ -329,6 +338,12 @@ export function validatePrimitiveDocument(value, allowedShotIds = null) {
       ...(effects?{effects}:{})};
   });
   return {schemaVersion:1,scenes};
+}
+
+// Strict generation-only entry point. Called on AI proposals at their
+// ingestion boundary; never used for hand-edited scene JSON.
+export function validateGeneratedPrimitiveDocument(value,allowedShotIds=null){
+  return validatePrimitiveDocument(value,allowedShotIds,{enforceGenerationBudget:true});
 }
 
 export function makePrimitive(type, id, position=[0,1,0]) {
