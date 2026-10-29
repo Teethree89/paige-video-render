@@ -122,3 +122,60 @@ timelines without a cached source need one reattachment. Missing sources no
 longer display the example poster as if it were the imported video; overlay
 controls remain visible but disabled until reattachment. Clear workspace also
 removes the cached source and preserves the reusable object library.
+
+## Feature-track camera solver (offline harness, 2026-10-29)
+
+`camera-track-solver.js` is a deterministic, local alternative to asking a
+model for the camera path. Given 2D feature tracks (`[frame, x, y]` pixels per
+track id) it:
+
+1. scans for parallax (rotation-compensated residuals). If a pure rotation fits
+   every frame at some focal length, it solves **rotation only** (pan / tilt /
+   static) with seeded 2-point RANSAC + Kabsch;
+2. otherwise picks the best-parallax frame pair, estimates the essential matrix
+   (seeded 8-point RANSAC), triangulates, poses later frames by robust PnP,
+   triangulates new tracks as earlier ones die out, and refines everything with
+   sparse Huber bundle adjustment (Schur complement over points);
+3. estimates the vertical FOV when it is unknown (focal scan + bundle
+   adjustment of one shared focal length);
+4. converts the result with `trackSolveToVideoMotion` into the SAME validated
+   `shots[].videoCameraMotion` v1 estimate (Y up, subject at origin, first
+   camera on +Z, ≤11 keys), marked `source:'feature-track'`. The vertical axis
+   assumes the camera has no roll. Uncertainty text is a fixed template.
+
+`buildVideoCameraMotion` fits a tracked estimate to geometry exactly like an AI
+estimate, but writes `generated:'video-track'` keys and
+`cameraSync.source:'feature-track'`. The solve is relative: scale and facing
+still come from the generated geometry / reference alignment, and preview +
+Apply is still required.
+
+Test it without any video or provider:
+
+```bash
+node scripts/camera_track_harness.mjs          # table; exit 1 if any scenario misses its limits
+node scripts/camera_track_harness.mjs --json   # machine-readable
+node --test tests/test_camera_track_solver.mjs
+```
+
+`tests/camera-track-fixtures.mjs` projects a synthetic campus through known
+push, pull, truck, pedestal, orbit, pan, tilt, static and crane paths, plus
+noisy tracks with 8% outliers and an independently moving object, short
+(8-frame) staggered tracks, and unknown 42°/60° FOVs. Errors are gauge-free:
+relative rotation, camera centers after a similarity alignment on the
+triangulated points, and FOV. Not yet built: the in-browser feature tracker
+that turns decoded video frames into tracks (pyramidal Lucas–Kanade), and the
+optional click-to-anchor PnP against accepted geometry.
+
+## Guided chapter workflow
+
+`chapter-workflow.js` adds a four-step guide above the viewport: **1 Choose
+workflow** (Video → timeline or Reference Builder), **2 Base models & colors**,
+**3 Camera movement**, **4 Name & continue**. Status is derived from timeline
+data: a guided (draft) chapter is *pending blocking* until it has accepted
+geometry and a non-placeholder camera (AI estimate, track, authored/synced keys,
+or an explicit **Keep camera as is**, saved as `shot.cameraConfirmed`). Pending
+chapters get a hatched timeline clip and a viewport overlay; generated,
+camera-ready chapters ask for a name (`shot.nameConfirmed`, title = upper-case
+name) and offer **Save & next chapter**. Overlays hide during AI jobs,
+proposals, geometry review and Edit mode. Original authored timelines are not
+treated as pending.

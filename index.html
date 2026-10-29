@@ -24,6 +24,20 @@
   </header>
   <div class="workbench" id="studioWorkbench">
     <main class="main-col">
+      <nav id="workflowGuide" class="workflow-guide" aria-label="Guided chapter workflow" hidden>
+        <ol class="workflow-steps">
+          <li><button type="button" data-step="source" data-state="current"><span class="workflow-step-num">1</span><span class="workflow-step-label">Choose workflow<small>Video or reference build</small></span></button></li>
+          <li><button type="button" data-step="geometry" data-state="upcoming"><span class="workflow-step-num">2</span><span class="workflow-step-label">Base models &amp; colors<small>Generate or build shapes</small></span></button></li>
+          <li><button type="button" data-step="camera" data-state="upcoming"><span class="workflow-step-num">3</span><span class="workflow-step-label">Camera movement<small>Track, sync or keep</small></span></button></li>
+          <li><button type="button" data-step="name" data-state="upcoming"><span class="workflow-step-num">4</span><span class="workflow-step-label">Name &amp; continue<small>Next chapter or refine</small></span></button></li>
+        </ol>
+        <div class="workflow-guide-detail">
+          <span id="workflowGuideProgress" class="workflow-guide-progress"></span>
+          <button id="workflowGuideAction" type="button" class="workflow-guide-action">Start / open a project…</button>
+          <button id="workflowGuideCollapse" type="button" class="workflow-guide-collapse" aria-controls="workflowGuide" aria-expanded="true">Hide</button>
+        </div>
+        <p id="workflowGuideHint" class="workflow-guide-hint" role="status" aria-live="polite">Start fresh: import a video or build a reference sequence.</p>
+      </nav>
       <section class="viewport" id="viewport">
         <canvas id="scene"></canvas>
         <div id="sourceViewportOverlay" class="source-viewport-overlay" hidden aria-hidden="true"></div>
@@ -77,6 +91,22 @@
           <div class="render-stats-foot"><span>Last rendered frame · Idle when paused</span><button id="renderStatsLog" type="button">Log snapshot</button></div>
         </details>
         <div class="stage-footer"><div><span class="eyebrow">SHOT <span id="shotIndex">01</span></span><span id="stageName" class="stage-name">Night campus exterior</span></div><div class="stage-footer-right"><span>1920 × 1080</span><span>16:9</span><span>30 FPS REF</span></div></div>
+        <section id="chapterPendingOverlay" class="chapter-pending-overlay" role="region" aria-labelledby="chapterPendingTitle" hidden>
+          <div class="chapter-pending-card">
+            <div class="chapter-pending-top"><span id="chapterPendingEyebrow" class="chapter-pending-eyebrow">CHAPTER 01 · PENDING BLOCKING</span><button id="chapterPendingHide" type="button" class="chapter-pending-hide" title="Minimize; the chapter stays pending">Minimize</button></div>
+            <h2 id="chapterPendingTitle">This chapter has not yet been generated or camera tracked</h2>
+            <ol id="chapterPendingChecklist" class="chapter-pending-checklist"></ol>
+            <div class="chapter-pending-actions"><button id="chapterPendingAction" type="button" class="primary">Generate base models &amp; colors</button><button id="chapterPendingSecondary" type="button" class="secondary">Build shapes manually</button></div>
+            <p id="chapterPendingStatus" class="chapter-name-status" role="status" aria-live="polite"></p>
+          </div>
+        </section>
+        <button id="chapterPendingChip" type="button" class="chapter-pending-chip" hidden>◌ Pending blocking · show steps</button>
+        <section id="chapterNameCard" class="chapter-name-card" role="region" aria-labelledby="chapterNameEyebrow" hidden>
+          <span id="chapterNameEyebrow" class="chapter-pending-eyebrow">GENERATED &amp; CAMERA READY</span>
+          <label for="chapterNameInput">Name this chapter</label>
+          <div class="chapter-name-row"><input id="chapterNameInput" type="text" maxlength="80" autocomplete="off" spellcheck="true"><button id="chapterNameSave" type="button" class="secondary">Save name</button><button id="chapterNameNext" type="button" class="primary">Save &amp; next chapter →</button></div>
+          <p id="chapterNameStatus" class="chapter-name-status" role="status" aria-live="polite"></p>
+        </section>
         <p id="sceneCreateFeedback" class="scene-create-feedback" role="status" aria-live="polite" hidden></p>
         <div id="errorBanner" class="error-banner" hidden>Unable to load Three.js. An internet connection is needed for the CDN modules.</div>
         <button id="argonParticleReopen" class="argon-particle-reopen" type="button" hidden aria-label="Expand generation status">

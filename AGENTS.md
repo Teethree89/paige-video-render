@@ -229,3 +229,15 @@ Do not save the temporary BoxHelper, TransformControls, review grid or orbit
 camera into project data. Use `tests/test_scene_object_edit.mjs` and the pinned
 Three.js integration test to guard the interaction.
 
+
+## Feature-track camera solver and guided chapters
+
+`camera-track-solver.js` solves relative camera paths from 2D feature tracks
+locally (no provider call, seeded/deterministic) and emits the existing
+`videoCameraMotion` v1 estimate with `source:'feature-track'`; fitted keys are
+`generated:'video-track'`. It is still a reviewable estimate (relative scale,
+no-roll vertical): keep preview/Apply. Run `node scripts/camera_track_harness.mjs`
+and `tests/test_camera_track_solver.mjs` when changing it; do not loosen the
+scenario limits to make a change pass. The browser feature tracker is not built
+yet. `chapter-workflow.js` derives chapter progress from timeline data only;
+keep `nameConfirmed`/`cameraConfirmed` optional so older timelines load.
