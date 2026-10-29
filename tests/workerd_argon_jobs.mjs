@@ -109,6 +109,17 @@ try{
   assert.equal(calls.length,1,'original download is a private storage read, not generation');
   // Wrong chapter for the job is refused.
   assert.equal((await post('/api/scene/argon/status',{jobId:ok.start.jobId,shotId:'other'})).status,400);
+  // Workspace clearing is authorized by the gateway and can only wipe a
+  // terminal result belonging to the specified job/chapter, never the library.
+  assert.equal((await post('/api/scene/argon/clear',{jobId:ok.start.jobId,shotId:'other'})).status,400);
+  assert.equal((await post('/api/scene/argon/clear',{jobId:ok.start.jobId,shotId:'shot_a',
+    unexpected:true})).status,400);
+  const cleared=await (await post('/api/scene/argon/clear',
+    {jobId:ok.start.jobId,shotId:'shot_a'})).json();
+  assert.deepEqual(cleared,{ok:true,cleared:true});
+  assert.equal((await post('/api/scene/argon/status',
+    {jobId:ok.start.jobId,shotId:'shot_a'})).status,404);
+  assert.equal(calls.length,1,'clearing a terminal result never starts a provider call');
   // 2) Provider rejection is reported with the sanitized diagnostic, once.
   mode='reject';
   const bad=await runJob();
@@ -151,6 +162,9 @@ try{
   const cutStatus=async()=>(await post('/api/scene/argon/status',{jobId:cut.jobId,shotId:'shot_a'})).json();
   for(let i=0;i<40&&calls.length<4;i++)await new Promise(r=>setTimeout(r,100));
   assert.equal(calls.length,4);assert.equal((await cutStatus()).status,'in_progress');
+  assert.equal((await post('/api/scene/argon/clear',
+    {jobId:cut.jobId,shotId:'shot_a'})).status,409,
+    'workspace reset must not wipe a submitted paid job');
   await mf.setOptions(options('0a1b2c3d-0000-4000-8000-000000000002'));
   let after;
   for(let i=0;i<40;i++){
