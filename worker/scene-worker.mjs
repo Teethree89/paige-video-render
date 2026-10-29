@@ -6,7 +6,7 @@
  */
 // The same validator the editor runs, so Argon can use the full scene format
 // (Wrangler bundles this import). Flash profiles keep their own validator.
-import {validatePrimitiveDocument,ENVIRONMENT_LAYERS,LIGHT_TYPES,LIMITS,PRIMITIVE_TYPES} from '../primitive-schema.js';
+import {validatePrimitiveDocument,validateGeneratedPrimitiveDocument,ENVIRONMENT_LAYERS,LIGHT_TYPES,LIMITS,PRIMITIVE_TYPES} from '../primitive-schema.js';
 // Google now restricts Gemini 2.5 Flash-Lite for projects without prior use.
 // 3.5 Flash-Lite is a stable, low-cost multimodal replacement with free-tier
 // availability. Default to the known-working model; never silently switch
@@ -411,7 +411,7 @@ function validateArgonOutput(value,shotId,{truncated=false}={}) {
   const raw=scenes.find(scene=>scene.camera!=null)?.camera;
   let camera;
   if(raw!=null){try{camera=one([],{camera:raw}).camera;}catch{note('camera');}}
-  const document=validatePrimitiveDocument({schemaVersion:1,scenes:[{shotId,objects,
+  const document=validateGeneratedPrimitiveDocument({schemaVersion:1,scenes:[{shotId,objects,
     ...(camera?{camera}:{}),...(lights.length?{lights}:{})}]},[shotId]);
   return {document,repairs:Object.keys(repairs).length?repairs:null};
 }
