@@ -59,6 +59,8 @@ try{
   assert.equal(await page.locator('#errorBanner').isVisible(),false,errors.join('\n'));
  };
  await page.goto(base+'/');await ready();
+ assert.equal(await page.locator('#referenceMediaStatus').count(),1);
+ assert.equal(await page.locator('#referenceStill').count(),1);
  await page.locator('#inspectorSourceButton').click();
  await page.waitForFunction(()=>document.getElementById('referenceVideo').readyState>=2);
  assert.equal(await page.locator('#sourceOverlayEnabled').isEnabled(),true,'cached source restores overlay availability');

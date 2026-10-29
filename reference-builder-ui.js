@@ -12,12 +12,19 @@ export function mountReferenceBuilderUI(root=document){
  videoButton.parentNode.insertBefore(opener,videoButton);
  const card=root.querySelector('.reference-card');
  if(card){
-   const still=root.createElement('img');still.id='referenceStill';still.alt='Current reference still';
-   still.hidden=true;
-   const note=root.createElement('p');note.id='referenceMediaStatus';
-   note.className='reference-media-status';note.setAttribute('aria-live','polite');
-   card.querySelector('#referenceVideo')?.insertAdjacentElement('afterend',still);
-   still.insertAdjacentElement('afterend',note);
+   // The current editor already owns these nodes. Older standalone pages
+   // need them created, but duplicating IDs breaks source state updates.
+   let still=root.getElementById('referenceStill');
+   if(!still){
+     still=root.createElement('img');still.id='referenceStill';still.alt='Current reference still';
+     still.hidden=true;
+     card.querySelector('#referenceVideo')?.insertAdjacentElement('afterend',still);
+   }
+   if(!root.getElementById('referenceMediaStatus')){
+     const note=root.createElement('p');note.id='referenceMediaStatus';
+     note.className='reference-media-status';note.setAttribute('aria-live','polite');
+     still.insertAdjacentElement('afterend',note);
+   }
  }
  const markup=`
 <section id="referenceBuilderModal" class="reference-builder-modal" hidden aria-label="Mixed media reference builder">
@@ -84,3 +91,4 @@ export function mountReferenceBuilderUI(root=document){
 </section>`;
  root.body.insertAdjacentHTML('beforeend',markup);
 }
+
