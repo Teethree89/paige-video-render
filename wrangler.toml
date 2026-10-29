@@ -11,8 +11,14 @@ workers_dev = true
 keep_vars = true
 
 # Cloudflare's connected GitHub preview builds run `npx wrangler preview`.
-# An explicit block is required, even when no preview overrides are needed.
-[previews]
+# Bindings are not inherited from production. Cloudflare gives each Preview
+# its own Durable Object namespace; do not set script_name to production.
+[[previews.durable_objects.bindings]]
+name = "ARGON_JOBS"
+class_name = "ArgonJob"
+
+[previews.version_metadata]
+binding = "CF_VERSION_METADATA"
 
 # Keep production logging configuration in Git so dashboard changes survive redeploys.
 # Collect invocation and existing sanitized console diagnostics; do not log secrets.
@@ -37,3 +43,4 @@ new_sqlite_classes = ["ArgonJob"]
 # job_interrupted_deploy rather than a generic interruption.
 [version_metadata]
 binding = "CF_VERSION_METADATA"
+
