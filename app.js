@@ -32,6 +32,8 @@ import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld,createPreviewRenderState,previewPixelRatio} from './primitive-preview.js';
 import {foldHelpText} from './help-toggles.js';
 import {setupChapterWorkflow} from './chapter-workflow.js';
+import {setupCameraTracking} from './camera-track-ui.js';
+import {hasUntouchedPlaceholderCamera} from './video-camera-motion.js';
 import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace,clearWorkspaceStorage,clearServerWorkspace,markWorkspaceSaved,isEmptyWorkspace,shouldShowWorkspaceWelcome,dismissWorkspaceWelcome} from './workspace-reset.js';
 
 foldHelpText();
@@ -105,7 +107,7 @@ previewQuality.addEventListener('change',()=>{
 });
 const cameraBoundsCache=new Map();
 let sceneEffectsPanel=null,lastEffectsShot=null,lastShadowEnabled=true;
-let chapterWorkflow=null;
+let chapterWorkflow=null,cameraTracking=null;
 let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,arrayPrototypeEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function commitEditedScenes(doc){
@@ -127,6 +129,7 @@ const singleVideoStore=createSingleVideoStore();
 const sourceOverlay=el('sourceViewportOverlay'),sourceVideoHome=el('referenceVideoHome');
 function sourceVideoOverlayAvailable(){return !!(sequence?.videoIntake&&!sequence.referenceSequence&&activeSingleVideoUrl);}
 function refreshSourceVideoOverlay(){
+  cameraTracking?.refresh(); // Source attached, restored or removed.
   const allowed=sourceVideoOverlayAvailable(),toggle=el('sourceOverlayEnabled');
   const singleVideo=!!(sequence?.videoIntake&&!sequence.referenceSequence);
   el('sourceOverlayControls').hidden=!singleVideo;
@@ -735,6 +738,44 @@ async function boot(){
    onRedo:()=>applyHistory(timelineHistory?.redo?.())
  });
  const workspaceStart=setupWorkspaceStart();
+ cameraTracking=setupCameraTracking({
+   getSequence:()=>sequence,getShot:()=>sequence?shotAt(playhead):null,
+   canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
+   // Local sources only: the cached single video or a Reference Builder clip.
+   getSource:shot=>{
+     if(sequence.referenceSequence){
+       const source=referenceBuilder?.sourceForShot(shot.id);
+       if(!source?.url)return {reason:'Reattach this scene\'s media in Reference Builder to track its camera.'};
+       if(source.kind!=='video')return {reason:'Still image: the camera cannot move. Use “Keep camera as is”.'};
+       return {url:source.url,toSourceTime:t=>clamp(source.sourceIn+t-shot.start,source.sourceIn,source.sourceOut-.001)};
+     }
+     if(sequence.videoIntake){
+       if(!activeSingleVideoUrl)return {reason:'Reattach the source video (Source tab) to track its camera.'};
+       return {url:activeSingleVideoUrl,toSourceTime:t=>t};
+     }
+     return null;
+   },
+   onBusy:()=>chapterWorkflow?.refresh(true),
+   onSaved:(shotId,motion)=>{
+     const shot=sequence.shots.find(s=>s.id===shotId);
+     if(!shot||shot.start!==motion.start||shot.end!==motion.end)throw Error('Chapter changed during tracking');
+     shot.videoCameraMotion=motion;
+     saveLocal();
+     const accepted=sequence.primitiveScenes?.scenes?.some(s=>s.shotId===shotId&&s.objects?.length);
+     if(!accepted)return 'Saved. Generate or build this chapter\'s models, then preview the tracked motion.';
+     if(shotAt(playhead)?.id!==shotId)return 'Saved. Open this chapter to preview the tracked motion.';
+     el('inspectorMotionButton')?.click();acceptedCameraSync?.refresh?.();
+     const mode=el('acceptedCameraSyncMode');
+     if(mode){mode.value='video-motion';mode.dispatchEvent(new Event('change'));}
+     // Only untouched placeholder cameras auto-stage; authored keys need an explicit preview.
+     if(hasUntouchedPlaceholderCamera(sequence,shot)&&!el('acceptedCameraSyncPreview')?.disabled){
+       el('acceptedCameraSyncPreview').click();spotlight('acceptedCameraSyncPanel');
+       return 'Preview staged below: scrub it, then Apply to camera keys.';
+     }
+     spotlight('acceptedCameraSyncPanel');
+     return 'Choose Preview camera sync below to compare it with your saved keys.';
+   }
+ });
  chapterWorkflow=setupChapterWorkflow({
    getSequence:()=>sequence,getShot:()=>sequence?shotAt(playhead):null,
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
@@ -750,9 +791,12 @@ async function boot(){
      openGeneration:()=>{el('inspectorGenerationButton')?.click();spotlight('aiScenePanel');},
      openManual:()=>{el('inspectorSceneButton')?.click();spotlight('primitiveEditor');},
      openCamera:()=>{
+       if(cameraTracking&&!el('cameraTrackPanel')?.hidden&&!el('cameraTrackStart')?.disabled&&!sequence.shots.find(s=>s.id===shotAt(playhead).id)?.videoCameraMotion){
+         el('inspectorMotionButton')?.click();spotlight('cameraTrackPanel');return;
+       }
        const shot=shotAt(playhead),accepted=sequence.primitiveScenes?.scenes?.some(s=>s.shotId===shot.id&&s.objects?.length);
        if(accepted){
-         el('inspectorObjectsButton')?.click();acceptedCameraSync?.refresh?.();
+         el('inspectorMotionButton')?.click();acceptedCameraSync?.refresh?.();
          const mode=el('acceptedCameraSyncMode');
          if(mode&&shot.videoCameraMotion&&mode.value!=='video-motion'){mode.value='video-motion';mode.dispatchEvent(new Event('change'));}
          if(spotlight('acceptedCameraSyncPanel'))return;
@@ -785,7 +829,7 @@ function setupWorkspaceStart(){
 }
 // Briefly highlight the inspector section a workflow step points to.
 function spotlight(id){
- const node=el(id);if(!node||node.hidden||node.closest('[hidden]'))return false;
+ const node=el(id);if(!node||node.hidden||node.closest('[hidden]')||!node.getClientRects().length)return false;
  if(node.tagName==='DETAILS')node.open=true;
  node.scrollIntoView?.({block:'center',behavior:'smooth'});
  node.classList.remove('workflow-spotlight');void node.offsetWidth;node.classList.add('workflow-spotlight');
@@ -846,7 +890,7 @@ function applyHistory(doc){
 function saveLocal(record=true){
  if(record){try{timelineHistory?.record(sequence);}catch(error){console.warn('Timeline history skipped invalid intermediate edit:',error.message);}}
  try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));markWorkspaceSaved(localStorage);}catch(e){}
- el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();chapterWorkflow?.refresh(true);acceptedCameraSync?.refresh?.();sceneEffectsPanel?.refresh?.();
+ el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();chapterWorkflow?.refresh(true);cameraTracking?.refresh();acceptedCameraSync?.refresh?.();sceneEffectsPanel?.refresh?.();
 }
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
 function cameraAt(t){
@@ -887,6 +931,7 @@ function renderWorld(){requestViewportRender();const shot=shotAt(playhead);const
  let cuts=sequence.camera.filter(k=>k.cut&&k.at>0).map(k=>k.at);let alpha=0;for(let cut of cuts){let diff=Math.abs(playhead-cut);if(diff<.17)alpha=Math.max(alpha,(1-diff/.17)*.72);}el('cutFlash').style.opacity=String(alpha);}
 function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  chapterWorkflow?.refresh(); // Cheap unless the chapter or review/AI state changed.
+ cameraTracking?.refresh();
  // The modal has its own viewport. Avoid rendering the covered full scene
  // at the same time (and doing two sets of lighting/post-processing work).
  if(arrayPrototypeEditor?.active){renderStats.noteIdle(now);requestAnimationFrame(animate);return;}
@@ -907,7 +952,7 @@ function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  renderStats.endFrame(performance.now());
  requestAnimationFrame(animate);
 }
-function renderShotName(){let shot=shotAt(playhead),i=sequence.shots.indexOf(shot);el('shotTitle').textContent=String(i+1).padStart(2,'0')+' / '+shot.title;el('stageName').textContent=shot.name;el('shotIndex').textContent=String(i+1).padStart(2,'0');for(const node of document.querySelectorAll('.chapter-item'))node.classList.toggle('current',node.dataset.shot===shot.id);chapterWorkflow?.refresh();}
+function renderShotName(){let shot=shotAt(playhead),i=sequence.shots.indexOf(shot);el('shotTitle').textContent=String(i+1).padStart(2,'0')+' / '+shot.title;el('stageName').textContent=shot.name;el('shotIndex').textContent=String(i+1).padStart(2,'0');for(const node of document.querySelectorAll('.chapter-item'))node.classList.toggle('current',node.dataset.shot===shot.id);chapterWorkflow?.refresh();cameraTracking?.refresh();}
 function renderOverlays(){for(let item of sequence.text){let dom=overlayEls.get(item.id);if(!dom)continue;let active=playhead>=item.start&&playhead<item.end,fade=.58,fadeOut=.55;let opacity=active?Math.min(1,curveEasing((playhead-item.start)/fade,{mode:item.textFade||'linear'}),curveEasing((item.end-playhead)/fadeOut,{mode:item.textFade||'linear'})):0;dom.style.opacity=String(clamp(opacity,0,1));dom.style.display=opacity>0?'block':'none';dom.style.left=item.x+'%';dom.style.top=item.y+'%';dom.style.textAlign=item.align||'center';dom.className='scene-caption '+(item.size||'medium')+' '+(item.tone||'white');dom.querySelector('.main-copy').textContent=item.value;dom.querySelector('.sub-copy').textContent=item.subtitle||'';}
 }
 function rebuildOverlayDom(){el('overlayLayer').replaceChildren();overlayEls.clear();for(let item of sequence.text){let dom=document.createElement('div');dom.className='scene-caption';let main=document.createElement('div');main.className='main-copy';let sub=document.createElement('div');sub.className='sub-copy';dom.append(main,sub);el('overlayLayer').appendChild(dom);overlayEls.set(item.id,dom);}renderOverlays();}
@@ -924,7 +969,7 @@ function renderChapters(){let parent=el('chapterList');parent.replaceChildren();
 function refreshAll(){el('projectName').textContent=sequence.title||'Advanced Materials';el('projectRuntime').textContent=fmt(sequence.duration);el('workspaceStartOpenBtn').hidden=!isEmptyWorkspace(sequence);renderTimeline();renderChapters();rebuildOverlayDom();renderInspector();refreshPlayhead();}
 function select(type,id){selection={type,id};el('inspectorMotionButton')?.click();renderInspector();renderTimeline();}
 function selectedData(){return selection?sequence[selection.type==='camera'?'camera':'text'].find(i=>i.id===selection.id):null;}
-function renderInspector(){aiSceneEditor?.refresh?.();chapterWorkflow?.refresh();let item=selectedData();el('projectPanel').hidden=false;el('cameraPanel').hidden=!item||selection.type!=='camera';el('textPanel').hidden=!item||selection.type!=='text';el('motionEmptyState').hidden=!!item;if(el('inspectorMotionButton')?.getAttribute('aria-selected')==='true'){
+function renderInspector(){aiSceneEditor?.refresh?.();chapterWorkflow?.refresh();cameraTracking?.refresh();let item=selectedData();el('projectPanel').hidden=false;el('cameraPanel').hidden=!item||selection.type!=='camera';el('textPanel').hidden=!item||selection.type!=='text';el('motionEmptyState').hidden=!!item;if(el('inspectorMotionButton')?.getAttribute('aria-selected')==='true'){
   el('inspectorHeading').textContent=!item?'Project settings':selection.type==='camera'?'Camera keyframe':'Text overlay';
   el('inspectorHint').textContent=!item?'Select a timeline item to adjust its animation.':selection.type==='camera'?'Edit position, focal target, lens and cut behavior.':'Adjust wording, timing, screen location and styling.';
  }

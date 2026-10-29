@@ -162,9 +162,37 @@ push, pull, truck, pedestal, orbit, pan, tilt, static and crane paths, plus
 noisy tracks with 8% outliers and an independently moving object, short
 (8-frame) staggered tracks, and unknown 42°/60° FOVs. Errors are gauge-free:
 relative rotation, camera centers after a similarity alignment on the
-triangulated points, and FOV. Not yet built: the in-browser feature tracker
-that turns decoded video frames into tracks (pyramidal Lucas–Kanade), and the
-optional click-to-anchor PnP against accepted geometry.
+triangulated points, and FOV. Not yet built: the optional click-to-anchor PnP
+against accepted geometry.
+
+## Track camera from video (browser, local / free)
+
+Motion tab → **Track camera from video**. For the current chapter it seeks the
+local source (the cached single video, or a Reference Builder video clip with
+its in/out mapping) at about 12 fps (24–150 frames), draws 480 px wide
+grayscale frames, and streams them to `camera-track-worker.js` (module Web
+Worker; in-page fallback). `feature-tracker.js` detects Shi-Tomasi corners and
+follows them with pyramidal Lucas–Kanade plus a forward–backward check,
+re-detecting as features are lost. `camera-track-pipeline.js` keeps ≤30
+evenly spaced keyframes, runs the solver and returns the validated estimate.
+Nothing is uploaded and no provider is called.
+
+The estimate is saved as `shots[].videoCameraMotion` (`source:'feature-track'`).
+With accepted geometry, the Sync panel switches to **Use analyzed video motion**;
+an untouched placeholder camera is staged as a preview automatically, authored
+keys need an explicit Preview. Apply still writes the keys. Before geometry
+exists, AI generation reuses the tracked estimate like an AI one. A source that
+cannot seek is refused (it would otherwise look like a static camera).
+Still images cannot be tracked: use **Keep camera as is**.
+
+Tests: `tests/test_feature_tracker.mjs` (LK accuracy, keyframes, and rendered
+synthetic videos end to end), `node scripts/camera_track_harness.mjs --video`,
+and `tests/browser/camera-track-video.mjs`, which decodes the committed
+`tests/fixtures/track-orbit.mp4` (regenerate with
+`node tests/browser/make-track-fixture.mjs`) in Chromium, then tracks, previews
+and applies it in the editor. Limits: dark, blurry, low-texture or heavily
+animated shots may fail or be low confidence; lens zoom is not modeled;
+the solve is relative (geometry fitting supplies scale and facing).
 
 ## Guided chapter workflow
 

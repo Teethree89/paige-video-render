@@ -109,6 +109,7 @@ export function setupWorkspaceControls(root=document){
   move('sceneEffectsPanel','look');
   move('primitiveEditor','scene');
   move('externalModelLibrary','scene');
+  move('cameraTrackPanel','motion');
   move('acceptedCameraSyncPanel','motion');
   move('cameraPanel','motion');
   move('textPanel','motion');

@@ -134,3 +134,55 @@ export function runScenario(s,{solve,toMotion}){
  if(motion.type!==s.type)failures.push(`type ${motion.type} (want ${s.type})`);
  return {name:s.name,metrics,motion,failures,ms:performance.now()-started};
 }
+
+/**
+ * Render a synthetic grayscale "video": the scene points drawn as soft blobs
+ * (size by depth) over a smooth background with sensor noise. Exercises the
+ * real feature tracker instead of handing the solver perfect tracks.
+ */
+export function renderSyntheticVideo({path,frames=36,width=480,height=270,fov=50,noise=1.5,seed=9,points=syntheticPoints(320,21)}){
+ const random=seededRandom(seed),focal=focalFromFov(fov,height);
+ const looks=points.map(()=>({amp:(random()<.5?-1:1)*(55+random()*90),size:.22+random()*.3}));
+ const poses=[],images=[];
+ for(let f=0;f<frames;f++){
+   const {position,target}=path(f/(frames-1)),pose=lookAtPose(position,target);poses.push(pose);
+   const img=new Float32Array(width*height);
+   for(let y=0;y<height;y++)for(let x=0;x<width;x++)img[y*width+x]=112+18*Math.sin(x/71)+14*Math.cos(y/53);
+   points.forEach((X,i)=>{
+     const c=mv(pose.R,X).map((v,k)=>v+pose.t[k]);if(c[2]<.5)return;
+     const u=width/2+focal*c[0]/c[2],v=height/2+focal*c[1]/c[2],s=Math.min(4,Math.max(1.1,focal*looks[i].size/c[2]));
+     const r=Math.ceil(3*s);if(u<-r||v<-r||u>width+r||v>height+r)return;
+     for(let y=Math.max(0,Math.floor(v-r));y<=Math.min(height-1,Math.ceil(v+r));y++)
+       for(let x=Math.max(0,Math.floor(u-r));x<=Math.min(width-1,Math.ceil(u+r));x++)
+         img[y*width+x]+=looks[i].amp*Math.exp(-((x-u)**2+(y-v)**2)/(2*s*s));
+   });
+   for(let i=0;i<img.length;i++)img[i]=Math.max(0,Math.min(255,img[i]+gauss(random)*noise));
+   images.push(img);
+ }
+ return {width,height,frames:images,truth:{poses,fov}};
+}
+
+/** Rotation error on keyframes and camera-center error after a similarity on centers. */
+export function evaluateTrackedVideo(solve,truthPoses,keyframes){
+ const frames=[...solve.poses.keys()].sort((a,b)=>a-b),e0=solve.poses.get(0),g0=truthPoses[keyframes[0]];
+ let rotationDeg=0;
+ for(const f of frames){
+   const est=mm(solve.poses.get(f).R,mt(e0.R)),gt=mm(truthPoses[keyframes[f]].R,mt(g0.R));
+   rotationDeg=Math.max(rotationDeg,rotationAngle(mm(mt(est),gt))*180/Math.PI);
+ }
+ let positionPct=null;
+ if(solve.mode==='parallax'){
+   const est=frames.map(f=>cameraCenter(solve.poses.get(f))),gt=frames.map(f=>cameraCenter(truthPoses[keyframes[f]]));
+   const sim=similarity(est,gt),ref=len(sub(gt[0],[0,4,0]));
+   const errors=est.map((c,i)=>len(sub(sim.apply(c),gt[i])));
+   positionPct=100*Math.sqrt(errors.reduce((s,e)=>s+e*e,0)/errors.length)/ref;
+ }
+ return {mode:solve.mode,posed:frames.length,rotationDeg,positionPct,fov:solve.fov,rmsPx:solve.rmsPx};
+}
+export const VIDEO_SCENARIOS=Object.freeze([
+ {name:'video · push',type:'push',path:SCENARIOS.find(s=>s.name==='push').path},
+ {name:'video · orbit',type:'orbit',path:SCENARIOS.find(s=>s.name==='orbit').path},
+ {name:'video · truck',type:'truck',path:SCENARIOS.find(s=>s.name==='truck').path},
+ {name:'video · pan',type:'pan',path:SCENARIOS.find(s=>s.name==='pan').path},
+ {name:'video · static',type:'static',path:SCENARIOS.find(s=>s.name==='static').path},
+]);

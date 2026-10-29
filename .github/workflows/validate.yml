@@ -19,9 +19,9 @@ jobs:
           python-version: '3.12'
       - name: Check JavaScript files
         run: |
-          for file in app.js world.js model-tools.js ae-package-export.js ae-package-plan.js zip-utils.js render.js video-import.js single-video-source.js shot-analysis.js chapter-analysis.js draft-world.js primitive-schema.js primitive-cleanup.js primitive-world.js primitive-editor.js ai-scene-editor.js workspace-reset.js primitive-preview.js environment-generation.js help-toggles.js scene-object-edit.js scene-object-operations.js timeline-operations.js timeline-tools.js animation-curves.js animation-graph.js camera-motion-sync.js video-camera-motion.js camera-track-solver.js chapter-workflow.js accepted-camera-sync.js scene-asset-catalog.js radial-create.js assembly-library.js scene-group-selection.js spotlight-controls.js scene-effects.js scene-effects-panel.js scene-generation-compose.js portable-reference.js generation-sounds.js ai-generation-overlay.js; do node --check --input-type=module < "$file"; done
+          for file in app.js world.js model-tools.js ae-package-export.js ae-package-plan.js zip-utils.js render.js video-import.js single-video-source.js shot-analysis.js chapter-analysis.js draft-world.js primitive-schema.js primitive-cleanup.js primitive-world.js primitive-editor.js ai-scene-editor.js workspace-reset.js primitive-preview.js environment-generation.js help-toggles.js scene-object-edit.js scene-object-operations.js timeline-operations.js timeline-tools.js animation-curves.js animation-graph.js camera-motion-sync.js video-camera-motion.js camera-track-solver.js chapter-workflow.js feature-tracker.js camera-track-pipeline.js camera-track-worker.js camera-track-ui.js accepted-camera-sync.js scene-asset-catalog.js radial-create.js assembly-library.js scene-group-selection.js spotlight-controls.js scene-effects.js scene-effects-panel.js scene-generation-compose.js portable-reference.js generation-sounds.js ai-generation-overlay.js; do node --check --input-type=module < "$file"; done
       - name: Test video cut analysis and draft timeline
-        run: node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs tests/test_primitive_cleanup.mjs tests/test_primitive_editor_dom.mjs tests/test_scene_worker.mjs tests/test_generation_compose.mjs tests/test_assembly_library.mjs tests/test_ae_package_export.mjs tests/test_ae_native_scene.mjs tests/test_primitive_dom_contract.mjs tests/test_still_and_light_exports.mjs tests/test_aftereffects_builder.mjs tests/test_primitive_preview.mjs tests/test_ai_scene_editor_dom.mjs tests/test_environment_generation.mjs tests/test_help_toggles.mjs tests/test_scene_object_edit.mjs tests/test_generation_sounds.mjs tests/test_workspace_controls.mjs tests/test_workspace_reset.mjs tests/test_reference_sequence.mjs tests/test_reference_frames.mjs tests/test_timeline_operations.mjs tests/test_animation_curves.mjs tests/test_portable_reference.mjs tests/test_camera_motion_sync.mjs tests/test_video_camera_motion.mjs tests/test_accepted_camera_sync.mjs tests/test_scene_creation_effects.mjs tests/test_camera_track_solver.mjs tests/test_chapter_workflow.mjs
+        run: node --test tests/test_video_analysis.mjs tests/test_chapter_analysis.mjs tests/test_primitives.mjs tests/test_primitive_cleanup.mjs tests/test_primitive_editor_dom.mjs tests/test_scene_worker.mjs tests/test_generation_compose.mjs tests/test_assembly_library.mjs tests/test_ae_package_export.mjs tests/test_ae_native_scene.mjs tests/test_primitive_dom_contract.mjs tests/test_still_and_light_exports.mjs tests/test_aftereffects_builder.mjs tests/test_primitive_preview.mjs tests/test_ai_scene_editor_dom.mjs tests/test_environment_generation.mjs tests/test_help_toggles.mjs tests/test_scene_object_edit.mjs tests/test_generation_sounds.mjs tests/test_workspace_controls.mjs tests/test_workspace_reset.mjs tests/test_reference_sequence.mjs tests/test_reference_frames.mjs tests/test_timeline_operations.mjs tests/test_animation_curves.mjs tests/test_portable_reference.mjs tests/test_camera_motion_sync.mjs tests/test_video_camera_motion.mjs tests/test_accepted_camera_sync.mjs tests/test_scene_creation_effects.mjs tests/test_camera_track_solver.mjs tests/test_chapter_workflow.mjs tests/test_feature_tracker.mjs
       - name: Check and test After Effects project builder (ExtendScript syntax)
         run: |
           node --check --input-type=commonjs < AfterEffects/BUILD_EDITABLE_PROJECT.jsx
@@ -32,6 +32,7 @@ jobs:
           node --check worker/scene-worker.mjs
           node --check scripts/inspect_argon_prompts.mjs
           node --check scripts/camera_track_harness.mjs
+          node --check tests/browser/make-track-fixture.mjs
       # Compile the actual module graph and validate Wrangler configuration.
       # No Cloudflare credentials, upload, deployment or provider call.
       - name: Bundle Worker with Wrangler (no deployment)
@@ -58,6 +59,10 @@ jobs:
           THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/light-pool-depth.mjs
       - name: Verify AI tab and persistent source video in the real editor
         run: THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" UI_SCREENSHOT_LOG=1 node tests/browser/ai-source-workflow.mjs
+      # Decodes the committed synthetic MP4, tracks it in the module Worker and
+      # applies the tracked camera in the editor. Local only, no provider call.
+      - name: Track camera from a local video in Chromium
+        run: THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/camera-track-video.mjs
       - name: Validate timeline and model assets
         run: |
           python tests/test_workspace.py

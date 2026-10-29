@@ -151,6 +151,13 @@
       <div id="projectPanel" class="panel-block">
         <div class="section-label">SEQUENCE</div><div class="stat-row"><span>Project</span><b id="projectName">Advanced Materials</b></div><div class="stat-row"><span>Runtime</span><b id="projectRuntime">56.47 s</b></div><div class="stat-row"><span>Camera keys</span><b id="keyCount">—</b></div><div class="stat-row"><span>Text overlays</span><b id="textCount">—</b></div>
         <button id="workspaceStartOpenBtn" class="wide secondary" type="button" hidden>Start / Open…</button><button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><button id="clearWorkspaceBtn" disabled class="wide danger" type="button" title="Start with an empty workspace; keep the saved object and array libraries">Clear workspace…</button><p class="field-help">Remove this project’s video, scenes, and timeline without deleting reusable library assets.</p><div class="divider"></div>
+        <section id="cameraTrackPanel" class="camera-sync-panel camera-track-panel" hidden aria-label="Track camera motion from the chapter's source video">
+          <div class="section-label">TRACK CAMERA FROM VIDEO · LOCAL / FREE</div>
+          <p class="field-help">Follows hundreds of image points through this chapter and solves the camera path on this device. Nothing is uploaded or sent to AI. The result is a reviewable estimate: preview it under Sync accepted model camera and Apply before any keys change.</p>
+          <div class="primitive-buttons"><button id="cameraTrackStart" class="secondary" type="button">Track camera from video</button><button id="cameraTrackCancel" class="ghost" type="button" hidden>Cancel</button></div>
+          <progress id="cameraTrackProgress" class="camera-track-progress" hidden></progress>
+          <p id="cameraTrackStatus" class="field-help" role="status" aria-live="polite">Not tracked yet.</p>
+        </section>
         <section id="acceptedCameraSyncPanel" class="camera-sync-panel accepted-camera-sync" hidden aria-label="Sync camera to already accepted 3D chapter model">
           <div class="section-label">SYNC ACCEPTED MODEL CAMERA · FREE</div>
           <p class="field-help">Already accepted a 3D model? Align this chapter's existing pan, orbit, and dolly path to its actual model size. Preview first; your geometry and saved camera keys remain unchanged until you apply.</p>
