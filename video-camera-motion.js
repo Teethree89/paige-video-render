@@ -1,6 +1,7 @@
 // Shared browser/Worker contract. Image-derived poses are estimates, never a
 // metric camera solve. Keep this separate from geometry and authored keys.
 import {evaluateCamera} from './animation-curves.js';
+import {PRIMITIVE_TYPES} from './primitive-schema.js';
 export const MOTION_TYPES=Object.freeze(['static','push','pull','pan','tilt','truck','pedestal','orbit','mixed','unknown']);
 const finite=(n,a,b)=>typeof n==='number'&&Number.isFinite(n)&&n>=a&&n<=b;
 const vec=v=>Array.isArray(v)&&v.length===3&&v.every(n=>finite(n,-30,30));
@@ -50,12 +51,29 @@ export function validateCameraSceneIndex(items){
  if(!Array.isArray(items)||!items.length||items.length>240||JSON.stringify(items).length>60000)
    throw Error('Invalid camera scene index');
  const triple=(v,a,b)=>Array.isArray(v)&&v.length===3&&v.every(n=>finite(n,a,b));
- return items.map(o=>{
-   if(!o||Object.keys(o).some(k=>!['name','primitive','position','rotation','scale','repeat'].includes(k))||
+ const part=(o,component=false)=>{
+   if(!o||Object.keys(o).some(k=>!['name','primitive','position','rotation','scale','repeat','parts','instanceRotation','points'].includes(k))||
       typeof o.name!=='string'||o.name.length>100||
-      !['box','plane','sphere','cylinder','cone','torus','wedge','gable','extrude'].includes(o.primitive)||
+      !PRIMITIVE_TYPES.includes(o.primitive)||(component&&o.primitive==='group')||
       !triple(o.position,-10000,10000)||!triple(o.rotation,-10000,10000)||!triple(o.scale,.01,2000))
      throw Error('Invalid camera scene part');
+   if(component&&(o.parts!==undefined||o.repeat!==undefined||o.instanceRotation!==undefined))
+     throw Error('Nested camera scene assemblies are not supported');
+   let parts,instanceRotation,points;
+   if(o.parts!==undefined){
+     if(!Array.isArray(o.parts)||o.parts.length>240)throw Error('Invalid camera assembly parts');
+     parts=o.parts.map(child=>part(child,true));
+   }
+   if(o.instanceRotation!==undefined){
+     if(!triple(o.instanceRotation,-1000,1000))throw Error('Invalid camera instance rotation');
+     instanceRotation=[...o.instanceRotation];
+   }
+   if(o.points!==undefined){
+     if(o.primitive!=='extrude'||!Array.isArray(o.points)||o.points.length<3||o.points.length>32||
+       !o.points.every(p=>Array.isArray(p)&&p.length===2&&p.every(n=>finite(n,-1,1))))
+       throw Error('Invalid camera footprint');
+     points=o.points.map(p=>[...p]);
+   }
    let repeat;
    if(o.repeat!==undefined){
      if(!triple(o.repeat?.count,1,100)||!o.repeat.count.every(Number.isInteger)||
@@ -63,17 +81,33 @@ export function validateCameraSceneIndex(items){
      repeat={count:[...o.repeat.count],spacing:[...o.repeat.spacing]};
    }
    return {name:o.name,primitive:o.primitive,position:[...o.position],rotation:[...o.rotation],scale:[...o.scale],
-     ...(repeat?{repeat}:{})};
- });
+     ...(repeat?{repeat}:{}),...(parts?{parts}:{}),...(instanceRotation?{instanceRotation}:{}),...(points?{points}:{})};
+ };
+ return items.map(o=>part(o));
 }
 export function cameraSceneIndex(scene){
  // Keep major masses and surfaces when a manually edited scene exceeds this
  // inference-only index budget. This never caps or edits actual scene objects.
- const items=[...(scene?.objects||[])].sort((a,b)=>
-   Math.max(...b.scale)-Math.max(...a.scale)).slice(0,240).map(o=>({
-     name:(o.name||o.id||o.primitive).slice(0,100),primitive:o.primitive,
-     position:o.position,rotation:o.rotation,scale:o.scale,...(o.repeat?{repeat:o.repeat}:{})}));
- while(items.length>1&&JSON.stringify(items).length>60000)items.pop();
+ const size=o=>Math.max(...o.scale,...(o.arrayParts?.objects||[]).map(p=>
+   Math.max(...p.scale)+2*Math.hypot(...p.position)));
+ const sorted=objects=>[...objects].filter(o=>o.visible!==false).sort((a,b)=>size(b)-size(a));
+ const describe=o=>({name:(o.name||o.id||o.primitive).slice(0,100),primitive:o.primitive,
+   position:o.position,rotation:o.rotation,scale:o.scale,...(o.points?{points:o.points}:{})});
+ let remaining=240;
+ const items=[];
+ for(const o of sorted(scene?.objects||[])){
+   if(!remaining)break;
+   remaining--;
+   const parts=sorted(o.arrayParts?.objects||[]).slice(0,remaining).map(describe);
+   remaining-=parts.length;
+   items.push({...describe(o),...(o.repeat?{repeat:o.repeat}:{}),
+     ...(o.instanceRotation?{instanceRotation:o.instanceRotation}:{}),
+     ...(o.arrayParts?{parts}:{})});
+ }
+ while(JSON.stringify(items).length>60000){
+   const assembly=items.find(o=>o.parts?.length);
+   if(assembly)assembly.parts.pop();else items.pop();
+ }
  return validateCameraSceneIndex(items);
 }
 export const CAMERA_ALIGNMENT_SCHEMA={type:'object',properties:{
@@ -84,6 +118,12 @@ export const CAMERA_ALIGNMENT_PROMPT=`Match the FIRST reference image's camera t
 Other timestamped frames confirm visible sides. The model index gives object names,
 primitive types, positions, rotations (Euler XYZ radians), scale (full dimensions),
 and optional centered repeats, all in ONE fixed model coordinate system, Y up.
+Group parents have no mesh: their parts are component meshes in parent-local axes.
+For assemblies, parent rotation rotates the centered repeat offsets;
+instanceRotation rotates each prototype and its parts in place, then the parent
+rotation applies. Parent scale sizes only its own mesh, never its parts or offsets.
+Each part has its own position, rotation and scale. Extrude points give [x,z]
+footprint corners, scaled by X/Z dimensions with Y as height.
 Choose the camera side, azimuth, elevation, distance, target and vertical FOV that
 best reproduce the reference. Camera may be on ANY side; do NOT assume +Z or a
 straight-on facade. For an oblique aerial view, match which two facades are seen,

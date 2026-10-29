@@ -318,7 +318,7 @@
           <div class="divider"></div>
           <div id="aiScenePanel" class="ai-scene-panel">
             <div class="section-label">AI GENERATE SCENE · GEMINI</div>
-            <p class="field-help">Uses 3 sampled frames from the selected chapter. An authenticated PHP proxy sends them to your private Cloudflare Worker. No API keys are stored in the browser.</p>
+            <p class="ai-intro">Create an editable 3D scene from this chapter’s reference frames, then preview and accept it.</p>
             <div id="aiSceneLogin">
               <label class="field">Editor passphrase
                 <input id="aiScenePassphrase" type="password" autocomplete="current-password" placeholder="Your memorable editor passphrase">
@@ -326,10 +326,12 @@
               <button id="aiSceneSignIn" type="button" class="wide secondary">Unlock AI generation</button>
             </div>
             <div id="aiSceneControls" hidden>
+              <section class="ai-workflow-section" aria-label="Scene generation settings">
+              <div class="section-label">SCENE SETUP</div>
               <label class="field">AI scene coverage
                 <select id="aiSceneScope">
-                  <option value="environment" selected>Full environment · Flash 4 passes, Argon Direct 1 base + 2 optional detail calls</option>
-                  <option value="subject">Primary subject only · 1 pass</option>
+                  <option value="environment" selected>Full environment</option>
+                  <option value="subject">Primary subject only</option>
                 </select>
               </label>
               <label class="field">AI model
@@ -341,19 +343,6 @@
                   <option value="argon_direct">Gemini 4 Argon · Direct image (EXPERIMENTAL, PAID, subject or full scene)</option>
                 </select>
               </label>
-              <section id="videoMotionPanel" class="camera-sync-panel" hidden aria-label="Analyze camera motion from imported video">
-                <div class="section-label">VIDEO CAMERA MOTION</div>
-                <label class="field">Camera analysis model
-                  <select id="videoMotionProfile">
-                    <option value="g38_low" selected>Gemini 3.8 Flash · low thinking</option>
-                    <option value="lite_default">Gemini 3.5 Flash-Lite · minimal thinking</option>
-                  </select>
-                </label>
-                <label class="checkbox-field"><input id="videoMotionAuto" type="checkbox" checked> Analyze camera before generating (reuse saved estimate)</label>
-                <button id="videoMotionAnalyze" type="button" class="wide secondary">Analyze / refresh video motion</button>
-                <p id="videoMotionStatus" class="field-help" role="status">No video motion analyzed for this chapter.</p>
-                <p class="field-help">Eleven chronological frames, one analysis request. Uses your existing API key; free availability and limits depend on your Google project. Estimates are saved with the timeline. Preview the fitted path before applying. Existing authored cameras require explicit camera sync.</p>
-              </section>
               <div id="aiArgonSettings" hidden>
                 <div class="two-input">
                   <label class="field">Argon thinking
@@ -376,12 +365,12 @@
                   </select>
                 </label>
                 <p class="field-help">Direct image only. Choosing High or Maximum detail selects 65,536 automatically, and Standard selects 32,768; you can still change it. 65,536 is Google's largest allowance for a synchronous call: the same request, with only the thinking + output ceiling doubled. You are billed only for the tokens Argon generates. Larger budgets need a stored background job, which rejects images (HTTP 400, 2026-10-23).</p>
-                <label id="aiArgonAddDetailField" class="field" hidden>
-                  <span><input id="aiArgonAddDetail" type="checkbox" checked> Add two detail passes automatically</span>
+                <label id="aiArgonAddDetailField" class="ai-option" hidden>
+                  <input id="aiArgonAddDetail" type="checkbox" checked><span><strong>Add two detail passes</strong><small>Two extra paid requests after the base scene. Keep this tab open.</small></span>
                 </label>
                 <p class="field-help">Direct image · Full environment only. After a successful base scene, run two more paid Argon requests using the current geometry as a placement guide. Append only new objects; keep all existing objects, lights and camera. Each pass consumes a request slot and may take minutes. The editor must remain open; incomplete passes do not erase successful geometry.</p>
-                <label id="aiArgonRetryField" class="field" hidden>
-                  <span><input id="aiArgonRetry" type="checkbox" checked> Automatically retry up to three times (15 seconds apart) after cheap failures</span>
+                <label id="aiArgonRetryField" class="ai-option" hidden>
+                  <input id="aiArgonRetry" type="checkbox" checked><span><strong>Retry eligible failures</strong><small>Up to 3 extra paid attempts, 15 seconds apart, after eligible low-token failures or an unreceived start.</small></span>
                 </label>
                 <p class="field-help">Direct image only: up to three new paid attempts (four total), 15 seconds apart. EACH retry requires the preceding attempt to end with an unusable completed scene below 10,000 reported thinking + output tokens, or a start conclusively never received. Every attempt bills its own input and generation and consumes a request slot. Unknown or partial usage, interrupted calls and provider errors do not retry.</p>
                 <p class="field-help">Thinking is how much Argon reasons before answering: higher can place parts more accurately but bills more output tokens. Detail is how many objects Argon aims for: Standard 48–96 (subject) or 80–120 (full scene), High up to 150, Maximum targets 180–230 full-scene objects, up to 240. Every detail level uses the selected token budget (32,768 by default); an answer cut off at it keeps every object it finished. High and Maximum need the 65,536 budget: at 32,768 every run came back empty, while at 65,536 they returned 106 to 153 objects (2026-10-23). Argon Previs has no budget choice, so use Standard detail there.</p>
@@ -389,19 +378,22 @@
               <p class="field-help">All options use your existing server-side Gemini API key. Argon Previs uses Gemini 3.5 Flash-Lite to analyze the reference JPEGs quickly, then Gemini 4 Argon generates editable geometry from the visual description using text-only background execution for AE/GLB export and eventual Runway video-to-video. It uses up to two potentially billable calls and two request slots. Google stores the visual description and generated scene in the Argon background interaction, not the original images. It may take several minutes; Google bills input and thinking/output tokens. No geometry saves until you accept.</p>
               <p class="field-help">Argon Direct image (experimental) sends the same reference JPEGs straight to Gemini 4 Argon, so Argon observes the frames itself. Each attempt is one synchronous request held by Cloudflare for up to 12 minutes while the editor polls, at either token budget. One potentially billable base call and one request slot per attempt; enabling automatic retries permits at most four base attempts (one initial plus three retries), plus two separately billable Add Detail calls when enabled. The Cloudflare job keeps the images only until Argon answers and the result for 24 hours; Google is asked not to store either. Nothing falls back automatically; Argon Previs remains the proven path. With Full environment selected, the same single call rebuilds the whole frame (background buildings, ground, roads, vegetation, street furniture and lighting) instead of the main subject; it never runs the four Flash passes. Argon sorts objects into the layers below and may add scene lights that shine only during that chapter.</p>
               <p class="field-help">Uses the current reference frame first, plus two views from this chapter. Full environment makes four sequential Gemini requests and uses four of your 10 per-session hourly requests. Only visible evidence is modeled; absent layers can be empty. Nothing is saved until you accept.</p>
-              <button id="aiSceneCheckArgon" type="button" class="wide secondary">Check Argon model visibility (no generation)</button>
-              <p class="field-help">This checks model metadata using your existing API key. It sends no reference frames and does not generate tokens. A successful check does not guarantee generation permissions, quota, or a valid request format.</p>
-              <div class="ai-generation-activity" aria-label="Optional paid Argon diagnostics">
-                <div class="section-label">ARGON DIAGNOSTICS · OPTIONAL PAID TESTS</div>
-                <p class="field-help">Seven separately confirmed tests: text, native thinking, synthetic JPEG, structured JSON, then background text, background inline JPEG, and background inline JPEG + JSON. Stages 6–7 use the same inline image format as Argon Direct image and are not prerequisites for the two-step Argon Previs flow. They send only a tiny synthetic image, which Google stores with the background interaction; no client reference footage. If Google rejects a stage, a sanitized provider reason appears in the activity log. Stop on the first failure. Each test may incur Google charges (up to 4,096 combined thinking/output tokens on stages 2–7); the first text test uses the model defaults.</p>
-                <p id="aiArgonSmokeSummary" class="field-help">Loading diagnostic state…</p>
-                <button id="aiArgonSmokeRun" type="button" class="wide secondary">Run next diagnostic (paid)</button>
-                <button id="aiArgonSmokeReset" type="button" class="wide ghost">Restart diagnostics</button>
-              </div>
+              </section>
+              <section id="videoMotionPanel" class="camera-sync-panel" hidden aria-label="Analyze camera motion from imported video">
+                <div class="section-label">VIDEO CAMERA MOTION</div>
+                <label class="field">Camera analysis model
+                  <select id="videoMotionProfile">
+                    <option value="g38_low" selected>Gemini 3.8 Flash · low thinking</option>
+                    <option value="lite_default">Gemini 3.5 Flash-Lite · minimal thinking</option>
+                  </select>
+                </label>
+                <label class="ai-option"><input id="videoMotionAuto" type="checkbox" checked><span><strong>Analyze camera before generating</strong><small>Reuse a saved estimate, or confirm one extra analysis request.</small></span></label>
+                <button id="videoMotionAnalyze" type="button" class="wide secondary">Analyze / refresh video motion</button>
+                <p id="videoMotionStatus" class="field-help" role="status">No video motion analyzed for this chapter.</p>
+                <p class="field-help">Eleven chronological frames, one analysis request. Uses your existing API key; free availability and limits depend on your Google project. Estimates are saved with the timeline. Preview the fitted path before applying. Existing authored cameras require explicit camera sync.</p>
+              </section>
               <button id="aiSceneGenerate" type="button" class="wide primary">Generate 3D scene for this chapter</button>
               <button id="aiSceneResumeArgon" type="button" class="wide secondary" hidden>Resume previous Argon job</button>
-              <button id="aiSceneDownloadArgon" type="button" class="wide secondary" hidden>Download original Argon output</button>
-              <p class="field-help">Download the latest job's original scene response, even if validation failed. New direct-image jobs keep this output privately for 24 hours; download it before starting another job. Unsupported materials use a neutral fallback in the preview. Older failed direct-image jobs have no saved original output.</p>
               <button id="aiSceneInspect" type="button" class="wide secondary" hidden>View proposed shapes in 3D ↗</button>
               <section id="aiCameraSyncPanel" class="camera-sync-panel" aria-label="Align chapter camera with generated geometry" hidden>
                 <div class="section-label">SYNC CAMERA MOTION · LOCAL / FREE</div>
@@ -415,7 +407,7 @@
                   </select>
                 </label>
                 <button id="aiCameraSyncPreview" type="button" class="wide secondary">Sync &amp; preview camera motion</button>
-                <label class="checkbox-field"><input id="aiCameraSyncApply" type="checkbox" disabled> Apply synchronized camera keys when accepting geometry</label>
+                <label class="ai-option"><input id="aiCameraSyncApply" type="checkbox" disabled><span><strong>Include camera changes</strong><small>Save synchronized keys when accepting this geometry.</small></span></label>
                 <p id="aiCameraSyncStatus" class="field-help" role="status">Available after the geometry preview appears. No extra Gemini requests or charges.</p>
               </section>
               <button id="aiSceneCleanup" type="button" class="wide secondary" hidden>Re-run z-fighting cleanup on preview</button>
@@ -425,14 +417,29 @@
               </div>
             </div>
             <p id="aiSceneStatus" role="status" class="field-help">Checking private PHP proxy…</p>
+            <div id="aiSceneWait" class="ai-generation-wait" aria-live="off"></div>
+            <details id="aiSceneDiagnostics" class="ai-diagnostics">
+              <summary>Diagnostics &amp; activity</summary>
             <div class="ai-generation-activity" aria-label="AI generation activity">
               <div class="section-label">GENERATION ACTIVITY</div>
               <p class="field-help">Shows real client and server response milestones; Gemini's internal thoughts are not streamed by this endpoint.</p>
-              <div id="aiSceneWait" class="ai-generation-wait" aria-live="off"></div>
               <div id="aiSceneLog" class="ai-generation-log" role="log" aria-live="polite" aria-relevant="additions text"></div>
             </div>
-          </div>
+              <button id="aiSceneDownloadArgon" type="button" class="wide secondary" hidden>Download original Argon output</button>
+              <p class="field-help">Download the latest job's original scene response, even if validation failed. New direct-image jobs keep this output privately for 24 hours; download it before starting another job. Unsupported materials use a neutral fallback in the preview. Older failed direct-image jobs have no saved original output.</p>
+              <button id="aiSceneCheckArgon" type="button" disabled class="wide secondary">Check Argon model visibility (no generation)</button>
+              <p class="field-help">This checks model metadata using your existing API key. It sends no reference frames and does not generate tokens. A successful check does not guarantee generation permissions, quota, or a valid request format.</p>
+              <div class="ai-generation-activity" aria-label="Optional paid Argon diagnostics">
+                <div class="section-label">OPTIONAL PAID TESTS</div>
+                <p class="ai-diagnostic-note">Troubleshooting only. Each test requires confirmation and may incur charges; these tests are not needed to generate a scene.</p>
+                <p class="field-help">Seven separately confirmed tests: text, native thinking, synthetic JPEG, structured JSON, then background text, background inline JPEG, and background inline JPEG + JSON. Stages 6–7 use the same inline image format as Argon Direct image and are not prerequisites for the two-step Argon Previs flow. They send only a tiny synthetic image, which Google stores with the background interaction; no client reference footage. If Google rejects a stage, a sanitized provider reason appears in the activity log. Stop on the first failure. Each test may incur Google charges (up to 4,096 combined thinking/output tokens on stages 2–7); the first text test uses the model defaults.</p>
+                <p id="aiArgonSmokeSummary" class="field-help">Loading diagnostic state…</p>
+                <button id="aiArgonSmokeRun" type="button" disabled class="wide secondary">Run next diagnostic (paid)</button>
+                <button id="aiArgonSmokeReset" type="button" disabled class="wide ghost">Restart diagnostics</button>
+              </div>
           <p class="field-help">Advanced: <a href="https://github.com/Teethree89/paige-video-render/actions/workflows/ai-scene-zen.yml" target="_blank" rel="noopener noreferrer">experimental Zen Actions test</a> (free models currently restricted).</p>
+            </details>
+          </div>
           <input id="primitiveImportFile" type="file" accept=".json,application/json" hidden />
           <button id="primitiveExportGLB" class="wide secondary" type="button" disabled>Export current scene GLB</button>
           <p id="primitiveStatus" class="field-help" role="status">Objects save in the timeline JSON; export it to keep your work.</p>
@@ -460,7 +467,7 @@
       </div>
       <div id="cameraPanel" class="panel-block" hidden><div class="section-label">CAMERA TRANSFORM</div><div id="camTime" class="section-subhead"></div><div class="input-group-title">Position</div><div class="triple-input"><label>X<input data-cam="p.0" type="number" step="0.5"></label><label>Y<input data-cam="p.1" type="number" step="0.5"></label><label>Z<input data-cam="p.2" type="number" step="0.5"></label></div><div class="input-group-title">Look at</div><div class="triple-input"><label>X<input data-cam="t.0" type="number" step="0.5"></label><label>Y<input data-cam="t.1" type="number" step="0.5"></label><label>Z<input data-cam="t.2" type="number" step="0.5"></label></div><label class="field">Field of view<input id="camFov" type="number" min="10" max="110" step="1" /></label><label class="checkbox-field"><input id="camCut" type="checkbox" /> Cut into this key (no interpolation)</label><button id="captureBtn" class="wide secondary">Capture preview camera</button><button id="removeCameraBtn" class="wide danger">Delete camera key</button><p class="field-help">Pause and enable Orbit inspect to reposition the view, then capture it as this keyframe.</p></div>
       <div id="textPanel" class="panel-block" hidden><div class="section-label">OVERLAY CONTENT</div><label class="field">Headline<textarea id="textValue" rows="3"></textarea></label><label class="field">Supporting line<input id="textSubtitle" type="text" /></label><div class="two-input"><label class="field">Start (s)<input id="textStart" type="number" step="0.1" min="0" /></label><label class="field">End (s)<input id="textEnd" type="number" step="0.1" min="0" /></label></div><div class="two-input"><label class="field">Horizontal (%)<input id="textX" type="number" step="1" min="0" max="100" /></label><label class="field">Vertical (%)<input id="textY" type="number" step="1" min="0" max="100" /></label></div><div class="two-input"><label class="field">Size<select id="textSize"><option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="hero">Hero</option></select></label><label class="field">Align<select id="textAlign"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label></div><label class="field">Color accent<select id="textTone"><option value="white">White</option><option value="cyan">Cyan</option><option value="amber">Amber</option></select></label><button id="removeTextBtn" class="wide danger">Delete overlay</button></div>
-      <div class="reference-card"><div class="section-label">ORIGINAL REFERENCE</div><div id="referenceVideoHome"><video id="referenceVideo" preload="metadata" muted playsinline poster="assets/reference.jpg"><source src="assets/reference.mp4" type="video/mp4"></video></div><img id="referenceStill" alt="Selected image reference" hidden><p id="referenceMediaStatus" class="reference-media-status" role="status">Original reference video · synced to playhead</p><div class="ref-bottom"><span>SYNCED TO PLAYHEAD</span><label><input id="showRef" type="checkbox" checked> Show preview</label></div><p>The source stays local in this browser. The overlay is an editing comparison, not part of exported renders.</p>
+      <div class="reference-card"><div class="section-label">ORIGINAL REFERENCE</div><div id="referenceVideoHome"><video id="referenceVideo" preload="metadata" muted playsinline poster="assets/reference.jpg"><source src="assets/reference.mp4" type="video/mp4"></video></div><img id="referenceStill" alt="Selected image reference" hidden><p id="referenceMediaStatus" class="reference-media-status" role="status">Original reference video · synced to playhead</p><div class="ref-bottom"><span id="referenceSyncState">SYNCED TO PLAYHEAD</span><label><input id="showRef" type="checkbox" checked> Show preview</label></div><p>The source is saved locally in this browser for refresh. Clearing this workspace removes it. The overlay is for editing comparison and is not part of exported renders.</p>
         <p id="sourceOverlayUnavailable" class="field-help">To enable full-size source overlay, import a single video using Video → timeline.</p>
         <label id="sourceRelinkWrap" class="field" hidden>Reattach or change single source video
           <input id="sourceRelinkFile" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm">

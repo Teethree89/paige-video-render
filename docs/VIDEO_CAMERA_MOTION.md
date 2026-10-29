@@ -101,3 +101,24 @@ are not represented in the existing position/target/FOV timeline format.
 This first implementation targets the single-video workflow. Reference Builder
 keeps its current generation behavior. The separate clear-workspace UI is outside
 this change.
+
+Camera reference matching supports grouped assemblies as well as individual
+primitives. The bounded index includes component transforms, extruded footprints,
+repeat spacing and per-instance rotation in the same local axes as the renderer.
+The 240-descriptor inference budget includes components and never limits saved
+scene objects. No geometry is changed by building this index.
+
+## Source video after refresh
+
+Single-video imports and reattachments save one original file in this browser's
+IndexedDB. The timeline keeps only a source ID and filename. Reloading restores
+a new local video URL when that ID matches, including playhead synchronization
+and source-overlay controls. This does not upload the original or embed it in
+exported timeline JSON. Other browsers/devices still need the source file.
+
+If browser storage is unavailable or full, the source continues working for the
+current session and the Source tab asks for reattachment after refresh. Older
+timelines without a cached source need one reattachment. Missing sources no
+longer display the example poster as if it were the imported video; overlay
+controls remain visible but disabled until reattachment. Clear workspace also
+removes the cached source and preserves the reusable object library.

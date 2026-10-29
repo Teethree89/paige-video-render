@@ -8,6 +8,7 @@ import {syncChapterCameraMotion} from '../camera-motion-sync.js';
 import {prepareAcceptedCameraSync} from '../accepted-camera-sync.js';
 import {evaluateCamera} from '../animation-curves.js';
 import {shotAnchorMap} from '../primitive-preview.js';
+import {makePrimitive,validatePrimitiveDocument} from '../primitive-schema.js';
 
 const image='data:image/jpeg;base64,'+Buffer.from([255,216,255,217]).toString('base64');
 const token='test-motion-token-only-012345678901234567890';
@@ -56,6 +57,32 @@ test('camera index budgets inference context without capping or mutating manual 
  assert.equal(index[0].scale[0],300);
  assert.throws(()=>validateCameraSceneIndex([{...index[0],position:[Infinity,0,0]}]));
  assert.ok(JSON.stringify(index).length<=60000);
+});
+test('camera matching accepts real grouped assemblies with their component layout and repeat orientation',async()=>{
+ const group={...makePrimitive('group','assembly',[10,0,-4]),name:'Building assembly',rotation:[0,.4,0],
+   instanceRotation:[0,.8,0],repeat:{count:[2,1,1],spacing:[50,0,0]},arrayParts:{objects:[
+     {...makePrimitive('box','walls'),position:[0,5,0],scale:[30,10,20]},
+     {...makePrimitive('extrude','roof'),position:[0,12,0]}
+   ],lights:[]}};
+ const scene=validatePrimitiveDocument({schemaVersion:1,scenes:[{shotId:'draft_001',objects:[group]}]},['draft_001']).scenes[0];
+ const before=structuredClone(scene),index=cameraSceneIndex(scene);
+ assert.equal(index[0].primitive,'group');assert.equal(index[0].parts.length,2);
+ assert.deepEqual(index[0].instanceRotation,[0,.8,0]);
+ assert.deepEqual(index[0].parts.find(o=>o.primitive==='box').scale,[30,10,20]);
+ assert.deepEqual(index[0].parts.find(o=>o.primitive==='extrude').points,group.arrayParts.objects[1].points);
+ assert.deepEqual(scene,before);
+ assert.throws(()=>validateCameraSceneIndex([{...index[0],parts:[{...index[0].parts[0],script:'bad'}]}]));
+ const old=globalThis.fetch;let calls=0;
+ globalThis.fetch=async(url,opts)=>{
+   calls++;const data=JSON.parse(opts.body);assert.match(JSON.stringify(data),/Building assembly/);
+   assert.match(JSON.stringify(data),/instanceRotation/);
+   return provider({position:[70,50,80],target:[12,5,-8],fov:48,confidence:.8,uncertainty:'Estimate'});
+ };
+ try{
+   const result=await call({...payload(),task:'camera_alignment',sceneIndex:index,
+     frames:[{at:3,imageDataUrl:image},{at:1,imageDataUrl:image},{at:5,imageDataUrl:image}]});
+   assert.equal(result.status,200);assert.equal(calls,1);
+ }finally{globalThis.fetch=old;}
 });
 
 test('clean video draft is stationary and eleven camera frames cover only their own chapter',()=>{
