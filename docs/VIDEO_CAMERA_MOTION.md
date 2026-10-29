@@ -220,3 +220,18 @@ startup and every 30 minutes; files already open keep working until reload.
 After a reload, Reference Builder restores whatever is still stored and lists
 the rest as RE-LINK. Files are never uploaded; export a portable media ZIP to
 keep them longer. Entries saved before this change get a fresh 48 hours.
+
+## Clip library, Keep and versions
+
+Source tab → **Clip library** lists every saved video, clip and image with a
+thumbnail (generated once, stored with the file), size, duration, where it came
+from and when it is removed. **Keep** stores it indefinitely (and asks the
+browser not to evict it; the browser may still decline); unticking starts a
+fresh 48 hours. Kept clips survive Clear workspace. Chips show whether the
+clip's chapters are **3D** mapped (accepted geometry) and camera mapped
+(**CAM**, or **CAM · TRACKED**), how many **versions** exist and whether it is
+**IN PROJECT**. Expanding a clip lists the untouched original plus versions
+saved automatically when 3D geometry is accepted, camera keys are applied or a
+camera is tracked (`clip-history.js`, newest 25 per clip). **Restore** puts a
+version's geometry, camera keys and motion estimate back into its chapter as
+one undoable edit; resized or missing chapters cannot be restored.

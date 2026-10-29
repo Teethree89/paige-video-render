@@ -91,6 +91,21 @@ try{
  await editor.waitForSelector('#chapterNameCard:not([hidden])');
  assert.equal(await editor.isVisible('#chapterPendingOverlay'),false);
  if(process.env.UI_SCREENSHOT_DIR)await editor.screenshot({path:process.env.UI_SCREENSHOT_DIR+'/tracked-name.png'});
+ // Clip library: chips, two versions (track, then applied camera), restore.
+ await editor.locator('#inspectorSourceButton').click();
+ const item=editor.locator('#clipLibraryList .clip-item').first();
+ await editor.waitForFunction(()=>/2 versions/.test(document.querySelector('#clipLibraryList .clip-item')?.textContent||''),null,{timeout:30000});
+ assert.deepEqual(await item.locator('.clip-chip.on').allTextContents(),['3D','CAM · TRACKED','2 versions','IN PROJECT']);
+ await editor.waitForSelector('#clipLibraryList .clip-item .clip-thumb img',{timeout:30000});
+ await item.locator('.clip-main').click();
+ await editor.waitForSelector('#clipLibraryList .clip-version.original');
+ const versions=await item.locator('.clip-version:not(.original) span').allTextContents();
+ assert.match(versions[0],/^v2 · Camera keys applied/);assert.match(versions[1],/^v1 · Camera tracked from video/);
+ if(process.env.UI_SCREENSHOT_DIR)await editor.screenshot({path:process.env.UI_SCREENSHOT_DIR+'/clip-library.png'});
+ await item.locator('.clip-version:not(.original) button').nth(1).click();
+ await editor.waitForFunction(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).camera.every(k=>k.generated==='placeholder'));
+ await editor.waitForSelector('#chapterPendingOverlay:not([hidden])');
+ assert.match(await editor.textContent('#clipLibraryStatus'),/Restored v1/);
  await context.close();
 
  // A draft video chapter without its cached source explains how to track.

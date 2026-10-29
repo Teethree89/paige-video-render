@@ -6,6 +6,8 @@ import {buildAfterEffectsPackage} from './ae-package-export.js';
 import {setupVideoImport} from './video-import.js';
 import {createSingleVideoStore,createReferenceMediaStore} from './single-video-source.js';
 import {formatExpiry} from './local-media-store.js';
+import {createClipHistoryStore,snapshotChapter,restoreIteration,clipKeyForShot} from './clip-history.js';
+import {setupClipLibrary} from './clip-library.js';
 import {setupReferenceBuilder} from './reference-builder.js';
 import {referenceAt} from './reference-sequence.js';
 import {createTimelineHistory,checkTimeline} from './timeline-operations.js';
@@ -32,7 +34,7 @@ import {markEditorEdits,composeGeneratedChapter} from './scene-generation-compos
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld,createPreviewRenderState,previewPixelRatio} from './primitive-preview.js';
 import {foldHelpText} from './help-toggles.js';
-import {setupChapterWorkflow} from './chapter-workflow.js';
+import {setupChapterWorkflow,chapterStatus} from './chapter-workflow.js';
 import {setupCameraTracking} from './camera-track-ui.js';
 import {hasUntouchedPlaceholderCamera} from './video-camera-motion.js';
 import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace,clearWorkspaceStorage,clearServerWorkspace,markWorkspaceSaved,isEmptyWorkspace,shouldShowWorkspaceWelcome,dismissWorkspaceWelcome} from './workspace-reset.js';
@@ -128,7 +130,14 @@ const referenceVideo=el('referenceVideo');referenceVideo.volume=0;
 for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=true;
 let sequence,originalSequence,ready=false,playhead=0,playing=false,lastFrame=performance.now(),speed=1,selection=null,orbitMode=false;
 let activeSingleVideoUrl=null,relinkOwnedVideoUrl=null;
-const singleVideoStore=createSingleVideoStore(),referenceMediaStore=createReferenceMediaStore();
+const singleVideoStore=createSingleVideoStore(),referenceMediaStore=createReferenceMediaStore(),clipHistory=createClipHistoryStore();
+let clipLibrary=null;
+// Save a version of a chapter under its source clip (the original file never changes).
+function recordIteration(shotId,kind){
+  const key=clipKeyForShot(sequence,shotId);if(!key)return;
+  let snapshot;try{snapshot=snapshotChapter(sequence,shotId,kind);}catch{return;}
+  clipHistory.add(key,snapshot).then(()=>clipLibrary?.refresh(0)).catch(()=>{});
+}
 // Saved originals expire 48 hours after they were added; drop stale bytes on
 // start and periodically. Files already open in this session keep working.
 const purgeExpiredMedia=()=>Promise.allSettled([singleVideoStore.purgeExpired(),referenceMediaStore.purgeExpired()]);
@@ -190,10 +199,12 @@ function cacheSingleVideo(file,targetSequence){
   refreshSourceVideoOverlay();
   const note=el('sourceRelinkStatus');note.hidden=false;
   note.textContent='Saving source video in this browser…';
-  return singleVideoStore.save(id,file).then(({expiresAt})=>{
+  return singleVideoStore.save(id,file).then(({expiresAt,keep})=>{
+    clipLibrary?.refresh(0);
     if(sequence===targetSequence&&targetSequence.videoIntake.sourceId===id)
-      note.textContent='Source video saved in this browser until '+formatExpiry(expiresAt)+
-        '. It reconnects after refresh and is removed automatically 48 hours after saving. Nothing is uploaded.';
+      note.textContent=keep?'Source video saved in your clip library (kept). Nothing is uploaded.':
+        'Source video saved in this browser until '+formatExpiry(expiresAt)+
+        '. It reconnects after refresh and is removed automatically 48 hours after saving (tick Keep in the clip library to keep it). Nothing is uploaded.';
   }).catch(()=>{
     if(sequence!==targetSequence||targetSequence.videoIntake.sourceId!==id)return;
     note.textContent='Video is attached for this session. Local storage is unavailable or full; reattach it after refreshing.';
@@ -213,8 +224,9 @@ async function restoreSingleVideo(targetSequence){
     if(previousOwned)URL.revokeObjectURL(previousOwned);
     el('saveStatus').textContent='● SOURCE RESTORED · SAVED LOCALLY';
     const note=el('sourceRelinkStatus');note.hidden=false;
-    note.textContent='Source video restored from this browser. It is removed automatically '+formatExpiry(saved.expiresAt)+
-      ' (48 hours after it was saved); reattach it then if you still need it.';
+    note.textContent=saved.keep?'Source video restored from your clip library (kept).':
+      'Source video restored from this browser. It is removed automatically '+formatExpiry(saved.expiresAt)+
+      ' (48 hours after it was saved) unless you tick Keep in the clip library.';
     return true;
   }catch{return false;}
 }
@@ -559,6 +571,7 @@ async function boot(){
      cameraSyncPreview=null;cameraSyncSession=null;
      endGeometryReview();syncPrimitiveWorld();
      refreshAll();seek(Math.min(playhead,sequence.duration));saveLocal();
+     recordIteration(entry.shotId,'geometry');
    }
  });
  sceneEffectsPanel=setupSceneEffectsPanel({
@@ -596,6 +609,7 @@ async function boot(){
      endGeometryReview();
      syncPrimitiveWorld();
      refreshAll();seek(at);saveLocal();
+     recordIteration(proposal.shotId,'camera');
    },
    onDiscard:()=>{
      acceptedCameraPreview=null;
@@ -715,6 +729,9 @@ async function boot(){
   timelineHistory?.reset(sequence);
  }});
  referenceBuilder=setupReferenceBuilder({getSequence:()=>sequence,mediaStore:referenceMediaStore,
+   onMediaSaved:()=>clipLibrary?.refresh(0),
+   getSceneStatus:id=>{const shot=sequence?.referenceSequence&&sequence.shots.find(s=>s.id===id);
+     return shot?chapterStatus(sequence,shot):null;},
    onMediaRestored:count=>{
      if(!count||!sequence?.referenceSequence)return;
      seek(playhead);cameraTracking?.refresh();
@@ -777,7 +794,7 @@ async function boot(){
      const shot=sequence.shots.find(s=>s.id===shotId);
      if(!shot||shot.start!==motion.start||shot.end!==motion.end)throw Error('Chapter changed during tracking');
      shot.videoCameraMotion=motion;
-     saveLocal();
+     saveLocal();recordIteration(shotId,'track');
      const accepted=sequence.primitiveScenes?.scenes?.some(s=>s.shotId===shotId&&s.objects?.length);
      if(!accepted)return 'Saved. Generate or build this chapter\'s models, then preview the tracked motion.';
      if(shotAt(playhead)?.id!==shotId)return 'Saved. Open this chapter to preview the tracked motion.';
@@ -793,6 +810,21 @@ async function boot(){
      return 'Choose Preview camera sync below to compare it with your saved keys.';
    }
  });
+ clipLibrary=setupClipLibrary({
+   videoStore:singleVideoStore,referenceStore:referenceMediaStore,history:clipHistory,
+   getSequence:()=>sequence,
+   canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
+   onRestore:snapshot=>{
+     if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.())throw Error('Finish the active AI job or proposal first.');
+     const next=restoreIteration(sequence,snapshot);
+     setPlaying(false);endGeometryReview();acceptedCameraSync?.reset?.();
+     sequence=next;referenceBuilder?.loadFromSequence(sequence);syncPrimitiveWorld();
+     refreshAll();seek(sequence.shots.find(s=>s.id===snapshot.shotId).start+.001);saveLocal();
+   },
+   onDeleted:()=>refreshSourceVideoOverlay()
+ });
+ el('inspectorSourceButton')?.addEventListener('click',()=>clipLibrary?.refresh(0));
+ clipLibrary?.refresh(1500);
  chapterWorkflow=setupChapterWorkflow({
    getSequence:()=>sequence,getShot:()=>sequence?shotAt(playhead):null,
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
@@ -907,7 +939,7 @@ function applyHistory(doc){
 function saveLocal(record=true){
  if(record){try{timelineHistory?.record(sequence);}catch(error){console.warn('Timeline history skipped invalid intermediate edit:',error.message);}}
  try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));markWorkspaceSaved(localStorage);}catch(e){}
- el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();chapterWorkflow?.refresh(true);cameraTracking?.refresh();acceptedCameraSync?.refresh?.();sceneEffectsPanel?.refresh?.();
+ el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();chapterWorkflow?.refresh(true);cameraTracking?.refresh();clipLibrary?.refresh();acceptedCameraSync?.refresh?.();sceneEffectsPanel?.refresh?.();
 }
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
 function cameraAt(t){
@@ -1105,7 +1137,8 @@ el('clearWorkspaceBtn').addEventListener('click',async()=>{
      if(!window.confirm('Private server cleanup failed: '+error.message+
        '\\n\\nClear this browser workspace only instead? Server jobs will remain.'))return;
    }
-   await Promise.all([singleVideoStore.clear(),referenceMediaStore.clear()]);
+   // Clips ticked "Keep" stay in the clip library, like the object library.
+   await Promise.all([singleVideoStore.clearUnkept(),referenceMediaStore.clearUnkept()]);
    clearWorkspaceStorage(localStorage);
    // Discard in-memory video object URLs, reference-builder media, scene previews
    // and undo history by reinitializing the editor with the empty marker.

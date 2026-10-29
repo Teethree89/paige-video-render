@@ -42,7 +42,8 @@ async function loadVideoMetadata(url){
 }
 let counter=0;
 const newId=prefix=>prefix+'_'+Date.now().toString(36)+'_'+(++counter).toString(36);
-export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=null,onMediaRestored=()=>{}}){
+export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=null,onMediaRestored=()=>{},
+  onMediaSaved=()=>{},getSceneStatus=()=>null}){
   mountReferenceBuilderUI();
   const modal=el('referenceBuilderModal'),status=el('rbStatus'),
     list=el('rbScenes'),image=el('rbImage'),video=el('rbVideo'),
@@ -54,12 +55,13 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=n
   let storageProblem=false;
   async function remember(mediaId,file,kind){
     if(!mediaStore)return null;
-    try{const saved=await mediaStore.put(mediaId,{file,name:file.name,kind});storageProblem=false;return saved.expiresAt;}
+    try{const saved=await mediaStore.put(mediaId,{file,name:file.name,kind});storageProblem=false;onMediaSaved(mediaId);return saved;}
     catch{storageProblem=true;return null;}
   }
-  const keepNote=expiresAt=>storageProblem||!Number.isFinite(expiresAt)?
+  const keepNote=saved=>storageProblem||!saved?
     ' Browser storage is full or unavailable, so re-link these files after reloading.':
-    ` Saved in this browser until ${formatExpiry(expiresAt)}, then removed automatically (48 hours). Export with media ZIP to keep them longer.`;
+    saved.keep?' Kept in your clip library.':
+    ` Saved in this browser until ${formatExpiry(saved.expiresAt)}, then removed automatically (48 hours). Tick Keep in the clip library (Source tab) or export with media ZIP to keep them.`;
   async function restoreMissing(){
     if(!mediaStore)return;
     const wanted=[...new Set(items.map(i=>i.mediaId))].filter(id=>!assets.has(id));
@@ -75,10 +77,12 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=n
       try{if(item.kind==='video')details=await loadVideoMetadata(url);}
       catch{URL.revokeObjectURL(url);missing++;continue;}
       assets.set(mediaId,{file:entry.file,url,kind:item.kind,...details,expiresAt:entry.expiresAt});
-      earliest=Math.min(earliest??Infinity,entry.expiresAt);restored++;
+      if(Number.isFinite(entry.expiresAt))earliest=Math.min(earliest??Infinity,entry.expiresAt);
+      restored++;
     }
     render();
-    if(restored)say(`Restored ${restored} media file(s) from this browser; the first is removed automatically ${formatExpiry(earliest)}.`+
+    if(restored)say(`Restored ${restored} media file(s) from this browser`+
+      (Number.isFinite(earliest)?`; the first is removed automatically ${formatExpiry(earliest)} unless kept.`:' (kept in your clip library).')+
       (missing?` ${missing} file(s) expired after 48 hours or were never saved here: use Relink files.`:''));
     else if(missing)say(`${missing} media file(s) are not in this browser (removed after 48 hours, or added elsewhere). Use Relink files.`);
     onMediaRestored(restored);
@@ -161,6 +165,14 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=n
       meta.textContent=(item.kind==='video'?'VIDEO':'IMAGE')+' · '+fmt(item.duration)+
         (asset?'':' · RE-LINK');
       details.append(title,meta);
+      const mapped=getSceneStatus(item.id);
+      if(mapped){
+        const chips=document.createElement('span');chips.className='clip-chips';
+        const chip=(text,on,tip)=>{const c=document.createElement('span');c.className='clip-chip'+(on?' on':'');c.textContent=text;c.title=tip;return c;};
+        chips.append(chip('3D',mapped.objects>0,mapped.objects?mapped.objects+' accepted objects':'Not 3D mapped yet'),
+          chip(mapped.camera==='tracked'?'CAM · TRACKED':'CAM',!['none','placeholder'].includes(mapped.camera),'Camera: '+mapped.camera));
+        details.append(chips);
+      }
       const select=document.createElement('button');select.type='button';
       select.className='rb-select';select.append(thumb,details);
       select.setAttribute('aria-label','Select scene '+item.name);
@@ -217,7 +229,7 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=n
     if(busy)return;
     busy=true;el('rbApply').disabled=true;
     try{
-      let count=0,expiresAt=null;
+      let count=0,lastSaved=null;
       for(const file of files){
         const kind=mediaKind(file);
         if(!kind){say('Unsupported file: '+file.name);continue;}
@@ -235,8 +247,8 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=n
         const old=assets.get(mediaId);
         assets.set(mediaId,{file,url,kind,...details});
         if(old?.url&&old.url!==url)URL.revokeObjectURL(old.url);
-        expiresAt=await remember(mediaId,file,kind);
-        if(expiresAt)assets.get(mediaId).expiresAt=expiresAt;
+        const saved=await remember(mediaId,file,kind);
+        if(saved){assets.get(mediaId).expiresAt=saved.expiresAt;lastSaved=saved;}
         if(!onlyRelink){
           const duration=kind==='image'?5:details.duration;
           const item={id:newId('ref'),mediaId,kind,fileName:file.name,fileSize:file.size,
@@ -246,7 +258,7 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=n
         }
         count++;
       }
-      say((onlyRelink?'Relinked ':'Added ')+count+' media file(s). Nothing is uploaded.'+(count?keepNote(expiresAt):''));
+      say((onlyRelink?'Relinked ':'Added ')+count+' media file(s). Nothing is uploaded.'+(count?keepNote(lastSaved):''));
     }finally{busy=false;render();}
   }
   fileInput.addEventListener('change',async()=>{await addFiles(fileInput.files||[]);fileInput.value='';});
@@ -315,6 +327,7 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=n
     busy=true;render();say('Reading portable project and validating media files…');
     try{
       const loaded=await openPortableProject(file);
+      let bundleSaved=null;
       stopSequence();
       for(const item of loaded.media){
         const old=assets.get(item.mediaId);
@@ -324,14 +337,14 @@ export function setupReferenceBuilder({onApply,getSequence=()=>null,mediaStore=n
         catch(err){URL.revokeObjectURL(url);throw Error('Bundled video cannot be decoded: '+err.message);}
         assets.set(item.mediaId,{file:item.file,url,kind:item.kind,...details});
         if(old?.url&&old.url!==url)URL.revokeObjectURL(old.url);
-        const expiresAt=await remember(item.mediaId,item.file,item.kind);
-        if(expiresAt)assets.get(item.mediaId).expiresAt=expiresAt;
+        const saved=await remember(item.mediaId,item.file,item.kind);
+        if(saved){assets.get(item.mediaId).expiresAt=saved.expiresAt;bundleSaved=saved;}
       }
       onApply({timeline:loaded.timeline,fromBundle:true});
       loadFromSequence(loaded.timeline);
       modal.hidden=true;
       say('Portable project and all '+loaded.media.length+' sources restored locally.'+
-        keepNote(Math.min(...loaded.media.map(m=>assets.get(m.mediaId)?.expiresAt).filter(Number.isFinite))));
+        keepNote(bundleSaved));
     }catch(err){say('Could not open portable project: '+err.message);}
     finally{busy=false;render();}
   });

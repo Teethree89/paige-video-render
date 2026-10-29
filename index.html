@@ -513,6 +513,12 @@
           <input id="sourceRelinkFile" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm">
         </label>
         <p id="sourceRelinkStatus" class="field-help" role="status" hidden></p>
+        <section id="clipLibrary" class="clip-library" aria-labelledby="clipLibraryTitle">
+          <div class="clip-library-head"><div id="clipLibraryTitle" class="section-label">CLIP LIBRARY</div><span id="clipLibraryUsage" class="clip-library-usage"></span></div>
+          <p class="field-help">Every video, clip and image you import is saved in this browser for 48 hours, then removed automatically. Tick Keep to save one indefinitely (it also survives Clear workspace). Each accepted 3D model, applied camera and tracked camera is saved as a version you can restore; the original file never changes. Nothing is uploaded.</p>
+          <ul id="clipLibraryList" class="clip-library-list" aria-label="Clips saved in this browser"></ul>
+          <p id="clipLibraryStatus" class="field-help" role="status" aria-live="polite"></p>
+        </section>
         <section id="sourceOverlayControls" class="source-overlay-controls" aria-label="Source video overlay settings" hidden>
           <label class="checkbox-field"><input id="sourceOverlayEnabled" type="checkbox"> Overlay source video on 3D viewport</label>
           <label class="field" for="sourceOverlayOpacity">Video opacity <output id="sourceOverlayOpacityOutput" for="sourceOverlayOpacity">50%</output>
@@ -736,7 +742,7 @@
   </dialog>
   <dialog id="workspaceClearDialog" class="confirm-dialog" aria-labelledby="workspaceClearTitle">
     <div id="workspaceClearTitle" class="section-label">CLEAR WORKSPACE</div>
-    <p>This removes the current timeline, the videos, clips and images saved in this browser, reference scenes, accepted 3D objects and saved server job results. The editor will reopen with one empty scene.</p>
+    <p>This removes the current timeline, the videos, clips and images saved in this browser (except clips ticked Keep in the clip library), reference scenes, accepted 3D objects and saved server job results. The editor will reopen with one empty scene.</p>
     <p><strong>Preserved:</strong> your reusable object / array library, downloaded exports, account sign-in and AI usage limits. An in-progress paid job cannot be cleared. Provider-side retention is not changed.</p>
     <form method="dialog" class="confirm-actions">
       <button type="submit" value="cancel" class="secondary">Cancel</button>
