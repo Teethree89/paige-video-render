@@ -605,3 +605,25 @@ html,body{font-size:14px}
 .scene-edit-actions{flex-wrap:wrap}
 .scene-edit-actions button{flex:1 1 28%;min-width:0}
 .scene-edit-actions button.scene-edit-delete{flex:1 1 28%}
+
+/* Compact chooser for a newly cleared, untouched workspace. */
+.workspace-start-dialog{box-sizing:border-box;width:min(590px,calc(100vw - 28px));max-height:calc(100dvh - 32px);overflow:auto;border:1px solid #496a7a;border-radius:13px;padding:23px;background:#101d2b;color:#e5f6fa;box-shadow:0 25px 80px #01050bcc}
+.workspace-start-dialog::backdrop{background:rgba(2,7,13,.73);backdrop-filter:blur(3px)}
+.workspace-start-top{display:flex;align-items:start;justify-content:space-between;gap:18px}
+.workspace-start-eyebrow{font:700 10px ui-monospace,monospace;letter-spacing:.14em;color:#8de7d8}
+.workspace-start-top h2{font-size:22px;line-height:1.25;letter-spacing:-.025em;margin:8px 0 0;color:#f0ffff}
+.workspace-start-close{flex:0 0 auto;border:1px solid #385267;border-radius:6px;color:#bed9df;background:#1c2b3c;font-size:16px;min-height:33px;min-width:33px;cursor:pointer}
+.workspace-start-dialog>p#workspaceStartIntro{font-size:12px;color:#b1c7d0;line-height:1.5;margin:11px 0 20px}
+.workspace-start-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.workspace-start-choice{display:flex;align-items:flex-start;gap:9px;min-width:0;text-align:left;cursor:pointer;padding:17px 12px;border:1px solid #38596e;border-radius:9px;background:#152b3b;color:#e7fdff;min-height:134px}
+.workspace-start-choice:hover,.workspace-start-choice:focus-visible{border-color:#70dccc;background:#224553;outline-offset:2px}
+.workspace-start-choice-icon{display:grid;place-items:center;width:32px;height:32px;flex:0 0 32px;border:1px solid #497b87;border-radius:7px;background:#1d4655;color:#a5f5e4;font-size:17px}
+.workspace-start-choice strong{display:block;font-size:14px;line-height:1.3;margin:2px 0 8px}
+.workspace-start-choice small{display:block;font:11px/1.5 Inter,system-ui,sans-serif;color:#adc8d3}
+.workspace-start-choice-arrow{font-size:16px;color:#9fe8df;margin-left:auto}
+.workspace-start-other{display:flex;flex-wrap:wrap;gap:9px;margin-top:13px}
+.workspace-start-other button{flex:1 1 200px;min-height:40px;border-radius:6px;border:1px solid #3f5d6e;background:#1a2f40;color:#d2e8ee;cursor:pointer;font-size:12px;padding:9px}
+.workspace-start-other button:hover{background:#244454;border-color:#69baae}
+.workspace-start-dialog>.workspace-start-note{font-size:10px;line-height:1.5;margin:16px 0 0;color:#819da8}
+#workspaceStartOpenBtn[hidden]{display:none!important}
+@media(max-width:520px){.workspace-start-dialog{padding:17px}.workspace-start-top h2{font-size:19px}.workspace-start-choices{grid-template-columns:1fr}.workspace-start-choice{min-height:0;padding:13px}}
