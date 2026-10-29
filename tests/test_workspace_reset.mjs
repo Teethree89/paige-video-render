@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {checkTimeline} from '../timeline-operations.js';
 import {clearWorkspaceStorage,createEmptyWorkspace,markWorkspaceSaved,
-  clearServerWorkspace,EMPTY_WORKSPACE_KEY,ASSEMBLY_LIBRARY_KEY,SEQUENCE_STORAGE_KEY} from '../workspace-reset.js';
+  clearServerWorkspace,EMPTY_WORKSPACE_KEY,WELCOME_DISMISSED_KEY,
+ ASSEMBLY_LIBRARY_KEY,SEQUENCE_STORAGE_KEY,isEmptyWorkspace,shouldShowWorkspaceWelcome,dismissWorkspaceWelcome} from '../workspace-reset.js';
 
 function storage(entries){
  const data=new Map(Object.entries(entries));
@@ -16,6 +17,7 @@ test('cleared workspace is a valid but empty, unbranded timeline',()=>{
  const workspace=createEmptyWorkspace();
  assert.equal(checkTimeline(workspace),workspace);
  assert.equal(workspace.shots.length,1);
+ assert.equal(isEmptyWorkspace(workspace),true);
  assert.equal(workspace.camera.length,2);
  assert.equal(workspace.text.length,0);
  assert.equal(workspace.videoIntake,undefined);
@@ -37,8 +39,37 @@ test('clear retains reusable object library and personal preview preference',()=
  assert.equal(store.getItem(ASSEMBLY_LIBRARY_KEY),'valuable asset library');
  assert.equal(store.getItem('atoms-ai-preview-quality-v1'),'fast');
  assert.equal(store.getItem(EMPTY_WORKSPACE_KEY),'1');
+ assert.equal(store.getItem(WELCOME_DISMISSED_KEY),null);
  markWorkspaceSaved(store);
  assert.equal(store.getItem(EMPTY_WORKSPACE_KEY),null);
+});
+
+test('welcome appears only for a freshly cleared untouched scene',()=>{
+ const store=storage({[EMPTY_WORKSPACE_KEY]:'1'});
+ const empty=createEmptyWorkspace();
+ assert.equal(shouldShowWorkspaceWelcome(empty,store),true);
+ assert.equal(isEmptyWorkspace({...empty,text:[{id:'title'}]}),false);
+ assert.equal(shouldShowWorkspaceWelcome({...empty,videoIntake:{version:1}},store),false);
+ assert.equal(shouldShowWorkspaceWelcome({...empty,primitiveScenes:{
+   scenes:[{shotId:'workspace_001',objects:[{}]}]}},store),false);
+ dismissWorkspaceWelcome(store);
+ assert.equal(shouldShowWorkspaceWelcome(empty,store),false);
+ clearWorkspaceStorage(store);
+ assert.equal(shouldShowWorkspaceWelcome(empty,store),true);
+ markWorkspaceSaved(store);
+ assert.equal(shouldShowWorkspaceWelcome(empty,store),false);
+});
+
+test('welcome chooser uses working import buttons and keeps a reopening control',()=>{
+ const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+ const app=readFileSync(new URL('../app.js',import.meta.url),'utf8');
+ for(const id of ['workspaceStartDialog','workspaceStartVideo','workspaceStartReference','workspaceStartImport',
+   'workspaceStartBlank','workspaceStartClose','workspaceStartOpenBtn'])
+   assert.ok(html.includes('id="'+id+'"'),'missing welcome control: '+id);
+ assert.ok(app.includes('shouldShowWorkspaceWelcome(sequence,localStorage)'));
+ assert.ok(app.includes("el('videoImportOpenBtn').click()"));
+ assert.ok(app.includes('referenceBuilder?.open()'));
+ assert.ok(app.includes("el('loadBtn').click()"));
 });
 
 test('authenticated server clear uses same-origin session and CSRF',async()=>{
