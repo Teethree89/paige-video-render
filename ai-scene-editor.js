@@ -1,4 +1,4 @@
-import {validatePrimitiveDocument,capGeneratedLights,LIMITS} from './primitive-schema.js';
+import {validateGeneratedPrimitiveDocument,capGeneratedLights,LIMITS} from './primitive-schema.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {appendArgonDetail,argonDetailIndex} from './argon-detail.js';
 import {groupGeneratedArrays,tagGeneratedScene,EDIT_MODES} from './scene-generation-compose.js';
@@ -464,7 +464,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     throw Error('Argon is still processing. Use Resume previous Argon job later; do not resubmit a paid request.');
   }
   function showProposal(doc,shot,fullEnvironment=false,argon=false){
-    doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
+    doc=validateGeneratedPrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
     const limited=capGeneratedLights(doc);
     doc=limited.document;
     if(limited.discarded)log('AI light limit: kept '+LIMITS.aiLightsPerScene+
@@ -658,7 +658,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           log('Validated '+label+': '+assembled.filter(o=>o.layer===pass.id).length+' objects.');
         }
         log('Validating combined environment scene…');
-        doc=validatePrimitiveDocument({schemaVersion:1,
+        doc=validateGeneratedPrimitiveDocument({schemaVersion:1,
           scenes:[{shotId:shot.id,objects:assembled}]},getSequence().shots.map(s=>s.id));
       }else {
         status('Gemini is analyzing reference views and generating editable geometry…');
@@ -700,7 +700,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
             }
           }
           if(addDetailEnabled&&doc){
-            doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
+            doc=validateGeneratedPrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
             for(let pass=1;pass<=2;pass++){
               const existing=argonDetailIndex(doc);
               if(!existing.length){
@@ -735,7 +735,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
           doc=result.proposal;
         }
         log('Validating AI scene JSON and transforms…');
-        doc=validatePrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
+        doc=validateGeneratedPrimitiveDocument(doc,getSequence().shots.map(s=>s.id));
       }
       showProposal(doc,shot,fullEnvironment,argon);
       // A salvaged base preview remains useful, but an incomplete requested
