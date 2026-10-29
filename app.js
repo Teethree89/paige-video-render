@@ -30,6 +30,7 @@ import {markEditorEdits,composeGeneratedChapter} from './scene-generation-compos
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld,createPreviewRenderState,previewPixelRatio} from './primitive-preview.js';
 import {foldHelpText} from './help-toggles.js';
+import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace,clearWorkspaceStorage,clearServerWorkspace,markWorkspaceSaved,isEmptyWorkspace,shouldShowWorkspaceWelcome,dismissWorkspaceWelcome} from './workspace-reset.js';
 
 foldHelpText();
 
@@ -269,7 +270,9 @@ async function boot(){
  // A failed timeline fetch must never leave interactive transport controls half-initialized.
  let original=await fetch('./timeline.json').then(r=>{if(!r.ok)throw new Error('timeline.json not found');return r.json();});
  let cached=null;try{const raw=localStorage.getItem('atoms-ai-sequence-v1');if(raw)cached=JSON.parse(raw);}catch(e){}
- originalSequence=original;sequence=validSequence(cached)?cached:structuredClone(original);
+ originalSequence=original;
+ let blank=false;try{blank=localStorage.getItem(EMPTY_WORKSPACE_KEY)==='1';}catch{}
+ sequence=blank?createEmptyWorkspace():validSequence(cached)?cached:structuredClone(original);
  timelineHistory=createTimelineHistory(sequence);
  const geometryError=restoreSavedPrimitiveWorld(primitiveWorld,sequence,primitiveAnchors());
  if(geometryError){
@@ -278,10 +281,15 @@ async function boot(){
    el('errorBanner').textContent='Saved geometry could not be loaded. Your timeline and saved objects are retained; export Timeline JSON for a backup. '+geometryError.message;
  }
  refreshAll();seek(0,{force:true});ready=true;
- if(sequence.videoIntake||sequence.referenceSequence){referenceVideo.style.display='none';el('showRef').checked=false;el('saveStatus').textContent='● REATTACH SOURCE MEDIA';}
+ if(blank){
+   referenceVideo.pause();referenceVideo.removeAttribute('src');referenceVideo.querySelector('source')?.remove();referenceVideo.removeAttribute('poster');referenceVideo.load();
+   referenceVideo.style.display='none';el('showRef').checked=false;
+   el('referenceMediaStatus').textContent='No source media · import a video or open Reference Builder';
+   el('saveStatus').textContent='● EMPTY WORKSPACE';
+ }else if(sequence.videoIntake||sequence.referenceSequence){referenceVideo.style.display='none';el('showRef').checked=false;el('saveStatus').textContent='● REATTACH SOURCE MEDIA';}
  if(sequence.videoIntake){referenceVideo.pause();referenceVideo.removeAttribute('src');referenceVideo.querySelector('source')?.remove();referenceVideo.load();}
  refreshSourceVideoOverlay();
- for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn','sceneModeView','sceneModeEdit'])el(id).disabled=false;
+ for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn','clearWorkspaceBtn','sceneModeView','sceneModeEdit'])el(id).disabled=false;
  window.__atomsEditorStarted=true;animate(performance.now());
  modelTools=setupModelTools(world,{onSceneChanged:()=>renderWorld()});
  primitiveEditor=setupPrimitiveEditor({
@@ -652,6 +660,22 @@ async function boot(){
    onUndo:()=>applyHistory(timelineHistory?.undo?.()),
    onRedo:()=>applyHistory(timelineHistory?.redo?.())
  });
+ setupWorkspaceStart();
+}
+function setupWorkspaceStart(){
+ const dialog=el('workspaceStartDialog');
+ if(!dialog)return;
+ const open=()=>{if(!dialog.open)dialog.showModal();};
+ const close=()=>{if(dialog.open)dialog.close();};
+ dialog.addEventListener('close',()=>dismissWorkspaceWelcome(localStorage));
+ el('workspaceStartClose').addEventListener('click',close);
+ el('workspaceStartOpenBtn').addEventListener('click',open);
+ const launch=(id,action)=>el(id).addEventListener('click',()=>{close();action();});
+ launch('workspaceStartVideo',()=>el('videoImportOpenBtn').click());
+ launch('workspaceStartReference',()=>referenceBuilder?.open());
+ launch('workspaceStartImport',()=>el('loadBtn').click());
+ launch('workspaceStartBlank',()=>el('inspectorSceneButton')?.click());
+ if(shouldShowWorkspaceWelcome(sequence,localStorage))open();
 }
 function validSequence(s){return !!(s&&Number.isFinite(s.duration)&&s.duration>0&&Array.isArray(s.shots)&&s.shots.length&&Array.isArray(s.camera)&&s.camera.length&&Array.isArray(s.text));}
 function syncReferenceMedia(time){
@@ -706,7 +730,7 @@ function applyHistory(doc){
 }
 function saveLocal(record=true){
  if(record){try{timelineHistory?.record(sequence);}catch(error){console.warn('Timeline history skipped invalid intermediate edit:',error.message);}}
- try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));}catch(e){}
+ try{localStorage.setItem('atoms-ai-sequence-v1',JSON.stringify(sequence));markWorkspaceSaved(localStorage);}catch(e){}
  el('saveStatus').textContent='● SAVED LOCALLY';timelineEditing?.refresh?.();acceptedCameraSync?.refresh?.();sceneEffectsPanel?.refresh?.();
 }
 function shotAt(t){return sequence.shots.find((s,i)=>t>=s.start&&(t<s.end||i===sequence.shots.length-1))||sequence.shots[0];}
@@ -781,7 +805,7 @@ function renderTimeline(){let ruler=el('ruler'),shotTrack=el('shotTrack'),camTra
  // Re-apply chapter selection styling after replacing the clip nodes.
  timelineEditing?.refresh?.();}
 function renderChapters(){let parent=el('chapterList');parent.replaceChildren();for(let s of sequence.shots){let d=document.createElement('button');d.className='chapter-item';d.dataset.shot=s.id;const time=document.createElement('span');time.className='chapter-time';time.textContent=fmt(s.start).slice(0,5);const dot=document.createElement('span');dot.className='chapter-dot '+(s.tone==='amber'?'amber':s.tone==='purple'?'purple':'');let label=document.createElement('span');label.textContent=s.name;d.append(time,dot,label);d.onclick=()=>{selection=null;orbitMode=false;controls.enabled=false;renderInspector();timelineEditing?.selectChapter?.(s.id);renderTimeline();seek(s.start+.001);};parent.append(d);}renderShotName();}
-function refreshAll(){renderTimeline();renderChapters();rebuildOverlayDom();renderInspector();refreshPlayhead();}
+function refreshAll(){el('projectName').textContent=sequence.title||'Advanced Materials';el('projectRuntime').textContent=fmt(sequence.duration);el('workspaceStartOpenBtn').hidden=!isEmptyWorkspace(sequence);renderTimeline();renderChapters();rebuildOverlayDom();renderInspector();refreshPlayhead();}
 function select(type,id){selection={type,id};el('inspectorMotionButton')?.click();renderInspector();renderTimeline();}
 function selectedData(){return selection?sequence[selection.type==='camera'?'camera':'text'].find(i=>i.id===selection.id):null;}
 function renderInspector(){let item=selectedData();el('projectPanel').hidden=false;el('cameraPanel').hidden=!item||selection.type!=='camera';el('textPanel').hidden=!item||selection.type!=='text';el('motionEmptyState').hidden=!!item;if(el('inspectorMotionButton')?.getAttribute('aria-selected')==='true'){
@@ -879,11 +903,42 @@ document.addEventListener('pointerdown',event=>{
  if(!event.target.closest('.timeline-export-picker'))showExportMenu(false);
 });
 document.addEventListener('keydown',event=>{if(event.key==='Escape')showExportMenu(false);});
+async function confirmClearWorkspace(){
+ const dialog=el('workspaceClearDialog');
+ if(!dialog||typeof dialog.showModal!=='function')
+   return window.confirm('Permanently clear this workspace, including source media links, timeline, scenes and completed server jobs? The reusable object library is preserved.');
+ return new Promise(resolve=>{
+   dialog.returnValue='';
+   dialog.addEventListener('close',()=>resolve(dialog.returnValue==='clear'),{once:true});
+   dialog.showModal();
+ });
+}
+el('clearWorkspaceBtn').addEventListener('click',async()=>{
+ if(!ready||!sequence)return;
+ if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.()){
+   alert('Finish the current AI job or discard its proposal before clearing the workspace.');
+   return;
+ }
+ if(!await confirmClearWorkspace())return;
+ const button=el('clearWorkspaceBtn');button.disabled=true;
+ try{
+   try{await clearServerWorkspace();}
+   catch(error){
+     if(!window.confirm('Private server cleanup failed: '+error.message+
+       '\\n\\nClear this browser workspace only instead? Server jobs will remain.'))return;
+   }
+   clearWorkspaceStorage(localStorage);
+   // Discard in-memory video object URLs, reference-builder media, scene previews
+   // and undo history by reinitializing the editor with the empty marker.
+   window.location.reload();
+ }catch(error){alert('Workspace was not cleared: '+error.message);}
+ finally{button.disabled=false;}
+});
 el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.()){alert('Finish the current AI job or proposal before resetting.');return;}if(!confirm('Reset all camera and text edits to the original timeline?'))return;endGeometryReview();aiSceneEditor?.reset();sequence=structuredClone(originalSequence);syncPrimitiveWorld();activeSingleVideoUrl=null;referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();referenceVideo.style.display='block';el('showRef').checked=true;referenceBuilder?.loadFromSequence(null);refreshSourceVideoOverlay();timelineHistory?.reset(sequence);selection=null;setPlaying(false);orbitMode=false;controls.enabled=false;refreshAll();seek(0);saveLocal(false);};
 el('loadBtn').onclick=()=>{if(!ready)return;if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.()){alert('Finish the current AI job or proposal before importing.');return;}el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.())throw Error('Finish the active AI job or proposal first');let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));endGeometryReview();activeSingleVideoUrl=null;aiSceneEditor?.reset();sequence=data;timelineHistory?.reset(sequence);if(data.videoIntake){referenceVideo.pause();referenceVideo.removeAttribute('src');referenceVideo.querySelector('source')?.remove();referenceVideo.load();el('showRef').checked=false;}else if(!data.referenceSequence){referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();el('showRef').checked=true;}referenceBuilder?.loadFromSequence(data);syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);refreshSourceVideoOverlay();saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
 el('showRef').onchange=e=>{if(el('sourceOverlayEnabled').checked)return;if(sequence.referenceSequence){syncReferenceMedia(playhead);return;}referenceVideo.style.display=e.target.checked?'block':'none';if(!e.target.checked)referenceVideo.pause();else if(playing)referenceVideo.play().catch(()=>{});};
 referenceVideo.addEventListener('loadedmetadata',()=>{if(sequence?.referenceSequence)syncReferenceMedia(playhead);else try{referenceVideo.currentTime=playhead;}catch(e){}});
-window.addEventListener('keydown',e=>{const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
+window.addEventListener('keydown',e=>{if(el('workspaceStartDialog')?.open)return;const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
  if(ready&&sceneObjectEditor?.active){
    if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyW'||e.code==='KeyG')){e.preventDefault();sceneObjectEditor.setMode('translate');return;}
    if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyE'||e.code==='KeyR')){e.preventDefault();sceneObjectEditor.setMode('rotate');return;}

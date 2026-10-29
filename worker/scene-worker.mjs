@@ -1078,6 +1078,15 @@ async function argonGateway(request,env,path){
        Object.keys(payload).length!==0)return fail(400,'Invalid Argon check request');
     return checkArgonModel(env);
   }
+  if(path==='/api/scene/argon/clear'){
+    const id=payload?.jobId,shotId=payload?.shotId;
+    if(!payload||typeof payload!=='object'||Array.isArray(payload)||
+       Object.keys(payload).length!==2||
+       typeof id!=='string'||!(ARGON_DO_JOB.test(id)||ARGON_KEY_JOB.test(id))||
+       typeof shotId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(shotId))
+      return fail(400,'Invalid Argon job request');
+    return directArgonClear(env,id,shotId);
+  }
   if(path==='/api/scene/argon/start'){
     let validated;
     try{
@@ -1532,6 +1541,14 @@ async function directArgonStatus(env,id,shotId,download=false,seal=false){
     (seal?'&seal=1':''));}
   catch{return fail(502,'Argon direct job status unavailable');}
 }
+async function directArgonClear(env,id,shotId){
+  if(!env.ARGON_JOBS)return fail(503,'Argon direct job storage is not configured');
+  let stub;
+  try{stub=env.ARGON_JOBS.get(argonJobObject(env,id));}
+  catch{return fail(400,'Invalid Argon job request');}
+  try{return await stub.fetch('https://argon-job/clear?shot='+encodeURIComponent(shotId),{method:'POST'});}
+  catch{return fail(502,'Argon direct job cleanup unavailable');}
+}
 export class ArgonJob {
   constructor(ctx,env){this.ctx=ctx;this.env=env;}
   async fetch(request){
@@ -1540,7 +1557,17 @@ export class ArgonJob {
     if(url.pathname==='/status'&&request.method==='GET')
       return this.status(url.searchParams.get('shot'),url.searchParams.get('seal')==='1');
     if(url.pathname==='/output'&&request.method==='GET')return this.output(url.searchParams.get('shot'));
+    if(url.pathname==='/clear'&&request.method==='POST')return this.clear(url.searchParams.get('shot'));
     return fail(404,'Not found');
+  }
+  async clear(shotId){
+    const job=await this.ctx.storage.get('job');
+    if(!job)return reply({ok:true,cleared:true});
+    if(job.shotId!==shotId)return fail(400,'Invalid Argon job request');
+    if(job.state!=='completed'&&job.state!=='failed')
+      return fail(409,'Argon job still running');
+    await this.ctx.storage.deleteAll();
+    return reply({ok:true,cleared:true});
   }
   async start(request){
     if(await this.ctx.storage.get('job'))return fail(409,'Argon job already exists');
@@ -1662,7 +1689,7 @@ export default {
       // which Worker version actually reached Cloudflare, NOT API entitlement.
       return reply({ok:ready,service:'paige-scene',ready,model:MODEL,generationProfile:'layered-environment-v1',workerRevision:'argon-detail-tails-paige-v1',supportedModels:SUPPORTED_MODELS,supportedProfiles:SUPPORTED_PROFILES,argonDirectJobs:!!env?.ARGON_JOBS},ready?200:503);
     }
-    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
+    if(!['/api/scene','/api/scene/argon/start','/api/scene/argon/direct-start','/api/scene/argon/status','/api/scene/argon/output','/api/scene/argon/clear','/api/scene/argon/check','/api/scene/argon/diagnostic','/api/scene/argon/diagnostic-status'].includes(path))return fail(404,'Not found');
     if(request.method!=='POST')return fail(405,'POST required');
     if(!env.GEMINI_API_KEY || !env.SCENE_ACCESS_TOKEN)
       return fail(503,'AI backend is not configured');

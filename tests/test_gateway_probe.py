@@ -672,7 +672,7 @@ function argon_worker_call($endpoint, $secret, $action, $body, $onRejected = nul
         )
         self.assertEqual(php_array.stdout, "[]")
         self.assertIn("'400:Invalid Argon check request'", php)
-        self.assertIn("['start', 'direct-start', 'status', 'output', 'check', 'diagnostic', 'diagnostic-status']", php)
+        self.assertIn("['start', 'direct-start', 'status', 'output', 'clear', 'check', 'diagnostic', 'diagnostic-status']", php)
         self.assertIn("'available' => $check['available']", php)
         self.assertIn("'502:Argon model metadata check unavailable'", php)
         self.assertLess(php.index("if (empty($_SESSION['authenticated']))"),

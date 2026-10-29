@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {buildWorld} from './world.js';
 import {createDraftWorld} from './draft-world.js';
+import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace} from './workspace-reset.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {shotAnchorMap,restoreSavedPrimitiveWorld} from './primitive-preview.js';
 import {evaluateCamera,curveEasing} from './animation-curves.js';
@@ -133,7 +134,7 @@ $('export').onclick=()=>{
    finalExportSound('failed');
  }
 };
-async function boot(){let original=await fetch('./timeline.json').then(r=>{if(!r.ok)throw Error('timeline.json missing');return r.json();});let cached=null;try{cached=JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')||'null');}catch(e){}seq=(cached&&cached.duration>0&&Array.isArray(cached.camera)&&Array.isArray(cached.text)&&Array.isArray(cached.shots))?cached:original;
+async function boot(){let original=await fetch('./timeline.json').then(r=>{if(!r.ok)throw Error('timeline.json missing');return r.json();});let cached=null;try{cached=JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')||'null');}catch(e){}let empty=false;try{empty=localStorage.getItem(EMPTY_WORKSPACE_KEY)==='1';}catch{}seq=empty?createEmptyWorkspace():(cached&&cached.duration>0&&Array.isArray(cached.camera)&&Array.isArray(cached.text)&&Array.isArray(cached.shots))?cached:original;
  renderBoundsCache.clear();
  const geometryError=restoreSavedPrimitiveWorld(primitiveWorld,seq,shotAnchorMap(seq,cameraAt));
  resize();const failed=await loadModels();render(0);$('info').textContent=`Ready · ${seq.duration.toFixed(2)} seconds · ${modelCount}/7 linked GLBs${failed.length?' ('+failed.length+' procedural fallback)':''}`;$('export').disabled=!!geometryError;$('preview').disabled=false;frameRequest=requestAnimationFrame(animationLoop);const codec=chosenType();$('status').textContent=geometryError?'Saved geometry could not be loaded. Return to the editor and export Timeline JSON for repair; the saved project is retained.':codec?`Ready to record ${codec[1].toUpperCase()}. ${seq.camera.length} camera keys and ${seq.text.length} text overlays detected.`:'No MediaRecorder codec found in this browser.';}

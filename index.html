@@ -119,8 +119,8 @@
         </div><h2 id="inspectorHeading">Project settings</h2><p id="inspectorHint">Select a timeline item to adjust its animation.</p></div>
       <div id="inspectorObjectsPanel" role="tabpanel" aria-labelledby="inspectorObjectsButton">
       <div id="projectPanel" class="panel-block">
-        <div class="section-label">SEQUENCE</div><div class="stat-row"><span>Project</span><b>Advanced Materials</b></div><div class="stat-row"><span>Runtime</span><b>56.47 s</b></div><div class="stat-row"><span>Camera keys</span><b id="keyCount">—</b></div><div class="stat-row"><span>Text overlays</span><b id="textCount">—</b></div>
-        <button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><div class="divider"></div>
+        <div class="section-label">SEQUENCE</div><div class="stat-row"><span>Project</span><b id="projectName">Advanced Materials</b></div><div class="stat-row"><span>Runtime</span><b id="projectRuntime">56.47 s</b></div><div class="stat-row"><span>Camera keys</span><b id="keyCount">—</b></div><div class="stat-row"><span>Text overlays</span><b id="textCount">—</b></div>
+        <button id="workspaceStartOpenBtn" class="wide secondary" type="button" hidden>Start / Open…</button><button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><button id="clearWorkspaceBtn" disabled class="wide danger" type="button" title="Start with an empty workspace; keep the saved object and array libraries">Clear workspace…</button><p class="field-help">Remove this project’s video, scenes, and timeline without deleting reusable library assets.</p><div class="divider"></div>
         <section id="acceptedCameraSyncPanel" class="camera-sync-panel accepted-camera-sync" hidden aria-label="Sync camera to already accepted 3D chapter model">
           <div class="section-label">SYNC ACCEPTED MODEL CAMERA · FREE</div>
           <p class="field-help">Already accepted a 3D model? Align this chapter's existing pan, orbit, and dolly path to its actual model size. Preview first; your geometry and saved camera keys remain unchanged until you apply.</p>
@@ -644,6 +644,40 @@
       <p class="argon-particle-tip">Move your cursor through the particle cloud · generation continues while you view the editor</p>
     </div>
   </section>
+  <dialog id="workspaceStartDialog" class="workspace-start-dialog" aria-labelledby="workspaceStartTitle" aria-describedby="workspaceStartIntro">
+    <div class="workspace-start-top">
+      <div><span class="workspace-start-eyebrow">✧ PAIGE · SEQUENCE STUDIO</span>
+        <h2 id="workspaceStartTitle">How would you like to start?</h2></div>
+      <button id="workspaceStartClose" type="button" class="workspace-start-close" aria-label="Close start dialog">✕</button>
+    </div>
+    <p id="workspaceStartIntro">Choose a source workflow, restore your work, or build a scene from scratch.</p>
+    <div class="workspace-start-choices" role="group" aria-label="Choose a project workflow">
+      <button id="workspaceStartVideo" type="button" class="workspace-start-choice">
+        <span class="workspace-start-choice-icon" aria-hidden="true">▶</span>
+        <span><strong>Video → Timeline</strong><small>Import one video, detect scenes, then edit the timeline and camera.</small></span>
+        <span class="workspace-start-choice-arrow" aria-hidden="true">↗</span>
+      </button>
+      <button id="workspaceStartReference" type="button" class="workspace-start-choice">
+        <span class="workspace-start-choice-icon" aria-hidden="true">▦</span>
+        <span><strong>Reference Builder</strong><small>Combine clips and still images into a custom scene sequence.</small></span>
+        <span class="workspace-start-choice-arrow" aria-hidden="true">↗</span>
+      </button>
+    </div>
+    <div class="workspace-start-other">
+      <button id="workspaceStartImport" type="button">↥ Import timeline JSON</button>
+      <button id="workspaceStartBlank" type="button">＋ Continue with empty scene</button>
+    </div>
+    <p class="workspace-start-note">Your saved object and array libraries remain available whichever path you choose.</p>
+  </dialog>
+  <dialog id="workspaceClearDialog" class="confirm-dialog" aria-labelledby="workspaceClearTitle">
+    <div id="workspaceClearTitle" class="section-label">CLEAR WORKSPACE</div>
+    <p>This removes the current timeline, uploaded-video links, reference scenes, accepted 3D objects and saved server job results. The editor will reopen with one empty scene.</p>
+    <p><strong>Preserved:</strong> your reusable object / array library, downloaded exports, account sign-in and AI usage limits. An in-progress paid job cannot be cleared. Provider-side retention is not changed.</p>
+    <form method="dialog" class="confirm-actions">
+      <button type="submit" value="cancel" class="secondary">Cancel</button>
+      <button type="submit" value="clear" class="danger">Clear workspace</button>
+    </form>
+  </dialog>
   <script type="module" src="workspace-controls.js"></script>
   <script type="module" src="app.js"></script>
 </body>
