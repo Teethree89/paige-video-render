@@ -491,13 +491,10 @@ test('Paid Argon Previs submits once, polls privately, and previews without acce
     assert.equal(pollCount,1);
     assert.equal(preview?.objects[0]?.id,'client_building');
     assert.equal(saved,0);
-    assert.equal(ids.get('aiSceneEditChoice').hidden,false,'edit choice appears after paid start');
-    assert.equal(ids.get('aiSceneEditMode').value,'library','legacy items default to archival');
-    assert.match(ids.get('aiSceneLegacyWarning').textContent,/2 older object/);
-    ids.get('aiSceneEditMode').value='clear';
+    assert.equal(ids.get('aiSceneEditChoice').hidden,true,'legacy keep/archive choice stays hidden');
     await ids.get('aiSceneAccept').fire('click');
     assert.equal(saved,1);
-    assert.equal(acceptedMode,'clear','the selected disposition reaches acceptance');
+    assert.equal(acceptedMode,'clear','new generated geometry replaces existing chapter');
     assert.match(ids.get('aiSceneLog').textContent,/Argon job status: completed/);
     assert.match(ids.get('aiSceneLog').textContent,/Z-fighting cleanup/);
   }finally{

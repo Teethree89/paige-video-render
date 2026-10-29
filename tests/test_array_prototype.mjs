@@ -535,3 +535,41 @@ test('single newly authored tree group can be reused as an assembly template',as
  const result=replaceAssemblyContents(input,['forest'],'forest','target','pine_parent');
  assert.equal(result.document.scenes[0].objects.find(x=>x.id==='target').arrayParts.objects.length,2);
 });
+
+test('grouping multiple selected objects creates a round-trip editable single assembly',async()=>{
+ const {groupSceneSelection}=await import('../scene-group-selection.js');
+ const left=makePrimitive('box','left',[-2,1,0]);
+ const right=makePrimitive('sphere','right',[2,3,0]);
+ const beam={id:'light_1',name:'Spotlight',type:'spot',position:[4,6,0],
+   target:[4,0,0],color:'#ffffff',intensity:100,distance:20,angle:.6};
+ const original={schemaVersion:1,scenes:[{shotId:'scene',objects:[left,right],lights:[beam]}]};
+ const snapshot=structuredClone(original);
+ const result=groupSceneSelection(original,['scene'],'scene',['left','right','light::light_1']);
+ assert.deepEqual(original,snapshot,'pure operation does not mutate the working scene');
+ const chapter=result.document.scenes[0];
+ assert.equal(chapter.objects.length,1);assert.equal(chapter.lights?.length||0,0);
+ const grouped=chapter.objects[0];
+ assert.equal(grouped.primitive,'group');
+ assert.equal(grouped.arrayParts.objects.length,2);
+ assert.equal(grouped.arrayParts.lights.length,1);
+ assert.ok(grouped.position.every((x,i)=>Math.abs(x-[4/3,10/3,0][i])<1e-9));
+ const global=part=>part.position.map((n,i)=>n+grouped.position[i]);
+ assert.ok(global(grouped.arrayParts.objects[0]).every((x,i)=>Math.abs(x-left.position[i])<1e-9));
+ assert.ok(global(grouped.arrayParts.objects[1]).every((x,i)=>Math.abs(x-right.position[i])<1e-9));
+ assert.ok(global(grouped.arrayParts.lights[0]).every((x,i)=>Math.abs(x-beam.position[i])<1e-9));
+ assert.deepEqual(validatePrimitiveDocument(JSON.parse(JSON.stringify(result.document))),result.document);
+ assert.throws(()=>groupSceneSelection(original,['scene'],'scene',['left']),/at least two/i);
+});
+test('grouping repeated objects flattens array copies into editable component meshes',async()=>{
+ const {groupSceneSelection}=await import('../scene-group-selection.js');
+ const a=makePrimitive('cylinder','repeat',[0,2,0]);
+ a.repeat={count:[3,1,1],spacing:[4,0,0]};
+ const b=makePrimitive('box','base',[10,1,0]);
+ const result=groupSceneSelection({schemaVersion:1,scenes:[{shotId:'scene',objects:[a,b]}]},
+   ['scene'],'scene',['repeat','base']);
+ const root=result.document.scenes[0].objects[0];
+ assert.equal(root.arrayParts.objects.length,4);
+ const x=root.arrayParts.objects.slice(0,3).map(o=>o.position[0]+root.position[0]);
+ assert.deepEqual(x,[-4,0,4]);
+ assert.equal(root.repeat,undefined,'grouped parent is not accidentally repeated');
+});

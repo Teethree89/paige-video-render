@@ -200,7 +200,7 @@ async function sampleVideo(reference,shot,playhead,detailProfile='standard') {
 }
 export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,onCameraSync=null,onCameraSyncReset=null,
   getEditCount=()=>0,getLegacyCount=()=>0,listEditLibrary=()=>[],restoreEditLibrary=()=>{},deleteEditLibrary=()=>{},
-  generationSounds=createGenerationSounds()}) {
+  onExportTimeline=()=>{},generationSounds=createGenerationSounds()}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
@@ -290,29 +290,9 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
   const libraryPicker=el('aiSceneLibraryPicker'),libraryRestore=el('aiSceneLibraryRestore'),
     libraryDelete=el('aiSceneLibraryDelete'),libraryStatus=el('aiSceneLibraryStatus');
   let choiceShot=null;
-  const editMode=()=>EDIT_MODES.includes(editChoice?.value)?editChoice.value:'keep';
-  const showEditChoice=shotId=>{
-    const count=getEditCount?.(shotId)||0;
-    if(!count){
-      if(editChoicePanel)editChoicePanel.hidden=true;
-      if(overlayChoicePanel)overlayChoicePanel.hidden=true;
-      return;
-    }
-    if(choiceShot!==shotId){
-      choiceShot=shotId;
-      const legacy=getLegacyCount?.(shotId)||0;
-      if(editChoice)editChoice.value=legacy?'library':'keep';
-      if(legacyWarning){
-        legacyWarning.hidden=!legacy;
-        legacyWarning.textContent=legacy+' older object/light(s) have no provenance tags. ' +
-          'To avoid overlapping the original reconstruction, Save to library is preselected. ' +
-          'You can switch to Keep if needed; nothing changes before Accept.';
-      }
-    }
-    if(editChoicePanel)editChoicePanel.hidden=false;
-    if(overlayChoicePanel)overlayChoicePanel.hidden=false;
-    if(overlayChoice)overlayChoice.value=editMode();
-  };
+  // Replacement is always explicit; no hidden 'keep edits' or automatic archive.
+  const editMode=()=> 'clear';
+  const showEditChoice=()=>{};
   const refreshLibrary=()=>{
     if(!libraryPicker||typeof libraryPicker.replaceChildren!=='function')return;
     const saved=listEditLibrary?.()||[];
@@ -953,27 +933,61 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     }catch(error){log('Cleanup failed: '+error.message);status('Cleanup failed: '+error.message);}
     ui();
   });
-  accept.addEventListener('click',()=>{
-    if(!pending||busy)return;
+
+  let replacementConfirmOpen=false;
+  async function askReplacement(){
+    const dialog=el('aiSceneReplaceConfirm');
+    if(typeof dialog?.showModal!=='function')return confirm(
+      'Replace this chapter’s 3D objects, lights and manual adjustments? Export the timeline JSON first to preserve a backup. Other chapters and camera keys remain.');
+    return new Promise(resolve=>{
+      const cancel=el('aiSceneReplaceCancel'),apply=el('aiSceneReplaceApply'),
+        exportButton=el('aiSceneReplaceExport');
+      const cleanup=answer=>{
+        cancel.removeEventListener('click',no);
+        apply.removeEventListener('click',yes);
+        exportButton.removeEventListener('click',exportNow);
+        dialog.removeEventListener('cancel',esc);
+        if(dialog.open)dialog.close();
+        resolve(answer);
+      };
+      const no=()=>cleanup(false),yes=()=>cleanup(true);
+      const esc=event=>{event.preventDefault();no();};
+      const exportNow=()=>{
+        try{onExportTimeline();exportButton.textContent='Exported ✓';}
+        catch(error){status('Timeline export failed: '+error.message);}
+      };
+      exportButton.textContent='Export timeline JSON';
+      cancel.addEventListener('click',no);apply.addEventListener('click',yes);
+      exportButton.addEventListener('click',exportNow);
+      dialog.addEventListener('cancel',esc);
+      dialog.showModal();
+    });
+  }
+  accept.addEventListener('click',async()=>{
+    if(!pending||busy||replacementConfirmOpen)return;
     if(getActiveShot()?.id!==pendingShot){
       status('Chapter changed. Discard and regenerate before accepting.');return;
     }
     const current=getSequence().primitiveScenes?.scenes?.find(x=>x.shotId===pendingShot);
-    if(current?.objects?.length&&!confirm(
-      editMode()==='keep'?
-        'Replace original generated geometry while preserving editor additions and modified objects?':
-      editMode()==='library'?
-        'Save your edited objects/lights to the local library and replace this chapter with the new geometry?':
-        'Clear existing chapter objects, lights and scene effects without a library backup?'))return;
+    const replacing=!!((current?.objects?.length||0)+(current?.lights?.length||0));
+    if(replacing){
+      replacementConfirmOpen=true;
+      let accepted=false;
+      try{accepted=await askReplacement();}
+      finally{replacementConfirmOpen=false;}
+      if(!accepted||!pending||busy)return;
+      if(getActiveShot()?.id!==pendingShot){
+        status('Chapter changed. Return to the proposal before applying.');return;
+      }
+    }
     try{
-      onAccept(pending,{syncCamera:syncApply?.checked===true,editsMode:editMode()});
+      onAccept(pending,{syncCamera:syncApply?.checked===true,editsMode:'clear'});
       log('Preview accepted into the editable timeline.'+(syncApply?.checked?' Camera motion retargeted.':''));
-      status('Accepted. Geometry saved in your working timeline; export JSON for a backup.');
+      status('Accepted. Chapter geometry replaced; export timeline JSON to preserve the new work.');
       pending=null;pendingShot=null;resetSync();
       choiceShot=null;
       if(editChoicePanel)editChoicePanel.hidden=true;
       if(overlayChoicePanel)overlayChoicePanel.hidden=true;
-      refreshLibrary();
     }catch(error){status('Could not accept geometry: '+error.message);}
     ui();
   });

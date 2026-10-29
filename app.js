@@ -17,6 +17,7 @@ import {createDraftWorld} from './draft-world.js';
 import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupSceneObjectEditing} from './scene-object-edit.js';
+import {groupSceneSelection} from './scene-group-selection.js';
 import {setupArrayPrototypeEditor} from './array-prototype-editor.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
@@ -25,9 +26,7 @@ import {createRenderDiagnostics} from './render-diagnostics.js';
 import {editPrimitiveTransform,deletePrimitiveObject,duplicateSceneSelection,setSceneObjectRepeat,editLightTransform,editLightTarget,deleteLightObject} from './scene-object-operations.js';
 import {setupAiSceneEditor} from './ai-scene-editor.js';
 import {validatePrimitiveDocument} from './primitive-schema.js';
-import {markEditorEdits,composeGeneratedChapter,editorEditCount,createLibraryEntry,
-  readEditLibrary,saveEditLibraryEntry,restoreEditLibraryEntry,deleteEditLibraryEntry}
-  from './scene-generation-compose.js';
+import {markEditorEdits,composeGeneratedChapter} from './scene-generation-compose.js';
 import {cleanupPrimitiveDocument,cleanupSummary} from './primitive-cleanup.js';
 import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld,createPreviewRenderState,previewPixelRatio} from './primitive-preview.js';
 import {foldHelpText} from './help-toggles.js';
@@ -322,6 +321,12 @@ async function boot(){
      commitEditedScenes(editPrimitiveTransform(sequence.primitiveScenes,
        sequence.shots.map(s=>s.id),shotId,objectId,mode,vector));
    },
+   onGroup:(shotId,ids)=>{
+     const grouped=groupSceneSelection(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,ids);
+     commitEditedScenes(grouped.document);
+     return grouped.selectedId;
+   },
    onMakeArray:(shotId,objectId,count,spacing)=>{
      commitEditedScenes(setSceneObjectRepeat(sequence.primitiveScenes,
        sequence.shots.map(s=>s.id),shotId,objectId,count,spacing));
@@ -374,21 +379,12 @@ async function boot(){
    getReferenceVideo:()=>referenceVideo,
    getReferenceFrames:referenceSampler,
    getPlayheadTime:()=>playhead,
-   getEditCount:shotId=>editorEditCount(
-     sequence.primitiveScenes?.scenes?.find(s=>s.shotId===shotId)),
-   getLegacyCount:shotId=>{
-     const scene=sequence.primitiveScenes?.scenes?.find(s=>s.shotId===shotId);
-     return [...(scene?.objects||[]),...(scene?.lights||[])].filter(item=>!item.source).length;
+   onExportTimeline:()=>{
+     downloadExport(new Blob([JSON.stringify(sequence,null,2)],{type:'application/json'}),
+       'atoms-to-ai-timeline.json');
+     el('saveStatus').textContent='● JSON EXPORTED';
    },
-   listEditLibrary:()=>readEditLibrary(localStorage),
-   restoreEditLibrary:item=>{
-     const shot=shotAt(playhead);
-     const restored=restoreEditLibraryEntry(sequence.primitiveScenes,shot.id,item,
-       sequence.shots.map(s=>s.id));
-     commitEditedScenes(restored);
-   },
-   deleteEditLibrary:id=>deleteEditLibraryEntry(localStorage,id),
-   onPreview:(entry,{editsMode='keep'}={})=>{
+   onPreview:(entry,{editsMode='clear'}={})=>{
      acceptedCameraSync?.reset();
      acceptedCameraPreview=null;
      sceneObjectEditor?.setActive(false);
@@ -443,7 +439,7 @@ async function boot(){
      cameraSyncPreview=null;cameraSyncSession=null;
      endGeometryReview();syncPrimitiveWorld();renderWorld();
    },
-   onAccept:(entry,{syncCamera=false,editsMode='keep'}={})=>{
+   onAccept:(entry,{syncCamera=false,editsMode='clear'}={})=>{
      acceptedCameraSync?.reset();
      acceptedCameraPreview=null;
      const doc=validatePrimitiveDocument(sequence.primitiveScenes,sequence.shots.map(s=>s.id));
@@ -453,12 +449,7 @@ async function boot(){
      doc.scenes=doc.scenes.filter(s=>s.shotId!==entry.shotId);
      doc.scenes.push(replacement);
      const accepted=validatePrimitiveDocument(doc,sequence.shots.map(s=>s.id));
-     // No destructive change occurs until composition AND local-library backup succeed.
-     if(editsMode==='library'&&previous&&editorEditCount(previous)){
-       const backup=createLibraryEntry(previous,sequence.shots.find(s=>s.id===entry.shotId)?.name+
-         ' · editor edits');
-       saveEditLibraryEntry(localStorage,backup);
-     }
+     // Replacement occurs only after the export-aware confirmation in the editor.
      if(syncCamera){
        if(cameraSyncSession?.shotId!==entry.shotId||!cameraSyncPreview)
          throw Error('Preview camera synchronization before applying it.');
@@ -516,11 +507,16 @@ async function boot(){
  });
  const radialCreate=setupRadialCreate({
     viewport,
-    getObjectAt:(clientX,clientY)=>sceneObjectEditor?.pickObjectAt(clientX,clientY)||null,
+    getSelectionCount:()=>sceneObjectEditor?.selectedIds?.length||0,
+    getObjectAt:(clientX,clientY)=>{
+      const id=sceneObjectEditor?.pickObjectAt(clientX,clientY);
+      return id&&sceneObjectEditor?.isSelected(id)?id:null;
+    },
     onObjectAction:(action,id)=>{
-      if(!sceneObjectEditor?.select(id))return;
+      if(!sceneObjectEditor?.isSelected(id)&&!sceneObjectEditor?.select(id))return;
       if(action==='array')sceneObjectEditor.openMakeArray(id);
       else if(action==='duplicate')sceneObjectEditor.duplicateSelected();
+      else if(action==='group')sceneObjectEditor.groupSelected();
       else if(action==='edit'){
         if(!sceneObjectEditor.openGroupEditor(id))
           el('sceneEditStatus').textContent=
@@ -889,8 +885,8 @@ el('showRef').onchange=e=>{if(el('sourceOverlayEnabled').checked)return;if(seque
 referenceVideo.addEventListener('loadedmetadata',()=>{if(sequence?.referenceSequence)syncReferenceMedia(playhead);else try{referenceVideo.currentTime=playhead;}catch(e){}});
 window.addEventListener('keydown',e=>{const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
  if(ready&&sceneObjectEditor?.active){
-   if(e.code==='KeyW'||e.code==='KeyG'){e.preventDefault();sceneObjectEditor.setMode('translate');return;}
-   if(e.code==='KeyE'||e.code==='KeyR'){e.preventDefault();sceneObjectEditor.setMode('rotate');return;}
+   if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyW'||e.code==='KeyG')){e.preventDefault();sceneObjectEditor.setMode('translate');return;}
+   if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyE'||e.code==='KeyR')){e.preventDefault();sceneObjectEditor.setMode('rotate');return;}
    if(e.code==='Escape'){e.preventDefault();sceneObjectEditor.select(null);return;}
    if(e.code==='Delete'||e.code==='Backspace'){
      e.preventDefault();sceneObjectEditor.deleteSelected();return;

@@ -5,7 +5,7 @@ import {CREATE_CATEGORIES,CREATE_DEFAULTS,validateCreateChoice} from './scene-as
 // Clicking a first-ring category = repeat last item in that category.
 export const CREATE_HOLD_MS=380,CREATE_HOVER_MS=500;
 export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,
- getObjectAt=()=>null,onObjectAction=()=>{},onStatus=()=>{}}){
+ getObjectAt=()=>null,getSelectionCount=()=>0,onObjectAction=()=>{},onStatus=()=>{}}){
  const menu=document.getElementById('sceneCreateMenu');
  const wheel=document.getElementById('sceneCreateWheel');
  const submenu=document.getElementById('sceneCreateSubmenu');
@@ -16,6 +16,8 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,
  function openObjectMenu(id,x,y){
    if(!objectMenu)return;
    hide();hideObjectMenu();contextObject=id;
+   const groupAction=objectMenu.querySelector('[data-object-action="group"]');
+   if(groupAction)groupAction.hidden=getSelectionCount()<2;
    const rect=viewport.getBoundingClientRect();
    objectMenu.style.left=Math.max(8,Math.min(x-rect.left,rect.width-218))+'px';
    objectMenu.style.top=Math.max(8,Math.min(y-rect.top,rect.height-126))+'px';

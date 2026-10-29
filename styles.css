@@ -595,3 +595,13 @@ html,body{font-size:14px}
 .viewport>.vignette{z-index:3}
 .viewport>.overlay-layer,.viewport>.cut-flash{z-index:4}
 .viewport>.stage-top,.viewport>.stage-footer{z-index:6}
+
+/* Explicit viewport area selection; selection chrome is never exported. */
+.scene-selection-rectangle{position:absolute;z-index:22;pointer-events:none;border:1px dashed #7bf6f2;background:rgba(90,210,230,.16);box-shadow:0 0 0 1px rgba(8,20,30,.5)}
+.scene-edit-actions #sceneEditRectangle.active{border-color:#7bf6f2;color:#bafff8;background:#1b4755}
+.scene-edit-actions #sceneEditGroup{border-color:#417f8b}
+.array-editor-controls #arrayEditLibraryPicker{width:100%;min-width:0;background:#0c1420;color:#dff0fa;border:1px solid #304157;border-radius:4px;padding:8px}
+
+.scene-edit-actions{flex-wrap:wrap}
+.scene-edit-actions button{flex:1 1 28%;min-width:0}
+.scene-edit-actions button.scene-edit-delete{flex:1 1 28%}
