@@ -24,7 +24,7 @@ The two video-analysis modes are **hard cuts** (adjacent image changes) and **vi
 ## Video camera motion estimates
 
 Fresh video drafts use stationary placeholder cameras. Imported-video generation
-can first run a separately confirmed camera analysis: seven bounded chronological
+can first run a separately confirmed camera analysis: eleven bounded chronological
 JPEGs in one Gemini 3.8 Flash Low or 3.5 Flash-Lite Minimal call. Reuse validated
 `shots[].videoCameraMotion` only while chapter start/end still match. Never retry
 or switch models automatically. The existing session/CSRF and Worker token remain

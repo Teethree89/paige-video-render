@@ -567,7 +567,7 @@ if ($action === 'argon_status') {
         (($value['status'] === 'completed' && isset($value['proposal'])) ?
           ['proposal' => $value['proposal']] : []), $value));
 }
-if ($action !== 'generate' && $action !== 'argon_start' && $action !== 'camera_motion')
+if ($action !== 'generate' && $action !== 'argon_start' && $action !== 'camera_motion' && $action !== 'camera_align')
     reject(400, 'Unsupported action');
 
 // Protect upstream quota; Argon reserves both paid calls before either is sent.
@@ -577,7 +577,8 @@ if ($window < time() - 3600) {
     $_SESSION['ai_calls'] = 0;
     $_SESSION['motion_calls'] = 0;
 }
-$isMotion = $action === 'camera_motion';
+$isMotion = in_array($action, ['camera_motion','camera_align'], true);
+$isAlignment = $action === 'camera_align';
 $quotaKey = $isMotion ? 'motion_calls' : 'ai_calls';
 if ((int) ($_SESSION[$quotaKey] ?? 0) >= ($isMotion ? 20 : 10)) reject(429, 'Session AI limit reached');
 $shotId = $input['shotId'] ?? '';
@@ -585,7 +586,7 @@ $frames = $input['frames'] ?? null;
 if (!is_string($shotId) || !preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/', $shotId)) {
     reject(400, 'Invalid shot ID');
 }
-if (!is_array($frames) || count($frames) < 1 || count($frames) > ($isMotion ? 7 : 3)) {
+if (!is_array($frames) || count($frames) < 1 || count($frames) > ($isMotion && !$isAlignment ? 11 : 3)) {
     reject(400, 'Supply 1 to 3 JPEG frames');
 }
 $validated = [];
@@ -607,14 +608,20 @@ foreach ($frames as $frame) {
 }
 $workerInput = ['shotId' => $shotId, 'frames' => $validated];
 if ($isMotion) {
-    if (count(array_diff(array_keys($input), ['action','csrf','shotId','frames','profile','start','end','aspect'])) > 0 ||
-        count($validated) !== 7 || !in_array($input['profile'] ?? '', ['g38_low','lite_default'], true) ||
+    if (count(array_diff(array_keys($input), array_merge(['action','csrf','shotId','frames','profile','start','end','aspect'], $isAlignment ? ['sceneIndex'] : []))) > 0 ||
+        !in_array(count($validated), $isAlignment ? [3] : [7,11], true) || !in_array($input['profile'] ?? '', ['g38_low','lite_default'], true) ||
         !is_numeric($input['start'] ?? null) || !is_numeric($input['end'] ?? null) ||
         !is_numeric($input['aspect'] ?? null) || (float) $input['start'] < 0 ||
         (float) $input['end'] > 36000 || (float) $input['end'] - (float) $input['start'] < 0.15 ||
         (float) $input['aspect'] < 0.2 || (float) $input['aspect'] > 5) reject(400, 'Invalid camera motion request');
-    $workerInput += ['task' => 'camera_motion', 'start' => (float) $input['start'],
+    $workerInput += ['task' => $isAlignment ? 'camera_alignment' : 'camera_motion', 'start' => (float) $input['start'],
         'end' => (float) $input['end'], 'aspect' => (float) $input['aspect']];
+}
+if ($isAlignment) {
+    if (!is_array($input['sceneIndex'] ?? null) || count($input['sceneIndex']) < 1 ||
+        count($input['sceneIndex']) > 240 || strlen(json_encode($input['sceneIndex'])) > 60000)
+        reject(400, 'Invalid camera scene index');
+    $workerInput['sceneIndex'] = $input['sceneIndex'];
 }
 if (array_key_exists('cameraMotion', $input)) {
     if ($isMotion || !is_array($input['cameraMotion']) ||
@@ -762,7 +769,7 @@ if (!is_string($body)) reject(400, 'Could not encode scene request');
 
 $_SESSION[$quotaKey] = (int) ($_SESSION[$quotaKey] ?? 0) + 1;
 session_write_close();
-$ch = curl_init($workerEndpoint);
+$ch = curl_init($isAlignment ? $workerEndpoint . '/camera-align' : $workerEndpoint);
 if (!$ch) reject(503, 'Could not open the Worker connection');
 $response = '';
 $tooLarge = false;
@@ -804,9 +811,10 @@ if (!is_array($result) || json_last_error() !== JSON_ERROR_NONE) {
     reject(502, 'Worker response was not valid JSON');
 }
 if ($isMotion) {
-    if (($result['ok'] ?? false) !== true || !is_array($result['motion'] ?? null))
+    $field = $isAlignment ? 'alignment' : 'motion';
+    if (($result['ok'] ?? false) !== true || !is_array($result[$field] ?? null))
         reject(502, 'Invalid camera motion response');
-    answer(200, ['ok' => true, 'motion' => $result['motion'],
+    answer(200, ['ok' => true, $field => $result[$field], 'referenceAt' => $validated[0]['at'],
         'usage' => safe_worker_usage($result['usage'] ?? null)]);
 }
 answer(200, ['ok' => true, 'proposal' => $result]);

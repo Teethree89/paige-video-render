@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {syncChapterCameraMotion,clipPlanesForScene} from '../camera-motion-sync.js';
+import {syncChapterCameraMotion,clipPlanesForScene,alignChapterCameraToView} from '../camera-motion-sync.js';
 import {shotAnchorMap} from '../primitive-preview.js';
 import {readFile} from 'node:fs/promises';
 import {evaluateCamera} from '../animation-curves.js';
@@ -21,6 +21,29 @@ const project=()=>({
 });
 const old={center:[2,0,0],radius:4},large={center:[102,0,0],radius:12},
   anchor=[100,0,0];
+test('matched orbit view rotates/scales/translates the whole path at the actual playhead, not the scene',()=>{
+ const seq=project(),before=JSON.stringify(seq),view={position:[30,17,14],target:[8,3,5],fov:63},at=1.3;
+ const proposal=alignChapterCameraToView(seq,'a',{anchor:[0,0,0],view,referenceAt:at});
+ const frame=evaluateCamera(proposal.sequence.camera,at);
+ for(const key of ['p','t'])assert.ok(Math.hypot(...frame[key].map((n,i)=>n-view[key==='p'?'position':'target'][i]))<.001);
+ assert.ok(Math.abs(frame.fov-view.fov)<.001);
+ for(const k of seq.camera.filter(k=>k.at<5)){
+   const next=proposal.sequence.camera.find(n=>n.id===k.id);
+   assert.equal(next.at,k.at);assert.deepEqual(next.curve,k.curve);assert.equal(next.cut,k.cut);
+ }
+ assert.deepEqual(proposal.sequence.camera.filter(k=>k.at>=5),seq.camera.filter(k=>k.at>=5));
+ assert.deepEqual(proposal.sequence.primitiveScenes,seq.primitiveScenes);
+ assert.deepEqual(proposal.sequence.text,seq.text);
+ assert.deepEqual(shotAnchorMap(proposal.sequence,t=>evaluateCamera(proposal.sequence.camera,t)).a,[0,0,0]);
+ assert.equal(JSON.stringify(seq),before);
+});
+test('matched-view alignment rejects stale timestamps, invalid poses and lens limits without mutation',()=>{
+ const seq=project(),before=JSON.stringify(seq),view={position:[10,4,10],target:[0,0,0],fov:50};
+ for(const opts of [{referenceAt:5},{referenceAt:-1},{view:{...view,position:[NaN,0,0]}},
+   {view:{...view,target:[10,4,10]}},{view:{...view,fov:0}}])
+   assert.throws(()=>alignChapterCameraToView(seq,'a',{anchor:[0,0,0],view,referenceAt:1,...opts}));
+ assert.equal(JSON.stringify(seq),before);
+});
 test('regeneration maps all authored motion keys to new geometry, preserving timing and curves',()=>{
  const seq=project(),serialized=JSON.stringify(seq);
  const {sequence:next,report}=syncChapterCameraMotion(seq,'a',{
@@ -113,3 +136,4 @@ test('video renderer uses the same retargeted camera/easing, anchor and clipping
  assert.match(source,/cam\.near=planes\.near;cam\.far=planes\.far/);
  assert.match(source,/shotAnchorMap\(seq,cameraAt\)/);
 });
+

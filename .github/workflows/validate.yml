@@ -31,6 +31,10 @@ jobs:
           php -l scene-proxy.php
           node --check worker/scene-worker.mjs
           node --check scripts/inspect_argon_prompts.mjs
+      # Compile the actual module graph and validate Wrangler configuration.
+      # No Cloudflare credentials, upload, deployment or provider call.
+      - name: Bundle Worker with Wrangler (no deployment)
+        run: npx --yes wrangler@4.155.0 deploy --dry-run --outdir "$RUNNER_TEMP/worker-bundle"
       # The 50webs host reports X-Powered-By: PHP/7.0.33. The runner's newer
       # PHP accepts 7.1+ syntax that is a fatal parse error in production.
       - name: Lint PHP proxy with the production PHP version (7.0)

@@ -133,6 +133,9 @@
             </select>
           </label>
           <button id="acceptedCameraSyncPreview" class="wide secondary" type="button">Preview camera sync</button>
+          <button id="acceptedCameraMatchReference" class="wide secondary" type="button" hidden>Match camera to reference · AI</button>
+          <button id="acceptedCameraMatchView" class="wide secondary" type="button">Align whole path to current orbit view · Free</button>
+          <p class="field-help">Wrong starting angle? Match camera to reference estimates a view using the actual model layout. Or pause, enable Orbit inspect, match the reference yourself, and align the whole path to that view. Preview and Apply move only camera keys.</p>
           <div class="primitive-buttons">
             <button id="acceptedCameraSyncApply" class="secondary" type="button" disabled>Apply to camera keys</button>
             <button id="acceptedCameraSyncCancel" class="ghost" type="button" hidden>Discard preview</button>
@@ -349,7 +352,7 @@
                 <label class="checkbox-field"><input id="videoMotionAuto" type="checkbox" checked> Analyze camera before generating (reuse saved estimate)</label>
                 <button id="videoMotionAnalyze" type="button" class="wide secondary">Analyze / refresh video motion</button>
                 <p id="videoMotionStatus" class="field-help" role="status">No video motion analyzed for this chapter.</p>
-                <p class="field-help">Seven chronological frames, one analysis request. Uses your existing API key; free availability and limits depend on your Google project. Estimates are saved with the timeline. Preview the fitted path before applying. Existing authored cameras require explicit camera sync.</p>
+                <p class="field-help">Eleven chronological frames, one analysis request. Uses your existing API key; free availability and limits depend on your Google project. Estimates are saved with the timeline. Preview the fitted path before applying. Existing authored cameras require explicit camera sync.</p>
               </section>
               <div id="aiArgonSettings" hidden>
                 <div class="two-input">

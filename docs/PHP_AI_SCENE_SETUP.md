@@ -27,6 +27,24 @@ Do not duplicate their values in `wrangler.toml` or `worker/scene-worker.mjs`. T
 
 Cloudflare Workers Builds uses `npx wrangler deploy` for production and `npx wrangler preview` for pull-request previews. The Worker keeps `[previews]` for previews but deliberately **does not** declare `[secrets].required`: Wrangler rejected production Builds with "required secrets have not been set" even after the dashboard was configured. No secret values are copied into GitHub, deployment commands or the Wrangler configuration. Cloudflare documents that existing encrypted secrets are normally preserved across Wrangler deployments.
 
+Preview bindings are explicit: `previews.durable_objects.bindings` declares
+`ARGON_JOBS`, and `previews.version_metadata` declares `CF_VERSION_METADATA`.
+Cloudflare provisions a separate Durable Object namespace for each Preview;
+the top-level SQLite migration remains shared configuration, not shared data.
+Preview secrets also have separate configuration and must be set privately
+before testing authenticated generation. Production secrets are not inherited.
+See [Cloudflare Preview configuration](https://developers.cloudflare.com/workers/previews/configuration/).
+
+The 2026-10-29 PR #158 log failed during `wrangler preview` at the Cloudflare
+Preview deployments API with generic error `10013`. That log contains no
+compiler error and does not identify the cause. Missing Preview bindings were
+corrected separately; a successful remote Preview build is still needed to
+verify deployment. CI now runs Wrangler 4.155.0 `deploy --dry-run` to compile
+the real module graph without uploading or deploying. If error `10013`
+persists, retry the failed Preview build in Cloudflare and retain its build ID
+and error timestamp for Cloudflare support. Do not replace the Preview command
+with a production deployment command to bypass this failure.
+
 After production succeeds, open the actual Worker URL and visit `/health`:
 
 - HTTP **200** with `{"ok":true,"service":"paige-scene","ready":true}` means the **deployed runtime can see both secret bindings**. It does **not** confirm the Gemini key is valid or quota available.
@@ -893,3 +911,4 @@ Provider does not promise an ETA, and some models may emit no intermediate
 steps at all. The overlay may be minimized without cancelling a paid job.
 Do not merge during running paid Argon calls. No live paid model runs were
 performed by this change.
+

@@ -14,7 +14,7 @@ export function acceptedCameraSnapshot(sequence,shotId){
   });
 }
 export function prepareAcceptedCameraSync(sequence,shotId,{
-  bounds,anchor,modelCamera=null,mode='motion',aspect=16/9
+  bounds,anchor,modelCamera=null,mode='motion',aspect=16/9,view=null,referenceAt=null
 }={}){
   const snapshot=acceptedCameraSnapshot(sequence,shotId);
   // Previous model bounds no longer exist after acceptance. Derive framing
@@ -22,12 +22,12 @@ export function prepareAcceptedCameraSync(sequence,shotId,{
   // This is deterministic and does not request or bill a Gemini model.
   const proposal=syncChapterCameraMotion(sequence,shotId,{
     oldBounds:null,newBounds:bounds,anchor,modelCamera,mode,aspect,
-    referenceAt:sequence.shots.find(s=>s.id===shotId)?.cameraReferenceAt
+    view,referenceAt:referenceAt??sequence.shots.find(s=>s.id===shotId)?.cameraReferenceAt
   });
   return {...proposal,shotId,snapshot};
 }
 export function setupAcceptedCameraSync({
-  getSequence,getActiveShot,getBounds,getAnchor,getCamera,canEdit,onPreview,onApply,onDiscard
+  getSequence,getActiveShot,getBounds,getAnchor,getCamera,getView=null,getPlayheadTime=null,canEdit,onPreview,onApply,onDiscard
 }){
   const root=document.getElementById('acceptedCameraSyncPanel');
   if(!root)return null;
@@ -35,6 +35,7 @@ export function setupAcceptedCameraSync({
   const mode=$('acceptedCameraSyncMode'),preview=$('acceptedCameraSyncPreview'),
     apply=$('acceptedCameraSyncApply'),cancel=$('acceptedCameraSyncCancel'),
     status=$('acceptedCameraSyncStatus');
+  const matchView=$('acceptedCameraMatchView');
   let staged=null,visibleShot=null;
   const tell=message=>{status.textContent=message;};
   function discard({notify=true}={}){
@@ -58,6 +59,7 @@ export function setupAcceptedCameraSync({
     }
     const edit=canEdit(),reason=edit?'':'Finish the active AI job or proposal before changing saved cameras.';
     preview.disabled=!edit;
+    if(matchView)matchView.disabled=!edit||!getView;
     mode.disabled=!edit;
     apply.disabled=!edit||!staged;
     if(reason&&!staged)tell(reason);
@@ -68,6 +70,26 @@ export function setupAcceptedCameraSync({
       if(!unchanged)discard({notify:false});
     }
   }
+  function stageView(view,referenceAt,source='current-view'){
+    if(!canEdit())throw Error('Finish the active AI job or proposal first.');
+    const id=getActiveShot()?.id;
+    if(staged)discard({notify:false});
+    const proposal=prepareAcceptedCameraSync(getSequence(),id,{
+      bounds:getBounds(id),anchor:getAnchor(id),mode:source,view,referenceAt});
+    onPreview(proposal);staged=proposal;
+    apply.disabled=false;cancel.hidden=false;
+    tell('Previewing the whole camera path aligned to the '+
+      (source==='reference-view'?'reference estimate':'current orbit view')+
+      '. Scrub to review, then Apply. The scene stays fixed.');
+    return proposal;
+  }
+  matchView?.addEventListener('click',()=>{
+    try{
+      // Capture BEFORE discarding an earlier preview restores saved cameras.
+      const view=getView?.(),at=getPlayheadTime?.();
+      stageView(view,at);
+    }catch(error){tell('Camera alignment unavailable: '+error.message);}
+  });
   preview.addEventListener('click',()=>{
     if(!canEdit())return tell('Finish the active AI job or proposal before camera synchronization.');
     const shot=getActiveShot(),id=shot?.id;
@@ -107,6 +129,7 @@ export function setupAcceptedCameraSync({
   });
   cancel.addEventListener('click',()=>discard());
   refresh();
-  return {refresh,reset:()=>discard({notify:false}),get hasPreview(){return !!staged;}};
+  return {refresh,previewReference:(view,at)=>stageView(view,at,'reference-view'),
+    reset:()=>discard({notify:false}),get hasPreview(){return !!staged;}};
 }
 

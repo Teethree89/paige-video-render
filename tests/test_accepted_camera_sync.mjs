@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {acceptedCameraSnapshot,prepareAcceptedCameraSync} from '../accepted-camera-sync.js';
+import {acceptedCameraSnapshot,prepareAcceptedCameraSync,setupAcceptedCameraSync} from '../accepted-camera-sync.js';
 import {shotAnchorMap} from '../primitive-preview.js';
 import {evaluateCamera} from '../animation-curves.js';
 
@@ -20,6 +20,30 @@ const make=()=>({
     {shotId:'second',objects:[{id:'other',primitive:'box',scale:[1,2,3],position:[0,0,0],
       rotation:[0,0,0],name:'Unchanged',material:{color:'#ffffff',roughness:.5,metalness:0}}]}
   ]}
+});
+test('free orbit alignment captures the view before discarding a preview and saves only on Apply',()=>{
+ const oldDocument=globalThis.document,ids=new Map();
+ globalThis.document={getElementById(id){if(!ids.has(id))ids.set(id,{
+   handlers:{},addEventListener(type,fn){this.handlers[type]=fn;}});return ids.get(id);}};
+ const original=make(),before=JSON.stringify(original);let current=structuredClone(original),staged=null,applied=null;
+ let view={position:[24,12,8],target:[3,2,1],fov:60};
+ const resetView=()=>{view={position:[0,4,15],target:[0,0,0],fov:50};};
+ try{
+   setupAcceptedCameraSync({getSequence:()=>current,getActiveShot:()=>current.shots[0],
+     getBounds:()=>({center:[0,0,0],radius:10}),getAnchor:()=>[0,0,0],getCamera:()=>null,
+     getView:()=>structuredClone(view),getPlayheadTime:()=>2,canEdit:()=>true,
+     onPreview:p=>{staged=p;},onDiscard:()=>{staged=null;resetView();},
+     onApply:p=>{applied=p;current=p.sequence;}});
+   ids.get('acceptedCameraMatchView').handlers.click();
+   assert.equal(JSON.stringify(current),before);assert.ok(staged);
+   view={position:[-35,17,19],target:[2,1,4],fov:58};const expected=structuredClone(view);
+   ids.get('acceptedCameraMatchView').handlers.click();
+   const frame=evaluateCamera(staged.sequence.camera,2);
+   assert.ok(Math.hypot(...frame.p.map((n,i)=>n-expected.position[i]))<.001);
+   ids.get('acceptedCameraSyncApply').handlers.click();
+   assert.ok(applied);assert.deepEqual(current.primitiveScenes,original.primitiveScenes);
+   assert.equal(current.shots[0].cameraSync.mode,'current-view');
+ }finally{globalThis.document=oldDocument;}
 });
 test('can sync camera *after* acceptance without touching any geometry or text',()=>{
  const original=make(),baseline=JSON.stringify(original);
@@ -82,3 +106,4 @@ test('post-accept camera preview is a separate, no-network UI flow with undo his
  assert.match(app,/syncPrimitiveWorld\(\);\s*refreshAll\(\);seek\(at\);saveLocal\(\)/);
  assert.doesNotMatch(app,/onPreview:proposal=>\{[^}]*fetch\(/);
 });
+
