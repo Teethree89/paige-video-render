@@ -4,7 +4,7 @@ For any video-to-3D work, **read [docs/VIDEO_TO_3D_AI_ROADMAP.md](docs/VIDEO_TO_
 
 Mission: preserve the hand-authored *Atoms to AI* flythrough as the benchmark while building a reusable Video → Shot Timeline → 3D Primitives → Camera Flythrough → Video Export pipeline.
 
-Implemented through Phase 2: offline video intake, visual chapter suggestions, editable storyboard review, draft timelines, and **manual, data-driven primitive geometry** with shot-specific editing and GLB export. AI inference of object identity, positions, lighting, and camera motion is **not implemented**. Read [docs/PRIMITIVE_SCENE_FORMAT.md](docs/PRIMITIVE_SCENE_FORMAT.md) before building the model adapter.
+Current implementation includes offline video intake, chapter suggestions, primitive editing, AI geometry proposals and reviewable video camera estimates. Camera estimation is not calibrated metric reconstruction. Read [docs/VIDEO_CAMERA_MOTION.md](docs/VIDEO_CAMERA_MOTION.md) and [docs/PRIMITIVE_SCENE_FORMAT.md](docs/PRIMITIVE_SCENE_FORMAT.md) before changing these adapters.
 
 Provider decisions: keep model adapters replaceable. Muse/MiMo/OpenCode free-tier assumptions must be verified against available vision APIs before connecting. Keep provider secrets out of browser JS and public FTP files. Do not store user-uploaded video or send frames to third parties without explicit, informed user action.
 
@@ -20,6 +20,23 @@ Engineering:
 ## Phase 1.1 distinction
 
 The two video-analysis modes are **hard cuts** (adjacent image changes) and **visual chapter candidates** (windowed novelty). Neither infers object identity, camera pose, or geometry. The original nine-chapter map was manually interpreted; do not try to reproduce it by hardcoding segment counts or expected timestamps for arbitrary videos. Keep storyboard subject labels user-editable, and keep generated camera paths marked as placeholders until the semantic-model stage is verified.
+
+## Video camera motion estimates
+
+Fresh video drafts use stationary placeholder cameras. Imported-video generation
+can first run a separately confirmed camera analysis: seven bounded chronological
+JPEGs in one Gemini 3.8 Flash Low or 3.5 Flash-Lite Minimal call. Reuse validated
+`shots[].videoCameraMotion` only while chapter start/end still match. Never retry
+or switch models automatically. The existing session/CSRF and Worker token remain
+required. Camera analysis has its own bounded 20/hour session counter; it does
+not spend the geometry request allowance or bypass Google's project quotas.
+Pass only validated numeric motion data and fixed type labels to geometry;
+never promote the model's uncertainty prose into geometry instructions.
+Fit the estimated trajectory to actual geometry, freeze sceneAnchor, and require
+preview/Accept or Apply before saving camera keys. Only placeholder keys may
+auto-stage video motion; authored keys need explicit selection. The optional
+scene camera is a framing/orientation reference, never copied verbatim to the
+timeline. No live provider call, merge or deployment is implied by offline tests.
 
 ## Phase 3 Zen proof-of-concept
 
@@ -202,3 +219,4 @@ External prebuilt GLB assets are not individually editable in this mode.
 Do not save the temporary BoxHelper, TransformControls, review grid or orbit
 camera into project data. Use `tests/test_scene_object_edit.mjs` and the pinned
 Three.js integration test to guard the interaction.
+

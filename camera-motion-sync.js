@@ -5,6 +5,7 @@
 // generated scene itself is never scaled, moved or overwritten here.
 // A stable sceneAnchor prevents the shotAnchorMap feedback loop.
 import {evaluateCamera} from './animation-curves.js';
+import {buildVideoCameraMotion} from './video-camera-motion.js';
 const round=n=>Math.round(n*10000)/10000;
 const vec=v=>Array.isArray(v)&&v.length===3&&v.every(n=>Number.isFinite(n));
 const sub=(a,b)=>a.map((n,i)=>n-b[i]);
@@ -85,8 +86,9 @@ function median(values){const v=[...values].sort((a,b)=>a-b);return v[Math.floor
  * @param {object|null} options.modelCamera - Optional validated world-space model camera.
  */
 export function syncChapterCameraMotion(source,shotId,{
- oldBounds=null,newBounds,anchor,mode='motion',modelCamera=null,aspect=16/9,margin=1.12
+ oldBounds=null,newBounds,anchor,mode='motion',modelCamera=null,aspect=16/9,margin=1.12,referenceAt=null
 }={}){
+ if(mode==='video-motion')return buildVideoCameraMotion(source,shotId,{newBounds,anchor,modelCamera,referenceAt});
  if(!source?.shots?.length||!source?.camera?.length)throw Error('Camera timeline is missing');
  const shot=source.shots.find(s=>s.id===shotId);
  if(!shot)throw Error('Selected chapter no longer exists');
@@ -173,3 +175,4 @@ export function clipPlanesForScene(position,target,bounds){
  return {near:clamp(distance*.002,.05,.35),
    far:clamp(Math.max(500,sceneDistance+bounds.radius*3,distance*4),500,60000)};
 }
+

@@ -126,6 +126,7 @@
           <p class="field-help">Already accepted a 3D model? Align this chapter's existing pan, orbit, and dolly path to its actual model size. Preview first; your geometry and saved camera keys remain unchanged until you apply.</p>
           <label class="field">Camera alignment
             <select id="acceptedCameraSyncMode">
+              <option value="video-motion">Use analyzed video motion (estimate)</option>
               <option value="motion" selected>Preserve authored motion (recommended)</option>
               <option value="fit">Fit entire model</option>
               <option value="model-view">Align with model's suggested view</option>
@@ -337,6 +338,19 @@
                   <option value="argon_direct">Gemini 4 Argon · Direct image (EXPERIMENTAL, PAID, subject or full scene)</option>
                 </select>
               </label>
+              <section id="videoMotionPanel" class="camera-sync-panel" hidden aria-label="Analyze camera motion from imported video">
+                <div class="section-label">VIDEO CAMERA MOTION</div>
+                <label class="field">Camera analysis model
+                  <select id="videoMotionProfile">
+                    <option value="g38_low" selected>Gemini 3.8 Flash · low thinking</option>
+                    <option value="lite_default">Gemini 3.5 Flash-Lite · minimal thinking</option>
+                  </select>
+                </label>
+                <label class="checkbox-field"><input id="videoMotionAuto" type="checkbox" checked> Analyze camera before generating (reuse saved estimate)</label>
+                <button id="videoMotionAnalyze" type="button" class="wide secondary">Analyze / refresh video motion</button>
+                <p id="videoMotionStatus" class="field-help" role="status">No video motion analyzed for this chapter.</p>
+                <p class="field-help">Seven chronological frames, one analysis request. Uses your existing API key; free availability and limits depend on your Google project. Estimates are saved with the timeline. Preview the fitted path before applying. Existing authored cameras require explicit camera sync.</p>
+              </section>
               <div id="aiArgonSettings" hidden>
                 <div class="two-input">
                   <label class="field">Argon thinking
@@ -391,6 +405,7 @@
                 <p class="field-help">Retarget this chapter's existing dolly, pan and orbit movement to the regenerated scene's actual 3D size. Your original camera keys remain unchanged until you accept the proposal.</p>
                 <label class="field">Framing
                   <select id="aiCameraSyncMode">
+                    <option value="video-motion">Use analyzed video motion (estimate)</option>
                     <option value="motion" selected>Preserve original motion &amp; framing</option>
                     <option value="fit">Fit the entire regenerated scene</option>
                     <option value="model-view">Align motion with model's suggested starting view</option>
@@ -682,3 +697,4 @@
   <script type="module" src="app.js"></script>
 </body>
 </html>
+

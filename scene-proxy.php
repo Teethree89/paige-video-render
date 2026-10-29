@@ -36,6 +36,10 @@ function safe_worker_error(int $status, string $body): string {
     $allowed = [
         '401:Unauthorized' => 'The Worker rejected the PHP access token. Verify the private PHP scene_access_token matches Cloudflare SCENE_ACCESS_TOKEN.',
         '400:Invalid image request' => 'The Worker rejected the sampled video frames. Check JPEG validation and frame sizes.',
+        '400:Invalid camera motion request' => 'Camera analysis rejected the chapter frames or settings before calling Google.',
+        '504:Camera motion analysis interrupted; no automatic retry' => 'Camera analysis timed out or disconnected. Nothing was retried; billing is not confirmed.',
+        '502:Camera motion provider unavailable; no automatic retry' => 'The camera analysis model is unavailable. Nothing was retried or switched to another model.',
+        '502:Provider camera motion did not match the editor schema' => 'Camera analysis returned an incomplete or invalid estimate. Geometry generation stopped; no camera keys changed.',
         '400:Invalid Argon check request' => 'The Argon model check was rejected before reaching Google. Verify that PHP sends an empty JSON object to the Worker.',
         '400:Invalid Argon diagnostic request' => 'The Argon diagnostic payload was rejected before Google was called.',
         '504:Argon diagnostic request timed out' => 'Argon did not answer the small synchronous test within 30 seconds. This is inconclusive; no automatic retry was made.',
@@ -563,7 +567,7 @@ if ($action === 'argon_status') {
         (($value['status'] === 'completed' && isset($value['proposal'])) ?
           ['proposal' => $value['proposal']] : []), $value));
 }
-if ($action !== 'generate' && $action !== 'argon_start')
+if ($action !== 'generate' && $action !== 'argon_start' && $action !== 'camera_motion')
     reject(400, 'Unsupported action');
 
 // Protect upstream quota; Argon reserves both paid calls before either is sent.
@@ -571,14 +575,17 @@ $window = (int) ($_SESSION['ai_window'] ?? 0);
 if ($window < time() - 3600) {
     $_SESSION['ai_window'] = time();
     $_SESSION['ai_calls'] = 0;
+    $_SESSION['motion_calls'] = 0;
 }
-if ((int) ($_SESSION['ai_calls'] ?? 0) >= 10) reject(429, 'Session AI limit reached');
+$isMotion = $action === 'camera_motion';
+$quotaKey = $isMotion ? 'motion_calls' : 'ai_calls';
+if ((int) ($_SESSION[$quotaKey] ?? 0) >= ($isMotion ? 20 : 10)) reject(429, 'Session AI limit reached');
 $shotId = $input['shotId'] ?? '';
 $frames = $input['frames'] ?? null;
 if (!is_string($shotId) || !preg_match('/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/', $shotId)) {
     reject(400, 'Invalid shot ID');
 }
-if (!is_array($frames) || count($frames) < 1 || count($frames) > 3) {
+if (!is_array($frames) || count($frames) < 1 || count($frames) > ($isMotion ? 7 : 3)) {
     reject(400, 'Supply 1 to 3 JPEG frames');
 }
 $validated = [];
@@ -599,6 +606,22 @@ foreach ($frames as $frame) {
     $validated[] = ['at' => (float) $at, 'imageDataUrl' => $image];
 }
 $workerInput = ['shotId' => $shotId, 'frames' => $validated];
+if ($isMotion) {
+    if (count(array_diff(array_keys($input), ['action','csrf','shotId','frames','profile','start','end','aspect'])) > 0 ||
+        count($validated) !== 7 || !in_array($input['profile'] ?? '', ['g38_low','lite_default'], true) ||
+        !is_numeric($input['start'] ?? null) || !is_numeric($input['end'] ?? null) ||
+        !is_numeric($input['aspect'] ?? null) || (float) $input['start'] < 0 ||
+        (float) $input['end'] > 36000 || (float) $input['end'] - (float) $input['start'] < 0.15 ||
+        (float) $input['aspect'] < 0.2 || (float) $input['aspect'] > 5) reject(400, 'Invalid camera motion request');
+    $workerInput += ['task' => 'camera_motion', 'start' => (float) $input['start'],
+        'end' => (float) $input['end'], 'aspect' => (float) $input['aspect']];
+}
+if (array_key_exists('cameraMotion', $input)) {
+    if ($isMotion || !is_array($input['cameraMotion']) ||
+        strlen(json_encode($input['cameraMotion'])) > 10000) reject(400, 'Invalid camera motion context');
+    // The shared browser/Worker validator checks all poses and bounds.
+    $workerInput['cameraMotion'] = $input['cameraMotion'];
+}
 // Legacy model-only clients remain compatible. New clients select one
 // server-defined profile. Reject ambiguous requests rather than guessing.
 if (array_key_exists('profile', $input)) {
@@ -737,7 +760,7 @@ if (($workerInput['profile'] ?? '') === 'g38_medium' &&
 $body = json_encode($workerInput, JSON_UNESCAPED_SLASHES);
 if (!is_string($body)) reject(400, 'Could not encode scene request');
 
-$_SESSION['ai_calls'] = (int) ($_SESSION['ai_calls'] ?? 0) + 1;
+$_SESSION[$quotaKey] = (int) ($_SESSION[$quotaKey] ?? 0) + 1;
 session_write_close();
 $ch = curl_init($workerEndpoint);
 if (!$ch) reject(503, 'Could not open the Worker connection');
@@ -780,4 +803,11 @@ $result = json_decode($response, true);
 if (!is_array($result) || json_last_error() !== JSON_ERROR_NONE) {
     reject(502, 'Worker response was not valid JSON');
 }
+if ($isMotion) {
+    if (($result['ok'] ?? false) !== true || !is_array($result['motion'] ?? null))
+        reject(502, 'Invalid camera motion response');
+    answer(200, ['ok' => true, 'motion' => $result['motion'],
+        'usage' => safe_worker_usage($result['usage'] ?? null)]);
+}
 answer(200, ['ok' => true, 'proposal' => $result]);
+
