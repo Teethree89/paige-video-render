@@ -759,7 +759,9 @@ html,body{font-size:14px}
 .tw-points li[data-state="active"] .tw-point{border-color:#f3b266}.tw-points li[data-state="done"] .tw-point{border-color:#2b5446}
 .tw-del{background:#101e2c;border:1px solid #4a3340;color:#e7a9b9;border-radius:5px;padding:0 9px}
 .tw-wipe-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;color:#b2c3d4}
-.tw-frames{display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px;flex:1 1 100%;color:#b2c3d4;font-size:12px}
+.tw-frames{display:grid;gap:6px;flex:0 0 auto;color:#b2c3d4;font-size:12px}
+.tw-frames:has(li){padding-top:2px}
+.track-wizard[data-phase="compare"] .tw-frames{grid-template-columns:1fr auto;align-items:center;flex:1 1 100%;order:4}
 .tw-frames[hidden]{display:none!important}
 .tw-frames ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
 .tw-frames li{display:flex;align-items:center;justify-content:space-between;gap:8px}

@@ -67,7 +67,7 @@ export function setupTrackWizard(host){
    host.setFocusLayout?.(phase!=='preview');
    const c=PHASE_COPY[phase];el.stepText.textContent=c.step;el.title.textContent=c.title;el.help.textContent=c.help;
    el.back.hidden=!['model','compare','preview','frame'].includes(phase);
-   el.clear.hidden=phase!=='video';el.skip.hidden=phase!=='model';el.timeRow.hidden=!['video','frame'].includes(phase);el.framesRow.hidden=phase!=='compare';
+   el.clear.hidden=phase!=='video';el.skip.hidden=phase!=='model';el.timeRow.hidden=!['video','frame'].includes(phase);el.framesRow.hidden=!['video','compare'].includes(phase);
    el.wipeRow.hidden=phase!=='compare';el.lensRow.hidden=phase!=='compare';el.density.closest('.tw-density').hidden=phase!=='preview';
    el.apply.hidden=el.discard.hidden=phase!=='preview';el.progress.hidden=phase!=='tracking';
    el.done.hidden=!['video','model','compare','frame'].includes(phase);
@@ -76,7 +76,7 @@ export function setupTrackWizard(host){
    el.cancel.textContent=phase==='preview'?'Close':'Cancel';
    el.svg.hidden=phase!=='compare';el.handle.hidden=phase!=='compare';
    el.videoLayer.dataset.wipe=phase==='compare'?'on':'off';
-   layout();renderMarks();renderList();updateButtons();
+   layout();renderMarks();renderList();updateButtons();renderFrames();
  };
 
  // ---- frame display ----
@@ -103,6 +103,9 @@ export function setupTrackWizard(host){
  }
 
  // ---- pins ----
+ // From the video step any numbered point can be marked in another frame; from the compare step only the
+ // ones matched on the model (an extra frame never has more points than the first frame).
+ const eligible=p=>st.frameFrom==='video'||!!p.X;
  const nextId=()=>'pin'+(st.nextPin++);
  const frameCss=()=>el.frameBox.getBoundingClientRect();
  function snapAt(nx,ny,radiusCss=SNAP_CSS_PX){
@@ -135,7 +138,7 @@ export function setupTrackWizard(host){
    if(st.phase==='frame'){
      const ed=st.editFrame;
      el.list.replaceChildren(...st.pins.map((pin,i)=>{
-       if(!pin.X)return null;
+       if(!eligible(pin))return null;
        const li=document.createElement('li');li.dataset.index=String(i);
        li.dataset.state=ed.obs[pin.id]?'done':i===st.active?'active':'';
        const label=document.createElement('button');label.type='button';label.className='tw-point';label.textContent=`${i+1}`;
@@ -178,11 +181,12 @@ export function setupTrackWizard(host){
    const n=st.pins.length,matched=matchedPins(st.pins).length;
    if(st.phase==='video'){
      el.done.disabled=n<MIN_PIN_POINTS;
+     renderFrames();
      el.time.disabled=n>0;el.time.title=n>0?'Clear the points to choose another reference frame':'Choose the frame to mark points on';
      say(n<MIN_PIN_POINTS?`${n} point${n===1?'':'s'} marked. Mark at least ${MIN_PIN_POINTS} (${RECOMMENDED_PINS}–10 is better), then press Done.`:
        `${n} points marked${n<RECOMMENDED_PINS?` (${RECOMMENDED_PINS} or more gives a steadier result)`:''}. Press Done when you are finished.`);
    }else if(st.phase==='frame'){
-     const placed=Object.keys(st.editFrame.obs).length;
+     const placed=Object.keys(st.editFrame.obs).length,matched=st.pins.filter(eligible).length;
      el.done.disabled=placed<MIN_PIN_POINTS;
      el.time.disabled=placed>0;el.time.title=placed>0?'Remove the points to choose another frame':'Choose the extra frame';
      say(placed<MIN_PIN_POINTS?`${placed} of ${matched} points placed. Place at least ${MIN_PIN_POINTS}, then press Save frame.`:
@@ -207,12 +211,12 @@ export function setupTrackWizard(host){
      // Extra frames reuse the numbered points matched on the model: never more than the first frame has.
      const ed=st.editFrame;
      let i=st.active;
-     if(!st.pins[i]?.X||ed.obs[st.pins[i].id])i=st.pins.findIndex(p=>p.X&&!ed.obs[p.id]);
+     if(!st.pins[i]||!eligible(st.pins[i])||ed.obs[st.pins[i].id])i=st.pins.findIndex(p=>eligible(p)&&!ed.obs[p.id]);
      if(i<0){say('Every matched point is already placed in this frame. Drag one to adjust it.','warn');return;}
      const hit=snapAt(nx,ny);
      ed.obs[st.pins[i].id]={x:hit.x,y:hit.y,snapped:hit.snapped};
-     const next=st.pins.findIndex((p,k)=>k>i&&p.X&&!ed.obs[p.id]);
-     st.active=next>=0?next:st.pins.findIndex(p=>p.X&&!ed.obs[p.id]);
+     const next=st.pins.findIndex((p,k)=>k>i&&eligible(p)&&!ed.obs[p.id]);
+     st.active=next>=0?next:st.pins.findIndex(p=>eligible(p)&&!ed.obs[p.id]);
      renderMarks();renderList();updateButtons();return;
    }
    if(st.pins.length>=MAX_PINS){say(`At most ${MAX_PINS} points. Delete one first.`,'warn');return;}
@@ -242,7 +246,7 @@ export function setupTrackWizard(host){
    const t=Number(el.time.value);el.timeText.textContent=clock(t);
    clearTimeout(scrubTimer);scrubTimer=setTimeout(()=>loadFrameAt(t),120);
  });
- el.clear.addEventListener('click',()=>{if(!st)return;st.pins=[];st.active=0;renderMarks();renderList();updateButtons();});
+ el.clear.addEventListener('click',()=>{if(!st)return;st.pins=[];st.extra=[];st.extraFits=[];st.active=0;renderMarks();renderList();updateButtons();});
 
  // ---- model phase ----
  function firstUnmatched(from=0){
@@ -326,17 +330,20 @@ export function setupTrackWizard(host){
  }
  function renderFrames(){
    const fits=st.extraFits||[];
-   el.frames.replaceChildren(...fits.map((f,i)=>{
+   el.frames.replaceChildren(...(st.extra||[]).map((e,i)=>{
+     const f=st.phase==='compare'?fits[i]:null,n=Object.keys(e.obs).length;
      const li=document.createElement('li');
      const text=document.createElement('span');
-     text.textContent=`Frame ${i+2} · ${clock(f.time)} · ${f.points} points`+(f.usable?` · ${f.rmsPx.toFixed(1)} px`:` · not used: ${f.reason}`);
-     if(!f.usable)li.dataset.state='bad';
+     text.textContent=`Frame ${i+2} · ${clock(e.time)} · ${f?f.points:n} points`+(f?(f.usable?` · ${f.rmsPx.toFixed(1)} px`:` · not used: ${f.reason}`):'');
+     if(f&&!f.usable)li.dataset.state='bad';
      const del=document.createElement('button');del.type='button';del.className='tw-del';del.textContent='×';
      del.setAttribute('aria-label',`Remove reference frame ${i+2}`);
-     del.addEventListener('click',()=>{st.extra.splice(i,1);enterCompare();});
+     del.addEventListener('click',()=>{st.extra.splice(i,1);if(st.phase==='compare')enterCompare();else{renderFrames();}});
      li.append(text,del);return li;
    }));
-   el.addFrame.disabled=(st.extra||[]).length>=MAX_EXTRA_FRAMES;
+   const full=(st.extra||[]).length>=MAX_EXTRA_FRAMES;
+   el.addFrame.disabled=full||(st.phase==='video'&&st.pins.length<MIN_PIN_POINTS);
+   el.addFrame.title=st.phase==='video'&&st.pins.length<MIN_PIN_POINTS?`Mark at least ${MIN_PIN_POINTS} points first`:'Mark the same numbered points in another frame';
  }
  function enterCompare(){
    const pins=matchedPins(st.pins),{width:W,height:H}=st.frame;
@@ -433,19 +440,22 @@ export function setupTrackWizard(host){
  el.discard.addEventListener('click',()=>{if(st?.phase==='preview'){host.discardProposal();st.proposal=null;say('Preview discarded. Saved camera keys are unchanged.');}});
 
  // ---- navigation buttons ----
- async function returnToCompare(){
+ async function returnFromFrame(){
+   const from=st.frameFrom;
    st.editFrame=null;
    await loadFrameAt(st.refTime);
-   if(st)enterCompare();
+   if(!st)return;
+   if(from==='compare')enterCompare();else{setPhase('video');renderFrames();}
  }
  el.addFrame.addEventListener('click',async()=>{
-   if(!st||st.phase!=='compare'||(st.extra||[]).length>=MAX_EXTRA_FRAMES)return;
+   if(!st||!['video','compare'].includes(st.phase)||(st.extra||[]).length>=MAX_EXTRA_FRAMES||el.addFrame.disabled)return;
+   st.frameFrom=st.phase;
    const {start,end}=st.shot,span=end-start;
    // Start far from the first reference frame, where the camera has moved most.
    const t=st.refTime<start+span/2?end-span*.15:start+span*.1;
    st.editFrame={time:t,obs:{}};
-   st.active=st.pins.findIndex(p=>p.X);
-   host.hideCompareView?.();
+   st.active=st.pins.findIndex(eligible);
+   if(st.frameFrom==='compare')host.hideCompareView?.();
    el.time.value=String(t);setPhase('frame');
    await loadFrameAt(t);
    if(st?.editFrame){say(`Scrub to a frame where the camera has moved, then click where point ${st.active+1} is.`);}
@@ -455,12 +465,14 @@ export function setupTrackWizard(host){
    if(st.phase==='frame'){
      const ed=st.editFrame,{width:W,height:H}=st.frame;
      if(Math.abs(ed.time-st.refTime)<.1){say('Choose a frame at least a tenth of a second away from the first reference frame.','warn');return;}
+     if(st.frameFrom==='compare'){
      const pts=matchedPins(st.pins).filter(p=>ed.obs[p.id]).map(p=>({x:ed.obs[p.id].x*W,y:ed.obs[p.id].y*H,X:p.X}));
      const r=resectCamera(pts,{width:W,height:H,fov:st.resection.fov});
      if(!r.ok){say(r.reason,'error');return;}
      if(r.rmsPx>EXTRA_MAX_RMS_PX){say(`These points do not fit the model from any camera (${r.rmsPx.toFixed(1)} px). Check that each number marks the same spot as before.`,'error');return;}
+     }
      (st.extra=st.extra||[]).push({time:ed.time,obs:ed.obs});
-     returnToCompare();return;
+     returnFromFrame();return;
    }
    if(st.phase==='video'){
      st.active=0;st.pins.forEach(p=>{p.X=null;});
@@ -471,7 +483,7 @@ export function setupTrackWizard(host){
  });
  el.back.addEventListener('click',()=>{
    if(!st)return;
-   if(st.phase==='frame'){returnToCompare();return;}
+   if(st.phase==='frame'){returnFromFrame();return;}
    if(st.phase==='model'){host.setPicking(false);host.setMarkers([]);host.exitView();setPhase('video');}
    else if(st.phase==='compare'){
      host.hideCompareView?.();host.enterModelView(st.shot.id);host.setPicking(true,onModelPick);
@@ -497,7 +509,7 @@ export function setupTrackWizard(host){
    if(!source?.url){host.notify?.(source?.reason||'Attach the source video first.');return;}
    if(!seq.primitiveScenes?.scenes?.some(s=>s.shotId===shot.id&&s.objects?.length)){host.notify?.('This chapter needs a 3D model first.');return;}
    const own=host.getSequence().camera.filter(k=>k.at>=shot.start-1e-4&&k.at<shot.end).sort((a,b)=>a.at-b.at)[0]?.fov;
-   st={shot:{...shot},source,pins:[],active:0,nextPin:1,density:'normal',phase:'video',frame:null,track:null,proposal:null,resection:null,lens:Number.isFinite(own)?clamp(Math.round(own*10)/10,12,110):null,extra:[],extraFits:[],editFrame:null};
+   st={shot:{...shot},source,pins:[],active:0,nextPin:1,density:'normal',phase:'video',frame:null,track:null,proposal:null,frameFrom:'video',resection:null,lens:Number.isFinite(own)?clamp(Math.round(own*10)/10,12,110):null,extra:[],extraFits:[],editFrame:null};
    root.hidden=false;
    el.density.value='normal';
    say('Loading the video…');

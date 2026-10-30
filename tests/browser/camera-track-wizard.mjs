@@ -95,6 +95,31 @@ try{
    const p=projectPoint(refPose,FOV,W,H,X),err=Math.hypot(pins[i].x*W-p.x,pins[i].y*H-p.y);
    assert.ok(pins[i].snapped&&err<3.5,`${name}: snapped=${pins[i].snapped}, ${err.toFixed(2)} px from the true corner`);
  });
+ // ---- Extra reference frame, added right here in step 1: the same numbered points later in the chapter ----
+ assert.equal(await page.locator('#twAddFrame').isDisabled(),false);
+ await page.locator('#twAddFrame').click();
+ await page.waitForFunction(()=>window.__atomsTrackWizard.phase==='frame');
+ await page.waitForFunction(()=>window.__atomsTrackWizard._state().frame&&window.__atomsTrackWizard._state().editFrame,null,{timeout:20000});
+ await page.waitForTimeout(500);
+ const extraTime=await page.evaluate(()=>window.__atomsTrackWizard._state().editFrame.time);
+ const extraFrame=Math.min(35,Math.floor(extraTime*FPS+1e-9));
+ assert.ok(extraFrame>REF_FRAME+6,'the extra frame is well away from the first: '+extraFrame);
+ const extraPose=lookAtPose(...Object.values(wizardPath(extraFrame/35)));
+ const rect2=await page.locator('#twFrameBox').boundingBox();
+ assert.equal(await page.isDisabled('#twDone'),true,'Save frame needs 4 points');
+ for(const [X,name] of corners){
+   const p=projectPoint(extraPose,FOV,W,H,X);
+   assert.ok(p&&p.x>5&&p.y>5&&p.x<W-5&&p.y<H-5,'corner is in the extra frame: '+name);
+   await page.mouse.click(rect2.x+(p.x+3)/W*rect2.width,rect2.y+(p.y-2)/H*rect2.height);
+ }
+ assert.equal(await page.evaluate(()=>Object.keys(window.__atomsTrackWizard._state().editFrame.obs).length),8,'at most as many points as the first frame');
+ const extraWorst=await page.evaluate(()=>{const st=window.__atomsTrackWizard._state();return Object.entries(st.editFrame.obs).map(([id,o])=>({id,x:o.x,y:o.y}));});
+ extraWorst.forEach((o,i)=>{const p=projectPoint(extraPose,FOV,W,H,corners[i][0]);const err=Math.hypot(o.x*W-p.x,o.y*H-p.y);assert.ok(err<4,`extra point ${i+1} is ${err.toFixed(2)} px from its corner`);});
+ await page.locator('#twDone').click();
+ await page.waitForFunction(()=>window.__atomsTrackWizard.phase==='video'&&document.querySelectorAll('#twFrames li').length===1,null,{timeout:30000});
+ assert.match(await page.textContent('#twFrames'),/Frame 2 · .* · 8 points/);
+ await page.waitForTimeout(400);
+  if(process.env.UI_SCREENSHOT_DIR)await page.screenshot({path:process.env.UI_SCREENSHOT_DIR+'/wizard-1b-extra.png'});
  await page.locator('#twDone').click();
 
  // ---- Step 2: pick the same corners on the model ----
@@ -141,30 +166,7 @@ try{
  await page.locator('#twLens').fill('');await page.locator('#twLens').dispatchEvent('change');
  await page.waitForFunction(()=>/lens \d+° \(estimated\)/.test(document.getElementById('twStats').textContent));
 
- // ---- Extra reference frame: the same numbered points later in the chapter ----
- await page.locator('#twAddFrame').click();
- await page.waitForFunction(()=>window.__atomsTrackWizard.phase==='frame');
- await page.waitForFunction(()=>window.__atomsTrackWizard._state().frame&&window.__atomsTrackWizard._state().editFrame,null,{timeout:20000});
- await page.waitForTimeout(500);
- const extraTime=await page.evaluate(()=>window.__atomsTrackWizard._state().editFrame.time);
- const extraFrame=Math.min(35,Math.floor(extraTime*FPS+1e-9));
- assert.ok(extraFrame>REF_FRAME+6,'the extra frame is well away from the first: '+extraFrame);
- const extraPose=lookAtPose(...Object.values(wizardPath(extraFrame/35)));
- const rect2=await page.locator('#twFrameBox').boundingBox();
- assert.equal(await page.isDisabled('#twDone'),true,'Save frame needs 4 points');
- for(const [X,name] of corners){
-   const p=projectPoint(extraPose,FOV,W,H,X);
-   assert.ok(p&&p.x>5&&p.y>5&&p.x<W-5&&p.y<H-5,'corner is in the extra frame: '+name);
-   await page.mouse.click(rect2.x+(p.x+3)/W*rect2.width,rect2.y+(p.y-2)/H*rect2.height);
- }
- assert.equal(await page.evaluate(()=>Object.keys(window.__atomsTrackWizard._state().editFrame.obs).length),8,'at most as many points as the first frame');
- const extraWorst=await page.evaluate(()=>{const st=window.__atomsTrackWizard._state();return Object.entries(st.editFrame.obs).map(([id,o])=>({id,x:o.x,y:o.y}));});
- extraWorst.forEach((o,i)=>{const p=projectPoint(extraPose,FOV,W,H,corners[i][0]);const err=Math.hypot(o.x*W-p.x,o.y*H-p.y);assert.ok(err<4,`extra point ${i+1} is ${err.toFixed(2)} px from its corner`);});
- await page.locator('#twDone').click();
- await page.waitForFunction(()=>window.__atomsTrackWizard.phase==='compare'&&/1 extra reference frame/.test(document.getElementById('twStats').textContent),null,{timeout:30000});
- assert.equal(await page.locator('#twFrames li').count(),1);
- // Removing it and adding again works; keep this one for tracking.
- if(process.env.UI_SCREENSHOT_DIR)await page.screenshot({path:process.env.UI_SCREENSHOT_DIR+'/wizard-3b-extra.png'});
+ await page.waitForFunction(()=>/1 extra reference frame will correct drift/.test(document.getElementById('twStats').textContent));
  await page.locator('#twDone').click();
 
  // ---- Steps 4-5: track (forward and backward from the reference frame), preview ----
