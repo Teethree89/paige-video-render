@@ -46,7 +46,7 @@ export const matchedPins=pins=>pins.filter(p=>Array.isArray(p.X));
 /**
  * @param {object} host
  *   getSequence(), getShot(), resolveSource(shot), canEdit(), getAnchor(shotId),
- *   enterModelView(shotId), exitView(), setPicking(on,handler), setMarkers(list),
+ *   enterModelView(shotId), exitView(), setPicking(on,handler), getTool() (optional: 'point' places/drags points), setMarkers(list),
  *   showCompareView({pose,fov,videoAspect}), previewProposal(proposal), applyProposal(), discardProposal(), notify(text)
  */
 export function setupTrackWizard(host){
@@ -225,6 +225,8 @@ export function setupTrackWizard(host){
    if(!st||!['video','frame'].includes(st.phase)||e.button!==0)return;
    const rect=frameCss(),nx=clamp((e.clientX-rect.left)/rect.width,0,1),ny=clamp((e.clientY-rect.top)/rect.height,0,1);
    const markEl=e.target.closest?.('.tw-mark');
+   // Only the Point tool places or drags points; Orbit leaves the frame untouched.
+   if((host.getTool?.()||'point')!=='point'){say('Choose the Point tool (P) to place or drag points.','warn');return;}
    if(markEl){drag={index:Number(markEl.dataset.index)};el.frameBox.setPointerCapture(e.pointerId);e.preventDefault();return;}
    if(st.phase==='frame'){
      // Extra frames reuse the numbered points matched on the model: never more than the first frame has.

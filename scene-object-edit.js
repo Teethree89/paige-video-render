@@ -55,7 +55,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onGroup,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{}
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onGroup,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{},onToolChange=()=>{}
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -75,7 +75,7 @@ export function setupSceneObjectEditing({
   transform.enabled=false;
   transform.detach();
   transform.addEventListener('change',onVisualChange);
-  let active=false,selectedId=null,selectedShot=null,operation='translate';
+  let active=false,selectedId=null,selectedShot=null,operation='translate',gizmoOn=true;
   let frameStart=null,draggingHandle=false,skipClick=false,highlight=null;
   let arrayHighlights=[],pendingArray=null;
   let rotationProxy=null,rotationSource=null;
@@ -302,7 +302,7 @@ export function setupSceneObjectEditing({
     if(value==='rotate'&&(selectedId?.startsWith('light::')||
       selectedId?.startsWith('light-target::')))return;
     const previous=operation;
-    operation=value;transform.setMode(value);
+    operation=value;transform.setMode(value);setGizmoEnabled(true);
     // World axes for movement; local rings for rotation.
     transform.setSpace(value==='translate'?'world':'local');
     if(active&&selectedId&&previous!==value){
@@ -314,13 +314,20 @@ export function setupSceneObjectEditing({
         world.getObjectNode(currentShot(),id);
       if(node)attachForMode(node,id);
     }
-    updateButtons();
+    updateButtons();onToolChange();
+  }
+  /** Orbit tool: hide and disable the gizmo so a drag can only move the camera. */
+  function setGizmoEnabled(on){
+    gizmoOn=!!on;
+    transform.enabled=active&&gizmoOn&&!rectangleMode;
+    helper.visible=gizmoOn;
+    onToolChange();
   }
   function setActive(next,{skipExit=false}={}){
     if(active===next)return true;
     if(next){
       if(onEnter?.()===false){updateButtons();return false;}
-      active=true;transform.enabled=true;
+      active=true;gizmoOn=true;helper.visible=true;transform.enabled=true;
       world.setLightMarkersVisible?.(true);
       orbitControls.enabled=true;
       selectedShot=currentShot();
@@ -339,7 +346,7 @@ export function setupSceneObjectEditing({
       message('View mode · timeline camera');
       onSelect?.(null);
     }
-    updateButtons();return true;
+    updateButtons();onToolChange();return true;
   }
   function focusSelectionIfOffscreen(){
     if(!active||!selectedId)return;
@@ -489,7 +496,7 @@ export function setupSceneObjectEditing({
   }
   rectangleButton?.addEventListener('click',()=>{
     rectangleMode=!rectangleMode;orbitControls.enabled=!rectangleMode;
-    transform.enabled=!rectangleMode;
+    transform.enabled=!rectangleMode&&gizmoOn;
     updateButtons();message(rectangleMode?
       'Drag left-to-right to contain objects, right-to-left to cross-select; Shift adds.':
       'Rectangle selection off. Drag to orbit.');
@@ -639,7 +646,8 @@ export function setupSceneObjectEditing({
     get selectedIds(){return [...selectedIds];},
     isSelected(id){return selectedIds.has(id);},
     groupSelected,
-    setActive,refresh,select,setMode,duplicateSelected,deleteSelected,updateHighlight,focusSelectionIfOffscreen,clearArrayHighlights,
+    setActive,refresh,select,setMode,setGizmoEnabled,
+    get operation(){return operation;},get gizmoEnabled(){return gizmoOn;},duplicateSelected,deleteSelected,updateHighlight,focusSelectionIfOffscreen,clearArrayHighlights,
     dispose(){setActive(false,{skipExit:true});clearRotationProxy();selectionPanel.restore();
       closeMakeArray();transform.dispose?.();scene.remove(helper);clearHighlight();clearExtraHighlights();clearArrayHighlights();}
   };
