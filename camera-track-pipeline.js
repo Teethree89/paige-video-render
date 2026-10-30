@@ -113,6 +113,7 @@ export function createAnchoredSession({width,height,seeds,refPose,fov,maxKeyfram
      const anchored=anchorPath({solve,seeds:seeds.map(s=>({id:String(s.id),X:s.X})),refPose,fov,width,height,seedObs});
      if(!anchored.ok)throw Object.assign(Error(anchored.reason),{summary});
      const keyTimes=keyframes.frames.map(f=>times[f]);
+     summary.brokeAt=brk?times[brk.frame]:null; // chapter time where the picture cut or changed too much to follow
      return {anchored:{...anchored,frames:anchored.frames.map(f=>({...f,time:keyTimes[f.frame]}))},summary,solve};
    }
  };
@@ -124,4 +125,22 @@ export function mergeAnchoredPasses(forward,backward=null){
  const byTime=new Map();
  for(const f of all)if(!byTime.has(f.time))byTime.set(f.time,f);
  return [...byTime.values()].sort((a,b)=>a.time-b.time);
+}
+
+/**
+ * Chapter ranges no tracked segment covers (a cut ends a segment: tracking cannot follow it).
+ * @param {{start:number,end:number}} chapter
+ * @param {{frames:{time:number}[]}[]} segments anchored segments (each from one reference frame)
+ * @returns {{from:number,to:number}[]} gaps longer than `tolerance` seconds
+ */
+export function uncoveredRanges(chapter,segments,tolerance=.35){
+ const spans=segments.map(s=>{const t=s.frames.map(f=>f.time).filter(Number.isFinite);return t.length?[Math.min(...t),Math.max(...t)]:null;})
+   .filter(Boolean).sort((a,b)=>a[0]-b[0]);
+ const gaps=[];let at=chapter.start;
+ for(const [from,to] of spans){
+   if(from-at>tolerance)gaps.push({from:at,to:from});
+   at=Math.max(at,to);
+ }
+ if(chapter.end-at>tolerance)gaps.push({from:at,to:chapter.end});
+ return gaps;
 }

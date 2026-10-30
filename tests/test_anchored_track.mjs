@@ -88,3 +88,46 @@ test('input checks: at least 4 pins, small frames, distinct times',()=>{
  assert.throws(()=>s.addFrame(new Float32Array(96*72),0),/distinct times/);
  assert.throws(()=>s.finish(),/at least 6 frames/);
 });
+
+import {renderBoxScene} from './camera-track-fixtures.mjs';
+import {uncoveredRanges} from '../camera-track-pipeline.js';
+import {segmentsToKeys} from '../camera-anchor.js';
+import {lookAtPose} from '../camera-track-solver.js';
+
+test('a cut ends tracking; a reference frame after the cut tracks the rest',{timeout:240000},()=>{
+ // Two shots in one chapter: the camera swings -25..0 degrees, cuts, then swings 45..25.
+ const path=u=>{const a=(u<.5?-25+25*(u/.5):45-20*((u-.5)/.5))*Math.PI/180;return {position:[36*Math.sin(a),14,36*Math.cos(a)],target:[0,4,0]};};
+ const video=renderBoxScene({path,frames:36,noise:.6});
+ const W=video.width,H=video.height,fov=video.truth.fov,fps=12,timeOf=i=>i/fps;
+ const corners=[[-8,8,5],[8,8,5],[8,0,5],[4,16,0],[8,16,0],[-8,8,-5],[-15,0,10],[-9,0,10]];
+ const pinsAt=i=>corners.map((X,k)=>{const p=projectPoint(video.truth.poses[i],fov,W,H,X);return p&&p.x>8&&p.y>8&&p.x<W-8&&p.y<H-8?{id:'pin'+k,X,x:p.x,y:p.y}:null;}).filter(Boolean);
+ function pass(order,pins,pose){
+   const s=createAnchoredSession({width:W,height:H,seeds:pins,refPose:pose,fov,maxKeyframes:24});
+   order.forEach(i=>s.addFrame(video.frames[i],timeOf(i)));
+   return s.finish();
+ }
+ const segmentFrom=(ref,first,last)=>{
+   const pins=pinsAt(ref),res=resectCamera(pins,{width:W,height:H,fov});
+   assert.ok(res.ok&&res.rmsPx<1.5,'resection at '+ref+': '+(res.reason||res.rmsPx));
+   const fwd=pass(Array.from({length:last-ref+1},(_,k)=>ref+k),pins,res.pose);
+   const back=ref-first>=5?pass(Array.from({length:ref-first+1},(_,k)=>ref-k),pins,res.pose):null;
+   return {baseTime:timeOf(ref),frames:mergeAnchoredPasses(fwd,back),summary:fwd.summary};
+ };
+ // First reference frame is in the first shot; the tracker may not run past the cut at frame 18.
+ const pinsA=pinsAt(10),resA=resectCamera(pinsA,{width:W,height:H,fov});
+ const long=pass(Array.from({length:26},(_,k)=>10+k),pinsA,resA.pose);
+ assert.ok(Number.isFinite(long.summary.brokeAt)&&Math.abs(long.summary.brokeAt-timeOf(18))<.2,'the cut is found at 1.5 s: '+JSON.stringify(long.summary));
+ assert.ok(long.anchored.frames.every(f=>f.time<timeOf(18)),'nothing is tracked across the cut');
+ const first=segmentFrom(10,0,17);
+ const chapter={start:0,end:timeOf(35)};
+ assert.ok(uncoveredRanges(chapter,[first]).some(g=>g.from>1&&g.to>2.9),'the second shot is not covered');
+ const second=segmentFrom(27,18,35);
+ assert.deepEqual(uncoveredRanges(chapter,[first,second]),[],'two stretches cover the chapter');
+ const out=segmentsToKeys([first,second],{fov,targetDistance:40,density:'many'});
+ assert.equal(out.keys.filter(k=>k.cut).length,1);
+ // Keys follow the true camera in both shots.
+ const truthAt=t=>video.truth.poses[Math.min(35,Math.round(t*fps))];
+ const extent=Math.max(...video.truth.poses.map(p=>len(sub(cameraCenter(p),cameraCenter(video.truth.poses[0])))));
+ for(const k of out.keys){const c=cameraCenter(truthAt(k.at));
+   assert.ok(len(sub(k.p,c))/extent*100<8,`key at ${k.at}s is ${(len(sub(k.p,c))/extent*100).toFixed(1)}% off`);}
+});

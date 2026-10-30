@@ -199,8 +199,11 @@ Reference Builder clip, or a local file chosen in the panel) and a 3D model.
    and backward from the reference frame with the local tracker, and
    `solveCameraTracks` recovers relative motion. `camera-anchor.js` places it
    in the model: rotation and position at the reference frame come from the
-   resection, scale from the distances of the pinned points. A pass that hits a
-   cut, or has fewer than 6 frames, holds the camera instead of guessing.
+   resection, scale from the distances of the pinned points. A cut (or fast transition) ends
+   a pass and the camera is held after it. Tracking cannot cross a cut: add an extra
+   reference frame after it and that frame starts its own tracked stretch (its own camera fix
+   and scale, joined to the first by a hard `cut` key). The preview names any stretch that
+   is still not tracked and where the picture cuts. A pass with fewer than 6 frames holds too.
 5. **Preview and Apply.** The proposal is staged through the existing
    `acceptedCameraSync` preview. **Apply** replaces ONLY this chapter's camera
    keys (`generated:'video-track'`, density few/normal/many), freezes

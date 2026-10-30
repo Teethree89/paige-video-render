@@ -131,3 +131,29 @@ test('corrections interpolate between fixes and hold after the last one',()=>{
  assert.equal(applyReferenceCorrections(frames,[],0).corrections.length,0);
  assert.equal(applyReferenceCorrections(frames,[{time:0,center:[9,9,9],forward:[0,0,-1]}],0).frames[0].center[0],0,'a fix at the base time is ignored');
 });
+
+import {segmentsToKeys} from '../camera-anchor.js';
+import {uncoveredRanges} from '../camera-track-pipeline.js';
+const seg=(from,to,fn,step=.25)=>{const frames=[];for(let t=from;t<=to+1e-9;t+=step)frames.push({time:+t.toFixed(3),center:fn(t),forward:[0,0,-1]});return frames;};
+
+test('a cut ends a tracked stretch; an extra reference frame after it starts another one',()=>{
+ const chapter={start:0,end:10};
+ const a={baseTime:2,frames:seg(0,6,t=>[t,0,0])},b={baseTime:8,frames:seg(6.25,10,t=>[100+t,5,0])};
+ assert.deepEqual(uncoveredRanges(chapter,[a]),[{from:6,to:10}],'the tail after the cut is not tracked');
+ assert.deepEqual(uncoveredRanges(chapter,[a,b]),[],'together they cover the chapter');
+ const out=segmentsToKeys([b,a],{fov:55,targetDistance:20,density:'many'});
+ assert.equal(out.segments,2);
+ const cuts=out.keys.filter(k=>k.cut);
+ assert.equal(cuts.length,1,'exactly one hard cut');
+ assert.ok(cuts[0].at>=6.2,'the cut is at the start of the second stretch, in time order');
+ assert.ok(out.keys.every((k,i)=>!i||k.at>out.keys[i-1].at));
+});
+
+test('extra fixes only correct the stretch they fall in',()=>{
+ const a={baseTime:0,frames:seg(0,4,t=>[t+.5*t,0,0])},b={baseTime:8,frames:seg(6.25,10,t=>[100+t,0,0])};
+ const out=segmentsToKeys([a,b],{fov:55,targetDistance:20,density:'many',refs:[{time:4,center:[4,0,0],forward:[0,0,-1]}]});
+ const last=out.keys.filter(k=>k.at<=4+1e-6).at(-1);
+ assert.ok(Math.abs(last.p[0]-4)<1e-2,'the fix at t=4 holds in the first stretch: '+last.p);
+ const second=out.keys.find(k=>k.at>=6.2);
+ assert.ok(Math.abs(second.p[0]-106.25)<1e-2,'the second stretch is untouched: '+second.p);
+});
