@@ -121,6 +121,7 @@
             <div class="tw-card-head"><div><span id="twStep" class="tw-eyebrow">STEP 1 OF 3 · VIDEO</span><h2 id="twTitle">Mark points in the video</h2></div><button id="twCancel" type="button" class="tw-close">Cancel</button></div>
             <p id="twHelp" class="tw-help"></p>
             <div id="twTimeRow" class="tw-time-row"><label for="twTime" id="twTimeLabel">Reference frame</label><input id="twTime" type="range" min="0" max="1" step="0.0333" value="0"><output id="twTimeText">0:00.00</output></div>
+            <div id="twToolRow" class="tw-tools" role="group" aria-label="Marking tool"><button id="twToolPoint" type="button" class="secondary" aria-pressed="true">Points</button><button id="twToolRect" type="button" class="secondary" aria-pressed="false" title="Click the 4 corners of a flat rectangle; on the model, one click on its face matches all 4">Rectangle</button></div>
             <ol id="twPoints" class="tw-points" aria-label="Pinned points"></ol>
             <label class="tw-wipe-row" id="twWipeRow" hidden><span>Video</span><input id="twWipe" type="range" min="0" max="100" step="0.5" value="50" aria-label="Before and after wipe"><span>Model</span></label>
             <label class="tw-lens" id="twLensRow" hidden>Lens <input id="twLens" type="number" min="12" max="110" step="1" inputmode="decimal" placeholder="auto" aria-label="Vertical lens angle in degrees, empty to estimate"> °<small id="twLensNote"></small></label>
@@ -136,6 +137,7 @@
               <button id="twBack" type="button" class="secondary" hidden>Back</button>
               <button id="twClear" type="button" class="secondary" hidden>Clear points</button>
               <button id="twSkip" type="button" class="secondary" hidden>Skip point</button>
+              <button id="twRotate" type="button" class="secondary" hidden>Turn rectangle</button>
               <button id="twDiscard" type="button" class="secondary" hidden>Discard preview</button>
               <button id="twApply" type="button" class="primary" hidden>Apply keyframes</button>
               <button id="twDone" type="button" class="primary">Done</button>
