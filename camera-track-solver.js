@@ -505,7 +505,7 @@ function parallaxSolve(data,focal,initFrame,opts){
 }
 
 const DEFAULTS=Object.freeze({seed:1,inlierPx:3,huberPx:1.5,outlierPx:6,minMatches:12,
- rotationOnlyPx:2.5,minTriangulationDeg:1,fovCandidates:[35,55,75],defaultFov:50});
+ rotationOnlyPx:2.5,minTriangulationDeg:1,fovCandidates:[35,55,75],defaultFov:50,fovRange:[25,70]});
 
 function solveWithFocal(data,focal,opts){
  const probe=parallaxProbe(data,focal,opts);
@@ -563,6 +563,14 @@ export function solveCameraTracks(input,options={}){
        pruneOutliers(state,opts);
        bundleAdjust(state,{iterations:15,huberPx:opts.huberPx,optimizeFocal:true,fixed});
        result={...best,focal:state.focal,poses:state.poses,points:state.points,...residualStats(state),fovEstimated:true};
+       // A focal length is weakly observable on forward motion. When the estimate
+       // is implausible, prefer a fixed default lens that fits about as well.
+       const estimated=fovFromFocal(result.focal,data.height),[lo,hi]=opts.fovRange;
+       if(estimated<lo||estimated>hi){
+         const fixed=solveWithFocal(data,focalFromFov(opts.defaultFov,data.height),{...opts,optimizeFocal:false});
+         if(fixed.mode==='parallax'&&fixed.poses.size>=result.poses.size&&fixed.rmsPx<=result.rmsPx*1.3+.2)
+           result={...fixed,fovEstimated:false,fovAssumed:true};
+       }
      }
    }
  }
@@ -570,7 +578,7 @@ export function solveCameraTracks(input,options={}){
    return {mode:'failed',reason:'Too few consistent feature tracks',fov:known?input.fov:NaN,focal:NaN,
      poses:new Map(),points:new Map(),rmsPx:Infinity,inlierRatio:0,frameCount:data.frameCount};
  return {...result,fov:fovFromFocal(result.focal,data.height),width:data.width,height:data.height,
-   frameCount:data.frameCount,fovEstimated:!!result.fovEstimated};
+   frameCount:data.frameCount,fovEstimated:!!result.fovEstimated,fovAssumed:!!result.fovAssumed};
 }
 
 // ---- conversion to the reviewable videoCameraMotion estimate ----
@@ -645,6 +653,8 @@ export function trackSolveToVideoMotion(solve,{start,end,times=null,maxKeys=11}=
  const frames=[...solve.poses.keys()].sort((a,b)=>a-b);
  const last=solve.frameCount-1,timeOf=f=>times?times[f]:f/Math.max(1,last);
  const t0=timeOf(0),t1=timeOf(last);
+ // With real times, u is relative to the chapter so a trimmed stretch is held, not stretched.
+ const chapterU=times&&Number.isFinite(start)&&Number.isFinite(end)&&end>start?t=>(t-start)/(end-start):null;
  const basis=worldBasis(solve),first=solve.poses.get(0),toLocal=v=>[dot(v,basis.x),dot(v,basis.y),dot(v,basis.z)];
  let center,radius;
  if(solve.mode==='parallax'&&solve.points.size){
@@ -656,11 +666,14 @@ export function trackSolveToVideoMotion(solve,{start,end,times=null,maxKeys=11}=
    const pose=solve.poses.get(f),c=cameraCenter(pose);
    const depths=solve.mode==='parallax'?pointDepths(solve,pose):[];
    const dist=depths.length?Math.max(.25*radius,median(depths)):norm(minus(center,c))||3*radius;
-   return {u:f===0?0:f===last?1:(timeOf(f)-t0)/(t1-t0||1),
+   return {u:chapterU?Math.min(1,Math.max(0,chapterU(timeOf(f)))):f===0?0:f===last?1:(timeOf(f)-t0)/(t1-t0||1),
      p:toLocal(scale(minus(c,center),1/radius)),
      t:toLocal(scale(minus(plus(c,scale(cameraForward(pose),dist)),center),1/radius))};
  });
- samples[0].u=0;samples.at(-1).u=1;
+ const HOLD=.03,heldStart=chapterU&&samples[0].u>HOLD?samples[0].u*(end-start):0,
+   heldEnd=chapterU&&1-samples.at(-1).u>HOLD?(1-samples.at(-1).u)*(end-start):0;
+ if(heldStart)samples.unshift({...samples[0],u:0});else samples[0].u=0;
+ if(heldEnd)samples.push({...samples.at(-1),u:1});else samples.at(-1).u=1;
  const extent=Math.max(...samples.flatMap(s=>[...s.p,...s.t].map(Math.abs)));
  const shrink=extent>29?29/extent:1;
  samples=samples.map(s=>({u:s.u,p:scale(s.p,shrink),t:scale(s.t,shrink)}));
@@ -677,7 +690,9 @@ export function trackSolveToVideoMotion(solve,{start,end,times=null,maxKeys=11}=
    `Feature-track solve (${solve.mode==='parallax'?'parallax':'rotation only'}): ${frames.length}/${last+1} frames posed`,
    solve.mode==='parallax'?`, ${solve.points.size} triangulated points`:'',
    `, reprojection RMS ${Number.isFinite(solve.rmsPx)?solve.rmsPx.toFixed(2):'n/a'} px`,
-   solve.fovEstimated?`, vertical FOV estimated at ${fov.toFixed(1)} deg`:'',
+   solve.fovEstimated?`, vertical FOV estimated at ${fov.toFixed(1)} deg`:solve.fovAssumed?`, vertical FOV assumed ${fov.toFixed(0)} deg`:'',
+   heldStart?`. Camera held still for the first ${heldStart.toFixed(1)} s (cut or transition)`:'',
+   heldEnd?`. Camera held still for the last ${heldEnd.toFixed(1)} s (cut or transition)`:'',
    '. Scale and facing are relative; vertical assumes no camera roll.',
    shrink<1?' Path compressed to fit the estimate range.':'',
  ].join('');

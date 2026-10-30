@@ -208,6 +208,32 @@ name) and offer **Save & next chapter**. Overlays hide during AI jobs,
 proposals, geometry review and Edit mode. Original authored timelines are not
 treated as pending.
 
+### Real footage check (`assets/reference.mp4`, 2026-10-30)
+
+`node scripts/track_video_file.mjs assets/reference.mp4` runs the tracker on each
+chapter of the bundled CG reference (needs ffmpeg). This is evidence the tracker
+behaves sensibly on real footage, **not** a ground-truth accuracy measurement
+(the hand-authored cameras are for a rebuilt scene, so they only confirm the
+motion type: e.g. the exterior dolly-in is reported as a push).
+
+| Chapter | Result | Notes |
+|---|---|---|
+| exterior, pcb, atoms | push | 28–30/30 keyframes, 0.7–1.1 px |
+| hall | push | 79/107 frames continuous; the rest held still |
+| hallreturn, laser | mixed | 30/30 keyframes, about 1 px |
+| fiber | mixed, 46% confidence | few features (303 points), 94/108 frames continuous |
+| optics | truck | 65/83 frames continuous; the rest held still |
+| finale | refused | fast transition for ~1.5 s, then a locked-off shot; the fit is 3.1 px |
+
+Robustness rules learned from it: a cut or fast transition (most tracks lost at
+once) splits the chapter; the longest continuous stretch is solved and the rest
+is **held still and said so** in the saved note; if that stretch covers under
+half the chapter the track is refused with advice to split. A result is also
+refused when under half the keyframes solve or the fit is worse than 2.5 px.
+An implausible estimated lens (outside 25–70°) falls back to an assumed 50° when
+it fits about as well. Treat tracked paths on CG or heavily graded footage as a
+starting point and review the preview.
+
 ## Local media expiry (48 hours)
 
 `local-media-store.js` keeps original files in this browser's IndexedDB only:
