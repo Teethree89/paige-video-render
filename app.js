@@ -20,6 +20,7 @@ import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupSceneObjectEditing} from './scene-object-edit.js';
 import {groupSceneSelection} from './scene-group-selection.js';
+import {ungroupSceneSelection,copySceneSelection,pasteSceneClipboard} from './scene-ungroup-clipboard.js';
 import {setupArrayPrototypeEditor} from './array-prototype-editor.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
@@ -398,6 +399,7 @@ async function boot(){
    onSelectionChange:id=>sceneObjectEditor?.select(id,false),
     onEditAssembly:(shotId,id)=>arrayPrototypeEditor?.open(shotId,id)||false
  });
+ let sceneClipboard=null;
  sceneObjectEditor=setupSceneObjectEditing({
    scene,camera,canvas,orbitControls:controls,world:primitiveWorld,
    onVisualChange:requestViewportRender,
@@ -432,6 +434,24 @@ async function boot(){
        sequence.shots.map(s=>s.id),shotId,ids);
      commitEditedScenes(grouped.document);
      return grouped.selectedId;
+   },
+   onUngroup:(shotId,ids)=>{
+     const result=ungroupSceneSelection(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,ids);
+     commitEditedScenes(result.document);
+     return result.selectedIds;
+   },
+   // The clipboard is plain data held here, so it survives chapter switches.
+   onCopy:(shotId,ids)=>{
+     sceneClipboard=copySceneSelection(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,ids);
+     return sceneClipboard.objects.length+sceneClipboard.lights.length;
+   },
+   onPaste:shotId=>{
+     const result=pasteSceneClipboard(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,sceneClipboard);
+     commitEditedScenes(result.document);
+     return result.selectedIds;
    },
    onMakeArray:(shotId,objectId,count,spacing)=>{
      commitEditedScenes(setSceneObjectRepeat(sequence.primitiveScenes,
@@ -645,6 +665,8 @@ async function boot(){
       if(action==='array')sceneObjectEditor.openMakeArray(id);
       else if(action==='duplicate')sceneObjectEditor.duplicateSelected();
       else if(action==='group')sceneObjectEditor.groupSelected();
+      else if(action==='ungroup')sceneObjectEditor.ungroupSelected();
+      else if(action==='copy')sceneObjectEditor.copySelected();
       else if(action==='edit'){
         if(!sceneObjectEditor.openGroupEditor(id))
           el('sceneEditStatus').textContent=
