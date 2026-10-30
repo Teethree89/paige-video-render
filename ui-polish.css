@@ -1,0 +1,54 @@
+/* Micro-interactions. Each hover effect hints at what the control does.
+   Colours come from the theme variables; motion is off for reduced-motion users. */
+:root{--ease:cubic-bezier(.22,.8,.3,1);--acc-ring:color-mix(in srgb,var(--cyan) 45%,transparent)}
+button{transition:background .18s,border-color .18s,color .18s,transform .18s var(--ease),box-shadow .18s var(--ease),filter .18s}
+button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 3px 10px rgba(8,16,28,.18)}
+button:active:not(:disabled){transform:translateY(0) scale(.97);box-shadow:none;transition-duration:.06s}
+button:focus-visible{box-shadow:0 0 0 3px var(--acc-ring)}
+button.primary:hover:not(:disabled){box-shadow:0 4px 14px var(--acc-ring)}
+.transport button:hover:not(:disabled),.timeline-toolset button:hover:not(:disabled){box-shadow:none}
+
+/* Hover hints: motion that mirrors the action */
+.play-button:hover:not(:disabled){transform:scale(1.1);box-shadow:0 0 0 6px var(--acc-ring)}
+#backBtn:hover:not(:disabled){animation:nudge-l .5s var(--ease)}
+#nextBtn:hover:not(:disabled){animation:nudge-r .5s var(--ease)}
+#sceneEditMove:hover:not(:disabled){animation:slide-x .6s var(--ease)}
+#sceneEditRotate:hover:not(:disabled){animation:turn .6s var(--ease)}
+#sceneEditDuplicate:hover:not(:disabled){box-shadow:4px 4px 0 -1px var(--acc-ring),0 3px 10px rgba(8,16,28,.14)}
+#sceneEditGroup:hover:not(:disabled),#primitiveAdd:hover:not(:disabled){animation:snap-in .4s var(--ease)}
+#sceneEditUngroup:hover:not(:disabled){animation:spread .4s var(--ease)}
+#sceneEditRectangle:hover:not(:disabled){outline:1px dashed var(--cyan);outline-offset:3px}
+#sceneEditDelete:hover:not(:disabled),#removeCameraBtn:hover:not(:disabled),#removeTextBtn:hover:not(:disabled),#primitiveDelete:hover:not(:disabled){animation:shake .4s}
+#sceneEditCopy:hover:not(:disabled),#sceneEditPaste:hover:not(:disabled){animation:snap-in .35s var(--ease)}
+#addCameraBtn:hover:not(:disabled),#addTextBtn:hover:not(:disabled){animation:pop .35s var(--ease)}
+#aiSceneAccept:hover:not(:disabled),#twApply:hover:not(:disabled),#twDone:hover:not(:disabled),#chapterNameSave:hover:not(:disabled){animation:pop .35s var(--ease)}
+#aiSceneDiscard:hover:not(:disabled),#twDiscard:hover:not(:disabled){animation:nudge-l .4s var(--ease)}
+#exportBtn span{display:inline-block;transition:transform .2s var(--ease)}
+#exportBtn:hover span,#exportBtn[aria-expanded="true"] span{transform:translateY(2px) rotate(180deg)}
+#renderVideoBtn:hover:not(:disabled){animation:nudge-ne .45s var(--ease)}
+#videoImportOpenBtn:hover:not(:disabled){animation:nudge-r .45s var(--ease)}
+#timelineZoomIn:hover:not(:disabled){transform:scale(1.12)}#timelineZoomOut:hover:not(:disabled){transform:scale(.92)}
+#timelineFit:hover:not(:disabled),#timelineExpand:hover:not(:disabled){letter-spacing:.4px}
+.theme-toggle:hover{transform:rotate(25deg)}
+.help-gem:hover{transform:scale(1.15)}
+.chapter-item,.shot-item,.key-marker,.text-item{transition:background .18s,transform .18s var(--ease),box-shadow .18s}
+.chapter-item:hover{transform:translateX(3px)}
+.shot-item:hover{transform:translateY(-1px)}
+.key-marker:hover{transform:translateX(-50%) rotate(45deg) scale(1.3)}
+
+@keyframes nudge-l{40%{transform:translate(-4px,-1px)}100%{transform:translateY(-1px)}}
+@keyframes nudge-r{40%{transform:translate(4px,-1px)}100%{transform:translateY(-1px)}}
+@keyframes nudge-ne{40%{transform:translate(3px,-4px)}100%{transform:translateY(-1px)}}
+@keyframes slide-x{30%{transform:translate(-4px,-1px)}70%{transform:translate(4px,-1px)}100%{transform:translateY(-1px)}}
+@keyframes turn{0%{transform:translateY(-1px) rotate(0)}60%{transform:translateY(-1px) rotate(-6deg)}100%{transform:translateY(-1px) rotate(0)}}
+@keyframes snap-in{0%{transform:scale(1.07)}100%{transform:translateY(-1px) scale(1)}}
+@keyframes spread{0%{letter-spacing:-.5px}100%{letter-spacing:.3px}}
+@keyframes pop{0%{transform:scale(.94)}60%{transform:translateY(-2px) scale(1.05)}100%{transform:translateY(-1px) scale(1)}}
+@keyframes shake{20%{transform:translateX(-3px)}40%{transform:translateX(3px)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
+
+/* Tooltip (ui-tips.js) */
+.ui-tip{position:fixed;z-index:100000;max-width:260px;padding:7px 10px;border-radius:8px;background:#0f1b2a;color:#eef6fb;font:600 11.5px/1.4 Inter,system-ui,sans-serif;box-shadow:0 8px 24px rgba(8,16,28,.35);pointer-events:none;opacity:0;transform:translateY(4px) scale(.97);transition:opacity .14s,transform .18s var(--ease)}
+.ui-tip.show{opacity:1;transform:none}
+.ui-tip kbd{margin-left:6px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.14);font:700 10px ui-monospace,monospace}
+
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition-duration:.01ms!important}button:hover:not(:disabled){transform:none}}
