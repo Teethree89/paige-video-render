@@ -78,6 +78,12 @@
           <p id="sceneEditStatus" role="status">Click an editable shape or light to select it.</p>
           <p class="scene-edit-note">Drag gizmo axes · Drag empty space to orbit · Scroll to zoom</p>
         </section>
+        <div id="viewportTools" class="viewport-tools" role="toolbar" aria-label="Viewport tool" data-tool="orbit">
+          <button type="button" data-tool="orbit" class="active" aria-pressed="true" title="Orbit: look around without moving anything (O)">⟲ Orbit</button>
+          <button type="button" data-tool="move" aria-pressed="false" disabled title="Move the selected object (W)">↔ Move</button>
+          <button type="button" data-tool="rotate" aria-pressed="false" disabled title="Rotate the selected object (E)">⟳ Rotate</button>
+          <button type="button" data-tool="point" aria-pressed="false" disabled title="Point set: place matching points while camera tracking (P)">◎ Point</button>
+        </div>
         <div class="stage-top"><span class="pill"><span class="pulse-dot"></span> 3D PREVIEW</span><span id="shotTitle">01 / ESTABLISHING THE INFRASTRUCTURE</span></div>
         <label class="preview-quality" title="Viewport display quality; exported video and scene data keep their original quality.">Preview detail
           <select id="previewQuality"><option value="fast">Fast</option><option value="balanced" selected>Balanced</option><option value="full">Full</option></select>

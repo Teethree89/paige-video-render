@@ -52,3 +52,15 @@ button.primary:hover:not(:disabled){box-shadow:0 4px 14px var(--acc-ring)}
 .ui-tip kbd{margin-left:6px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.14);font:700 10px ui-monospace,monospace}
 
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition-duration:.01ms!important}button:hover:not(:disabled){transform:none}}
+
+/* Option A layout: the viewport tool strip is a segmented switch at the top centre. */
+.viewport-tools{left:50%;bottom:auto;top:14px;transform:translateX(-50%);padding:3px;border-radius:10px;gap:2px;backdrop-filter:blur(6px)}
+.viewport-tools button{border-radius:7px;padding:7px 14px;font-size:12px}
+.viewport-tools button:hover:not(:disabled){transform:none;box-shadow:none;background:rgba(128,232,224,.12)}
+.viewport-tools button.active{box-shadow:0 0 0 1px rgba(128,232,224,.5)}
+.viewport-tools button[data-tool="orbit"]:hover:not(:disabled){animation:turn .6s var(--ease)}
+.viewport-tools button[data-tool="move"]:hover:not(:disabled){animation:slide-x .6s var(--ease)}
+.viewport-tools button[data-tool="rotate"]:hover:not(:disabled){animation:turn .6s var(--ease)}
+.viewport-tools button[data-tool="point"]:hover:not(:disabled){animation:pop .35s var(--ease)}
+.geometry-review-bar button:hover:not(:disabled){animation:pop .35s var(--ease)}
+@media(max-width:680px){.viewport-tools{top:46px;left:50%;bottom:auto}.viewport-tools button{padding:6px 8px}}
