@@ -182,7 +182,8 @@ Reference Builder clip, or a local file chosen in the panel) and a 3D model.
    tile) in order around it. They become 4 numbered points with an outline; deleting one deletes
    the rectangle, and Done waits until an unfinished rectangle has its 4th corner. Crossed or
    very thin outlines get a warning. Points and rectangles mix freely (a building's front
-   corner still needs a single point).
+   corner still needs a single point). Clicks place corners only when the viewport's
+   Point tool is active, like single points; Orbit leaves the frame and the model alone.
 2. **Model.** The 3D view shows the chapter's primitives. Orbit, then click the
    same spot for each numbered point; clicks snap to the nearest model vertex
    (raycast on pickable meshes). **Skip point** drops one. **Done**.

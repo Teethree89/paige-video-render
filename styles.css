@@ -738,6 +738,7 @@ html,body{font-size:14px}
 .tw-tools{display:flex;gap:4px;flex:0 0 auto}
 .tw-tools[hidden]{display:none}
 .tw-tools button{flex:1;padding:5px 8px}
+.tw-tools-label{align-self:center;color:#8ea1b6;font-size:11px;padding-right:2px}
 .tw-tools button[aria-pressed="true"]{border-color:#76f3f5;color:#e9ffff;background:#123040}
 .tw-mark{position:absolute;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;border:2px solid #76f3f5;background:rgba(7,24,32,.6);color:#e9ffff;font-size:11px;font-weight:800;display:grid;place-items:center;cursor:grab;touch-action:none;pointer-events:none}
 .track-wizard[data-phase="video"] .tw-mark{pointer-events:auto}

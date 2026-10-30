@@ -23,7 +23,7 @@ const PHASES=Object.freeze(['video','model','compare','frame','tracking','previe
 export const MAX_EXTRA_FRAMES=6;
 export const PHASE_COPY=Object.freeze({
  video:{step:'STEP 1 OF 3 · VIDEO',title:'Mark points in the video',
-   help:'Click distinct spots that stay visible during the shot: building corners, roof edges, poles. Pick 6 to 10, spread across the frame. Clicks snap to the nearest corner; drag a point to adjust it. Rectangle: click the 4 corners of a flat rectangle (a wall, a window) in order around it.'},
+   help:'Click distinct spots that stay visible during the shot: building corners, roof edges, poles. Pick 6 to 10, spread across the frame. Clicks snap to the nearest corner; drag a point to adjust it. Mark Rectangle: click the 4 corners of a flat rectangle (a wall, a window) in order around it.'},
  model:{step:'STEP 2 OF 3 · 3D MODEL',title:'Match each point on the model',
    help:'Orbit and zoom the model, then click the same spot as the highlighted point. Clicks snap to the nearest model corner. For a rectangle, click anywhere on the matching flat face: all 4 corners are matched at once. Skip a point you cannot find; at least 4 must be matched.'},
  compare:{step:'STEP 3 OF 3 · CHECK',title:'Does the model line up?',

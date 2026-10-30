@@ -73,10 +73,20 @@ try{
  const clickVideo=async X=>{const p=projectPoint(refPose,FOV,W,H,X);assert.ok(p&&p.x>5&&p.y>5&&p.x<W-5&&p.y<H-5,'in frame: '+X);
    await page.mouse.click(rect.x+(p.x+3)/W*rect.width,rect.y+(p.y-2)/H*rect.height);};
 
+ // With the viewport tool strip (Orbit / Point), only the Point tool places pins; Orbit leaves the frame and model alone.
+ const hasTools=await page.evaluate(()=>!!window.__atomsViewportTools);
+ const tool=async key=>{await page.evaluate(()=>document.activeElement?.blur?.());await page.keyboard.press(key);};
+ const pinCount=()=>page.evaluate(()=>window.__atomsTrackWizard._state().pins.length);
+
  // ---- Step 1: Rectangle tool ----
  assert.equal(await page.isVisible('#twToolRow'),true);
  await page.locator('#twToolRect').click();
  assert.equal(await page.getAttribute('#twToolRect','aria-pressed'),'true');
+ if(hasTools){
+   await tool('KeyO');assert.equal(await page.evaluate(()=>window.__atomsViewportTools.tool),'orbit');
+   await clickVideo(face[0]);assert.equal(await pinCount(),0,'Orbit does not place a rectangle corner');
+   await tool('KeyP');assert.equal(await page.evaluate(()=>window.__atomsViewportTools.tool),'point');
+ }
  for(const X of face.slice(0,3))await clickVideo(X);
  assert.equal(await page.isDisabled('#twDone'),true,'Done waits for the 4th corner');
  assert.match(await page.textContent('#twStatus'),/Rectangle A: 3 of 4 corners/);
@@ -100,6 +110,11 @@ try{
  await page.evaluate(([p,t,f])=>window.__atomsSetView(p,t,f),[[-14,16,58],[-8,5,2],48]);
  await page.waitForTimeout(300);
  const s=await page.evaluate(X=>window.__atomsProject(X),[-2,5,5]);
+ if(hasTools){
+   await tool('KeyO');await page.mouse.click(s.x,s.y);await page.waitForTimeout(300);
+   assert.equal(await page.evaluate(()=>window.__atomsTrackWizard._state().pins.filter(p=>p.X).length),0,'Orbit does not match the face');
+   await tool('KeyP');
+ }
  await page.mouse.click(s.x,s.y);
  await page.waitForFunction(()=>window.__atomsTrackWizard._state().pins.filter(p=>p.X).length>=4,null,{timeout:10000});
  const picked=()=>page.evaluate(()=>window.__atomsTrackWizard._state().pins.map(p=>p.X));
@@ -132,7 +147,7 @@ try{
  const truthCenter=wizardPath(REF_FRAME/35).position;
  assert.ok(len(res.center.map((v,k)=>v-truthCenter[k]))<1.5,`camera at ${res.center.map(v=>v.toFixed(2))}, true ${truthCenter.map(v=>v.toFixed(2))}`);
  assert.deepEqual(errors,[]);
- console.log(`rectangle pins: rms ${res.rms.toFixed(2)} px, camera ${len(res.center.map((v,k)=>v-truthCenter[k])).toFixed(2)} from the truth`);
+ console.log(`tool strip ${hasTools?'checked':'absent'} · rectangle pins: rms ${res.rms.toFixed(2)} px, camera ${len(res.center.map((v,k)=>v-truthCenter[k])).toFixed(2)} from the truth`);
 }finally{
  await browser?.close();server.close();
 }
