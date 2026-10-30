@@ -43,6 +43,7 @@
       </nav>
       <section class="viewport" id="viewport">
         <canvas id="scene"></canvas>
+        <div id="geometryReviewBar" class="geometry-review-bar" role="group" aria-label="Review proposed geometry" hidden><span class="grb-label">Proposed geometry · nothing saved yet</span><button id="geometryReviewAccept" type="button" class="grb-accept">✓ Accept geometry</button><button id="geometryReviewDiscard" type="button" class="grb-discard">✕ Discard</button></div>
         <div id="sourceViewportOverlay" class="source-viewport-overlay" hidden aria-hidden="true"></div>
         <div id="sceneObjectContextMenu" class="scene-object-context-menu" role="menu" aria-label="Selected object actions" hidden>
           <button type="button" data-object-action="array" role="menuitem">▦ Make / edit array…</button>
@@ -166,7 +167,7 @@
       </section>
       <div id="timelineResizeHandle" class="timeline-resizer" role="separator" aria-label="Resize timeline vertically" aria-orientation="horizontal" tabindex="0" title="Drag to resize timeline · double-click to reset"></div>
       <section class="timeline-section" id="studioTimeline">
-        <div id="timelineLock" class="timeline-lock" role="status" hidden><span>Timeline locked while the camera tracker is open</span></div>
+        <div id="timelineLock" class="timeline-lock" role="status" hidden><span id="timelineLockText">Timeline locked while the camera tracker is open</span></div>
         <div class="timeline-header"><div><span class="tiny-eyebrow">SEQUENCE TIMELINE</span><span class="timeline-subhead">Drag the playhead · select camera keys or captions to edit</span></div><div class="timeline-toolset" role="group" aria-label="Timeline view controls">
           <button id="timelineZoomOut" type="button" title="Zoom out timeline" aria-label="Zoom out timeline">−</button>
           <output id="timelineZoomText" aria-live="off">100%</output>
