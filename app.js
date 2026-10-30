@@ -36,6 +36,7 @@ import {foldHelpText} from './help-toggles.js';
 import {setupChapterWorkflow} from './chapter-workflow.js';
 import {setupCameraTracking} from './camera-track-ui.js';
 import {setupTrackWizard} from './camera-track-wizard.js';
+import {setupViewportTools,TOOL_KEYS} from './viewport-tools.js';
 import {wipeFov} from './camera-resection.js';
 import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace,clearWorkspaceStorage,clearServerWorkspace,markWorkspaceSaved,isEmptyWorkspace,shouldShowWorkspaceWelcome,dismissWorkspaceWelcome} from './workspace-reset.js';
 
@@ -112,6 +113,7 @@ previewQuality.addEventListener('change',()=>{
 });
 const cameraBoundsCache=new Map();
 let sceneEffectsPanel=null,lastEffectsShot=null,lastShadowEnabled=true;
+let viewportTools=null,pickTool=()=>{};
 let chapterWorkflow=null,cameraTracking=null,trackWizard=null,compareView=null,reapplyCompare=null;
 let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,arrayPrototypeEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
@@ -400,10 +402,31 @@ async function boot(){
    onSelectionChange:id=>sceneObjectEditor?.select(id,false),
     onEditAssembly:(shotId,id)=>arrayPrototypeEditor?.open(shotId,id)||false
  });
+ viewportTools=setupViewportTools({root:el('viewportTools'),onSelect:tool=>pickTool(tool)});
+ window.__atomsViewportTools=viewportTools;
+ /** Keep the tool strip in step with what the editor and the tracker allow right now. */
+ function syncTools(){
+   const editing=!!sceneObjectEditor?.active,tracking=!!trackLock&&!previewLock;
+   viewportTools.setAvailable(tracking?['point']:['move','rotate']);
+   if(tracking)return;
+   if(editing)viewportTools.set(sceneObjectEditor.gizmoEnabled?(sceneObjectEditor.operation==='rotate'?'rotate':'move'):'orbit');
+   else viewportTools.set('orbit');
+ }
+ pickTool=function(tool){
+   if(!ready||!viewportTools.isAvailable(tool))return;
+   if(tool==='move'||tool==='rotate'){
+     if(!sceneObjectEditor?.active&&!sceneObjectEditor?.setActive(true)){syncTools();return;}
+     sceneObjectEditor.setMode(tool==='move'?'translate':'rotate');
+   }else if(tool==='orbit'){
+     if(sceneObjectEditor?.active)sceneObjectEditor.setGizmoEnabled(false);
+     else if(!trackLock&&!orbitMode&&!el('inspectBtn').disabled)el('inspectBtn').click();
+   }
+   viewportTools.set(tool);
+ };
  let sceneClipboard=null;
  sceneObjectEditor=setupSceneObjectEditing({
    scene,camera,canvas,orbitControls:controls,world:primitiveWorld,
-   onVisualChange:requestViewportRender,
+   onVisualChange:requestViewportRender,onToolChange:syncTools,
    getActiveShot:()=>shotAt(playhead),
    getDocument:()=>sequence.primitiveScenes,
    getInitialObjectId:()=>primitiveEditor?.getSelectedId?.()||(primitiveEditor?.getSelectedLightId?.()?'light::'+primitiveEditor.getSelectedLightId():null),
@@ -869,9 +892,9 @@ async function boot(){
    return {point:hit.point.toArray(),snapped:false};
  }
  let pickStart=null;
- canvas.addEventListener('pointerdown',e=>{if(picking&&e.button===0)pickStart={x:e.clientX,y:e.clientY};});
+ canvas.addEventListener('pointerdown',e=>{if(picking&&viewportTools.tool==='point'&&e.button===0)pickStart={x:e.clientX,y:e.clientY};});
  canvas.addEventListener('pointerup',e=>{
-   if(!picking||!pickStart||e.button!==0)return;
+   if(!picking||viewportTools.tool!=='point'||!pickStart||e.button!==0)return;
    const moved=Math.hypot(e.clientX-pickStart.x,e.clientY-pickStart.y);pickStart=null;
    if(moved<=5)picking(pickModelPoint(e.clientX,e.clientY)); // a drag is an orbit, not a pick
  });
@@ -893,11 +916,12 @@ async function boot(){
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
    getAnchor:id=>[...(primitiveAnchors()[id]||[0,0,0])],
    notify:text=>{cameraTracking?.tell(text);el('saveStatus').textContent='● '+text.slice(0,60).toUpperCase();},
-   setLock:range=>{previewLock=false;trackLock=range?{start:range.start,end:range.end}:null;el('timelineLock').hidden=!range;document.body.classList.toggle('track-locked',!!range);},
+   setLock:range=>{previewLock=false;trackLock=range?{start:range.start,end:range.end}:null;syncTools();if(range)pickTool('point');else viewportTools.set('orbit');el('timelineLock').hidden=!range;document.body.classList.toggle('track-locked',!!range);},
    seekTo:t=>{setPlaying(false);seek(t);},getTime:()=>playhead,
    enterModelView:shotId=>{setPlaying(false);sceneObjectEditor?.setActive(false);compareView=null;showGeneratedGeometry(shotId,false);},
    exitView:()=>{compareView=null;endGeometryReview();},
-   setPicking:(on,handler)=>{picking=on?handler:null;pickStart=null;canvas.style.cursor=on?'crosshair':'';},
+   setPicking:(on,handler)=>{picking=on?handler:null;pickStart=null;if(on&&trackLock)pickTool('point');},
+   getTool:()=>viewportTools.tool,
    setMarkers:list=>{clearPins();for(const m of list){const sprite=pinSprite(m.n);sprite.position.set(...m.X);pinGroup.add(sprite);}requestViewportRender();},
    showCompareView:({pose,fov,videoAspect})=>{
      setPlaying(false);sceneObjectEditor?.setActive(false);
@@ -1260,14 +1284,16 @@ window.addEventListener('keydown',e=>{
  const t=e.target;
  if(t?.closest?.('#trackWizard,#geometryReviewBar'))return;
  if(e.key==='Escape'){e.stopImmediatePropagation();if(!previewLock)trackWizard?.escape();return;}
+ if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyO'||e.code==='KeyP')&&!(t instanceof HTMLInputElement||t instanceof HTMLTextAreaElement||t instanceof HTMLSelectElement||t?.isContentEditable))return; // tool shortcuts stay live
  if(t instanceof HTMLInputElement||t instanceof HTMLTextAreaElement||t instanceof HTMLSelectElement||t?.isContentEditable)return;
  e.stopImmediatePropagation();
  if(e.code==='Space'||e.code.startsWith('Arrow')||e.code==='Delete'||e.code==='Backspace'||((e.ctrlKey||e.metaKey)&&['z','y','c','v'].includes(e.key.toLowerCase())))e.preventDefault();
 },true);
 window.addEventListener('keydown',e=>{if(el('workspaceStartDialog')?.open)return;const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
+ if(ready&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&viewportTools&&TOOL_KEYS[e.code]&&(sceneObjectEditor?.active||TOOL_KEYS[e.code]==='orbit'||TOOL_KEYS[e.code]==='point')&&viewportTools.isAvailable(TOOL_KEYS[e.code])){
+   e.preventDefault();pickTool(TOOL_KEYS[e.code]);return;
+ }
  if(ready&&sceneObjectEditor?.active){
-   if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyW'||e.code==='KeyG')){e.preventDefault();sceneObjectEditor.setMode('translate');return;}
-   if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyE'||e.code==='KeyR')){e.preventDefault();sceneObjectEditor.setMode('rotate');return;}
    if(e.code==='Escape'){e.preventDefault();sceneObjectEditor.select(null);return;}
    if(e.code==='Delete'||e.code==='Backspace'){
      e.preventDefault();sceneObjectEditor.deleteSelected();return;
