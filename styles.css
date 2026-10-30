@@ -732,6 +732,14 @@ html,body{font-size:14px}
 .tw-cross{stroke:#76f3f5;stroke-width:2;fill:none}.tw-ring{stroke:#f3b266;stroke-width:2.2;fill:rgba(243,178,102,.12)}
 .tw-err{stroke:#f3b266;stroke-opacity:.7;stroke-width:1.5;stroke-dasharray:4 3}
 .tw-marks{position:absolute;inset:0;pointer-events:none}
+.tw-quads{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.tw-quads polygon,.tw-quads polyline{fill:rgba(118,243,245,.12);stroke:#76f3f5;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.tw-quads [data-state="draft"]{fill:none;stroke-dasharray:6 4}
+.tw-tools{display:flex;gap:4px;flex:0 0 auto}
+.tw-tools[hidden]{display:none}
+.tw-tools button{flex:1;padding:5px 8px}
+.tw-tools-label{align-self:center;color:#8ea1b6;font-size:11px;padding-right:2px}
+.tw-tools button[aria-pressed="true"]{border-color:#76f3f5;color:#e9ffff;background:#123040}
 .tw-mark{position:absolute;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;border:2px solid #76f3f5;background:rgba(7,24,32,.6);color:#e9ffff;font-size:11px;font-weight:800;display:grid;place-items:center;cursor:grab;touch-action:none;pointer-events:none}
 .track-wizard[data-phase="video"] .tw-mark{pointer-events:auto}
 .track-wizard[data-phase="frame"] .tw-mark{pointer-events:auto}

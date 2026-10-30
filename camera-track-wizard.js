@@ -1,6 +1,8 @@
 // Per-chapter camera tracking wizard.
-//   1 Video points  : click the same spots the model has (clicks snap to corners), Done
-//   2 Model points  : click the matching spots on the 3D model (snap to model corners), Done
+//   1 Video points  : click the same spots the model has (clicks snap to corners), Done. The Rectangle tool
+//                     marks the 4 corners of a flat rectangle instead (a facade, a window).
+//   2 Model points  : click the matching spots on the 3D model (snap to model corners), Done. One click on
+//                     a flat face matches all 4 corners of a rectangle.
 //   3 Compare       : a before/after wipe of the video and the model seen from the solved camera
 //   4 Tracking      : follow the pinned points through the chapter
 //   5 Preview       : scrub the new camera path; Apply replaces this chapter's camera keys
@@ -11,6 +13,7 @@ import {snapToCorner} from './feature-tracker.js';
 import {resectCamera,projectPoint,MIN_PIN_POINTS} from './camera-resection.js';
 import {segmentsToKeys,buildAnchoredCameraProposal,DENSITY} from './camera-anchor.js';
 import {createFrameLoader,trackAnchored,describeTrackSummary} from './camera-track-ui.js';
+import {RECT_CORNERS,rankQuadOrders,quadProblem} from './rect-pins.js';
 
 export const MAX_PINS=24;
 export const RECOMMENDED_PINS=6;
@@ -20,9 +23,9 @@ const PHASES=Object.freeze(['video','model','compare','frame','tracking','previe
 export const MAX_EXTRA_FRAMES=6;
 export const PHASE_COPY=Object.freeze({
  video:{step:'STEP 1 OF 3 · VIDEO',title:'Mark points in the video',
-   help:'Click distinct spots that stay visible during the shot: building corners, roof edges, poles. Pick 6 to 10, spread across the frame. Clicks snap to the nearest corner; drag a point to adjust it.'},
+   help:'Click distinct spots that stay visible during the shot: building corners, roof edges, poles. Pick 6 to 10, spread across the frame. Clicks snap to the nearest corner; drag a point to adjust it. Mark Rectangle: click the 4 corners of a flat rectangle (a wall, a window) in order around it.'},
  model:{step:'STEP 2 OF 3 · 3D MODEL',title:'Match each point on the model',
-   help:'Orbit and zoom the model, then click the same spot as the highlighted point. Clicks snap to the nearest model corner. Skip a point you cannot find; at least 4 must be matched.'},
+   help:'Orbit and zoom the model, then click the same spot as the highlighted point. Clicks snap to the nearest model corner. For a rectangle, click anywhere on the matching flat face: all 4 corners are matched at once. Skip a point you cannot find; at least 4 must be matched.'},
  compare:{step:'STEP 3 OF 3 · CHECK',title:'Does the model line up?',
    help:'Drag the slider: video on the left, the model seen from the solved camera on the right. Cyan crosses are your video points; orange rings are where the model points land.'},
  frame:{step:'EXTRA REFERENCE FRAME',title:'Mark the same points in another frame',
@@ -42,6 +45,8 @@ export function containRect(containerW,containerH,aspect){
 }
 /** Pins with both a video position and a model position. */
 export const matchedPins=pins=>pins.filter(p=>Array.isArray(p.X));
+/** Letter shown for a rectangle: A for the first one marked, then B, C… */
+export const rectLabel=(pins,rect)=>String.fromCharCode(65+[...new Set(pins.filter(p=>p.rect).map(p=>p.rect))].indexOf(rect));
 
 /**
  * @param {object} host
@@ -57,7 +62,7 @@ export function setupTrackWizard(host){
    marks:$('twMarks'),svg:$('twOverlay'),videoLayer:$('twVideoLayer'),handle:$('twHandle'),time:$('twTime'),timeText:$('twTimeText'),
    list:$('twPoints'),status:$('twStatus'),back:$('twBack'),done:$('twDone'),cancel:$('twCancel'),clear:$('twClear'),skip:$('twSkip'),
    wipe:$('twWipe'),wipeRow:$('twWipeRow'),lens:$('twLens'),lensRow:$('twLensRow'),lensNote:$('twLensNote'),density:$('twDensity'),apply:$('twApply'),discard:$('twDiscard'),progress:$('twProgress'),stats:$('twStats'),
-   timeRow:$('twTimeRow'),timeLabel:$('twTimeLabel'),densityRow:$('twDensityRow'),framesRow:$('twFramesRow'),frames:$('twFrames'),addFrame:$('twAddFrame')};
+   timeRow:$('twTimeRow'),toolRow:$('twToolRow'),toolPoint:$('twToolPoint'),toolRect:$('twToolRect'),rotate:$('twRotate'),timeLabel:$('twTimeLabel'),densityRow:$('twDensityRow'),framesRow:$('twFramesRow'),frames:$('twFrames'),addFrame:$('twAddFrame')};
  let st=null;
 
  const say=(text,kind='')=>{el.status.textContent=text;el.status.dataset.kind=kind;};
@@ -67,7 +72,7 @@ export function setupTrackWizard(host){
    host.setFocusLayout?.(phase!=='preview');
    const c=PHASE_COPY[phase];el.stepText.textContent=c.step;el.title.textContent=c.title;el.help.textContent=c.help;
    el.back.hidden=!['model','compare','preview','frame'].includes(phase);
-   el.clear.hidden=phase!=='video';el.skip.hidden=phase!=='model';el.timeRow.hidden=!['video','frame','preview'].includes(phase);
+   el.clear.hidden=phase!=='video';el.skip.hidden=phase!=='model';if(el.toolRow)el.toolRow.hidden=phase!=='video';el.timeRow.hidden=!['video','frame','preview'].includes(phase);
    enterTimeRow(phase);el.framesRow.hidden=!['video','compare'].includes(phase);
    el.wipeRow.hidden=phase!=='compare';el.lensRow.hidden=phase!=='compare';el.density.closest('.tw-density').hidden=phase!=='preview';
    el.apply.hidden=el.discard.hidden=phase!=='preview';el.progress.hidden=phase!=='tracking';
@@ -77,7 +82,7 @@ export function setupTrackWizard(host){
    el.cancel.textContent=phase==='preview'?'Close':'Cancel';
    el.svg.hidden=phase!=='compare';el.handle.hidden=phase!=='compare';
    el.videoLayer.dataset.wipe=phase==='compare'?'on':'off';
-   layout();renderMarks();renderList();updateButtons();renderFrames();
+   layout();renderMarks();renderList();updateButtons();renderFrames();renderTool();
    if(phase==='preview')el.time.disabled=false;
  };
 
@@ -132,9 +137,25 @@ export function setupTrackWizard(host){
    const hit=snapToCorner(f.gray,f.width,f.height,nx*f.width,ny*f.height,{radius:radiusCss*scale});
    return {x:clamp(hit.x/f.width,0,1),y:clamp(hit.y/f.height,0,1),snapped:hit.snapped};
  }
+ function renderOutlines(){
+   // Rectangles: outline the corners marked so far, in this frame (extra frames use their own positions).
+   const at=pin=>st.phase==='frame'?st.editFrame?.obs[pin.id]:pin;
+   const svg=document.createElementNS(SVG,'svg');svg.setAttribute('class','tw-quads');svg.setAttribute('viewBox','0 0 1 1');
+   svg.setAttribute('preserveAspectRatio','none');svg.setAttribute('aria-hidden','true');
+   for(const rect of new Set(st.pins.filter(p=>p.rect).map(p=>p.rect))){
+     const pts=st.pins.filter(p=>p.rect===rect).map(at).filter(Boolean);
+     if(pts.length<2)continue;
+     const shape=document.createElementNS(SVG,pts.length===RECT_CORNERS?'polygon':'polyline');
+     shape.setAttribute('points',pts.map(p=>`${p.x},${p.y}`).join(' '));shape.dataset.rect=rect;
+     if(st.rectDraft===rect)shape.dataset.state='draft';
+     svg.append(shape);
+   }
+   if(svg.childNodes.length)el.marks.append(svg);
+ }
  function renderMarks(){
    if(!st)return;
    el.marks.replaceChildren();
+   renderOutlines();
    if(st.phase==='frame'){
      st.pins.forEach((pin,i)=>{
        const o=st.editFrame?.obs[pin.id];if(!o)return;
@@ -181,15 +202,22 @@ export function setupTrackWizard(host){
      const label=document.createElement('button');label.type='button';label.className='tw-point';
      label.textContent=`${i+1}`;
      const text=document.createElement('span');
-     text.textContent=st.phase==='video'?(pin.snapped?'corner':'free point'):pin.X?'matched':i===st.active?'click it on the model':'not matched';
+     const where=pin.rect?`rectangle ${rectLabel(st.pins,pin.rect)} corner ${st.pins.filter(p=>p.rect===pin.rect).indexOf(pin)+1}`:'';
+     text.textContent=st.phase==='video'?(where||(pin.snapped?'corner':'free point')):(where?where+' · ':'')+(pin.X?'matched':
+       i===st.active?(pin.rect&&!rectGroup(pin.rect).some(p=>p.X)?'click its face on the model':'click it on the model'):'not matched');
      label.append(text);
-     label.addEventListener('click',()=>{if(st.phase==='model'){st.active=i;renderMarks();renderList();updateButtons();
-       say(`Click point ${i+1} on the 3D model.`);}});
+     label.addEventListener('click',()=>{if(st.phase==='model'){st.active=i;if(pin.rect&&st.rectFaces[pin.rect])st.lastRect=pin.rect;
+       renderMarks();renderList();updateButtons();
+       say(pin.rect&&!rectGroup(pin.rect).some(p=>p.X)?`Click the face of rectangle ${rectLabel(st.pins,pin.rect)} on the 3D model.`:`Click point ${i+1} on the 3D model.`);}});
      li.append(label);
      if(st.phase==='video'){
        const del=document.createElement('button');del.type='button';del.className='tw-del';del.textContent='×';
-       del.setAttribute('aria-label',`Delete point ${i+1}`);
-       del.addEventListener('click',()=>{st.pins.splice(i,1);renderMarks();renderList();updateButtons();});
+       del.setAttribute('aria-label',pin.rect?`Delete rectangle ${rectLabel(st.pins,pin.rect)}`:`Delete point ${i+1}`);
+       del.title=pin.rect?'Deletes all 4 corners of this rectangle':'';
+       del.addEventListener('click',()=>{
+         if(pin.rect){const rect=pin.rect;st.pins=st.pins.filter(p=>p.rect!==rect);if(st.rectDraft===rect)st.rectDraft=null;}
+         else st.pins.splice(i,1);
+         renderMarks();renderList();updateButtons();});
        li.append(del);
      }
      return li;
@@ -199,11 +227,13 @@ export function setupTrackWizard(host){
    if(!st)return;
    const n=st.pins.length,matched=matchedPins(st.pins).length;
    if(st.phase==='video'){
-     el.done.disabled=n<MIN_PIN_POINTS;
+     el.done.disabled=n<MIN_PIN_POINTS||!!st.rectDraft;
      renderFrames();
      el.time.disabled=n>0;el.time.title=n>0?'Clear the points to choose another reference frame':'Choose the frame to mark points on';
      say(n<MIN_PIN_POINTS?`${n} point${n===1?'':'s'} marked. Mark at least ${MIN_PIN_POINTS} (${RECOMMENDED_PINS}–10 is better), then press Done.`:
        `${n} points marked${n<RECOMMENDED_PINS?` (${RECOMMENDED_PINS} or more gives a steadier result)`:''}. Press Done when you are finished.`);
+     if(st.rectDraft){const k=rectGroup(st.rectDraft).length;say(`Rectangle ${rectLabel(st.pins,st.rectDraft)}: ${k} of 4 corners. Click the next corner, going around the rectangle.`);}
+     else if(st.rectWarning){say(st.rectWarning,'warn');}
    }else if(st.phase==='frame'){
      const placed=Object.keys(st.editFrame.obs).length,matched=st.pins.filter(eligible).length;
      el.done.disabled=placed<MIN_PIN_POINTS;
@@ -213,6 +243,8 @@ export function setupTrackWizard(host){
    }else if(st.phase==='model'){
      el.done.disabled=matched<MIN_PIN_POINTS;
      el.skip.disabled=!st.pins.length;
+     const face=st.lastRect&&st.rectFaces[st.lastRect];
+     if(el.rotate){el.rotate.hidden=!face;if(face)el.rotate.textContent=`Turn rectangle ${rectLabel(st.pins,st.lastRect)}`;}
    }else if(st.phase==='compare'){
      el.done.disabled=!st.resection?.ok;
    }
@@ -240,9 +272,21 @@ export function setupTrackWizard(host){
      st.active=next>=0?next:st.pins.findIndex(p=>eligible(p)&&!ed.obs[p.id]);
      renderMarks();renderList();updateButtons();return;
    }
+   if(st.tool==='rect'&&!st.rectDraft&&st.pins.length+RECT_CORNERS>MAX_PINS){say(`At most ${MAX_PINS} points: a rectangle needs 4 free. Delete some first.`,'warn');return;}
    if(st.pins.length>=MAX_PINS){say(`At most ${MAX_PINS} points. Delete one first.`,'warn');return;}
    const hit=snapAt(nx,ny);
-   st.pins.push({id:nextId(),x:hit.x,y:hit.y,snapped:hit.snapped,X:null});
+   const pin={id:nextId(),x:hit.x,y:hit.y,snapped:hit.snapped,X:null};
+   st.rectWarning=null;
+   if(st.tool==='rect'){
+     if(!st.rectDraft)st.rectDraft='rect'+(st.nextRect++);
+     pin.rect=st.rectDraft;
+     st.pins.push(pin);
+     const group=rectGroup(pin.rect);
+     if(group.length===RECT_CORNERS){
+       const problem=quadProblem(group);st.rectDraft=null;
+       if(problem)st.rectWarning=`Rectangle ${rectLabel(st.pins,pin.rect)} ${problem==='crossed'?'has crossing sides: click its corners in order around the rectangle (drag a corner to fix it, or delete it and mark it again).':'is very thin: corners that far apart work better.'}`;
+     }
+   }else st.pins.push(pin);
    renderMarks();renderList();updateButtons();
  });
  el.frameBox.addEventListener('pointermove',e=>{
@@ -256,7 +300,9 @@ export function setupTrackWizard(host){
    if(!drag||!st)return;
    const pin=dragTarget(),hit=pin?snapAt(pin.x,pin.y,10):null;
    if(!pin){drag=null;return;}
-   pin.x=hit.x;pin.y=hit.y;pin.snapped=hit.snapped;drag=null;renderMarks();renderList();
+   pin.x=hit.x;pin.y=hit.y;pin.snapped=hit.snapped;drag=null;
+   if(st.phase==='video')st.rectWarning=null;
+   renderMarks();renderList();updateButtons();
  };
  el.frameBox.addEventListener('pointerup',endDrag);el.frameBox.addEventListener('pointercancel',endDrag);
 
@@ -268,7 +314,23 @@ export function setupTrackWizard(host){
    const t=Number(el.time.value);el.timeText.textContent=clock(t);
    clearTimeout(scrubTimer);scrubTimer=setTimeout(()=>loadFrameAt(t),120);
  });
- el.clear.addEventListener('click',()=>{if(!st)return;st.pins=[];st.extra=[];st.extraFits=[];st.active=0;renderMarks();renderList();updateButtons();});
+ el.clear.addEventListener('click',()=>{if(!st)return;st.pins=[];st.extra=[];st.extraFits=[];st.active=0;st.rectDraft=null;st.rectWarning=null;renderMarks();renderList();updateButtons();});
+ // ---- tools: single points or rectangles ----
+ const rectGroup=rect=>st.pins.filter(p=>p.rect===rect);
+ function renderTool(){
+   if(!st||!el.toolPoint)return;
+   el.toolPoint.setAttribute('aria-pressed',String(st.tool==='point'));el.toolRect.setAttribute('aria-pressed',String(st.tool==='rect'));
+   root.dataset.tool=st.tool;
+ }
+ function setTool(tool){
+   if(!st||st.phase!=='video'||st.tool===tool)return;
+   // An unfinished rectangle is dropped: its corners alone are not a rectangle.
+   if(st.rectDraft){const rect=st.rectDraft;st.pins=st.pins.filter(p=>p.rect!==rect);st.rectDraft=null;}
+   st.tool=tool;renderTool();renderMarks();renderList();updateButtons();
+   if(tool==='rect')say('Click the 4 corners of a flat rectangle in the video, in order around it.');
+ }
+ el.toolPoint?.addEventListener('click',()=>setTool('point'));
+ el.toolRect?.addEventListener('click',()=>setTool('rect'));
 
  // ---- model phase ----
  function firstUnmatched(from=0){
@@ -283,20 +345,63 @@ export function setupTrackWizard(host){
    if(!st||st.phase!=='model')return;
    if(!hit?.point){say('No model surface there. Click directly on the model.','warn');return;}
    const pin=st.pins[st.active];if(!pin)return;
+   // A rectangle none of whose corners is matched yet takes the whole face; otherwise one corner at a time.
+   const group=pin.rect?rectGroup(pin.rect):null,wholeRect=group?.length===RECT_CORNERS&&!group.some(p=>p.X);
+   if(wholeRect&&hit.face){matchRect(group,hit.face);return;}
+   if(pin.rect){delete st.rectFaces[pin.rect];if(st.lastRect===pin.rect)st.lastRect=null;}
    pin.X=hit.point;pin.modelSnapped=!!hit.snapped;
    syncMarkers();
    const next=firstUnmatched(st.active+1);
-   if(next>=0){st.active=next;say(`Point ${st.active} matched${hit.snapped?' (snapped to a corner)':''}. Now click point ${next+1}.`);}
+   if(next>=0)st.active=next;
+   if(wholeRect)say(`That spot is not on a flat four-cornered face, so only this corner was matched. Match the other corners one at a time${next>=0?`: click point ${next+1}`:''}.`,'warn');
+   else if(next>=0)say(`Point ${st.active} matched${hit.snapped?' (snapped to a corner)':''}. Now click point ${next+1}.`);
    else say(`All ${st.pins.length} points matched. Press Done.`);
    renderMarks();renderList();updateButtons();
  }
  el.skip.addEventListener('click',()=>{
    if(!st||st.phase!=='model')return;
    const pin=st.pins[st.active];if(pin)pin.X=null;
+   if(pin?.rect){delete st.rectFaces[pin.rect];if(st.lastRect===pin.rect)st.lastRect=null;}
    const next=firstUnmatched(st.active+1);
    if(next>=0&&next!==st.active)st.active=next;
    renderMarks();renderList();updateButtons();syncMarkers();
    say(`Skipped. Click point ${st.active+1} on the model, or press Done if ${MIN_PIN_POINTS}+ are matched.`);
+ });
+
+ /**
+  * One click on a model face matches a whole rectangle. Which model corner goes with which video corner:
+  * the order that best fits the other matched points, or, with too few of those, the order that looks
+  * most like the video from the current 3D view. "Turn rectangle" steps through the other orders.
+  */
+ function matchRect(group,face){
+   const {width:W,height:H}=st.frame,rect=group[0].rect;
+   let orders=rankQuadOrders(group.map(p=>({x:p.x*W,y:p.y*H})),face.screen).map(r=>r.order);
+   const others=matchedPins(st.pins).filter(p=>p.rect!==rect);
+   if(others.length>=2){
+     const fov=st.lens??chapterFov()??50,base=others.map(p=>({x:p.x*W,y:p.y*H,X:p.X}));
+     orders=orders.map(order=>{
+       const r=resectCamera([...base,...group.map((p,i)=>({x:p.x*W,y:p.y*H,X:face.corners[order[i]]}))],{width:W,height:H,fov});
+       return {order,e:r.ok?r.rmsPx:Infinity};
+     }).sort((a,b)=>a.e-b.e).map(s=>s.order);
+   }
+   st.rectFaces[rect]={corners:face.corners,orders,index:0};st.lastRect=rect;
+   placeRect(rect);
+   const next=firstUnmatched(st.active+1);
+   if(next>=0)st.active=next;
+   say(`Rectangle ${rectLabel(st.pins,rect)} matched to that face. If its corners look turned, press Turn rectangle.`+
+     (next>=0?` Then click point ${next+1}${st.pins[next].rect?' (its face)':''}.`:' Press Done when ready.'));
+   renderMarks();renderList();updateButtons();
+ }
+ function placeRect(rect){
+   const f=st.rectFaces[rect],order=f.orders[f.index];
+   rectGroup(rect).forEach((p,i)=>{p.X=[...f.corners[order[i]]];p.modelSnapped=true;});
+   syncMarkers();
+ }
+ el.rotate?.addEventListener('click',()=>{
+   if(!st||st.phase!=='model')return;
+   const f=st.lastRect&&st.rectFaces[st.lastRect];if(!f)return;
+   f.index=(f.index+1)%f.orders.length;placeRect(st.lastRect);renderMarks();renderList();
+   say(`Rectangle ${rectLabel(st.pins,st.lastRect)}: corner order ${f.index+1} of ${f.orders.length}. Check that each numbered marker sits on its corner.`);
  });
 
  // ---- compare phase ----
@@ -403,7 +508,7 @@ export function setupTrackWizard(host){
    const fixed=segmentsToKeys(st.track.segments,{fov:res.fov,targetDistance:target,density:st.density,refs});
    const keys=fixed.keys;
    const savedPins={version:1,refTime:st.refTime,fov:Math.round(res.fov*100)/100,
-     points:pins.map(p=>({x:Math.round(p.x*1e5)/1e5,y:Math.round(p.y*1e5)/1e5,X:p.X.map(v=>Math.round(v*1000)/1000)}))};
+     points:pins.map(p=>({x:Math.round(p.x*1e5)/1e5,y:Math.round(p.y*1e5)/1e5,X:p.X.map(v=>Math.round(v*1000)/1000),...(p.rect?{rect:rectLabel(st.pins,p.rect)}:{})}))};
    if(refs.length)savedPins.extraFrames=(st.extra||[]).filter((e,i)=>st.extraFits[i]?.usable).map(e=>({time:Math.round(e.time*1000)/1000,
      points:pins.map((p,k)=>e.obs[p.id]?{point:k,x:Math.round(e.obs[p.id].x*1e5)/1e5,y:Math.round(e.obs[p.id].y*1e5)/1e5}:null).filter(Boolean)}));
    const proposal=buildAnchoredCameraProposal(seq,shot.id,{keys,anchor:host.getAnchor(shot.id),pins:savedPins,
@@ -505,9 +610,9 @@ export function setupTrackWizard(host){
      returnFromFrame();return;
    }
    if(st.phase==='video'){
-     st.active=0;st.pins.forEach(p=>{p.X=null;});
+     st.active=0;st.pins.forEach(p=>{p.X=null;});st.rectFaces={};st.lastRect=null;
      host.enterModelView(st.shot.id);host.setPicking(true,onModelPick);
-     setPhase('model');syncMarkers();say('Click point 1 on the 3D model.');
+     setPhase('model');syncMarkers();say(st.pins[0].rect?'Click the face of rectangle A on the 3D model.':'Click point 1 on the 3D model.');
    }else if(st.phase==='model'){enterCompare();}
    else if(st.phase==='compare'){startTracking();}
  });
@@ -539,7 +644,8 @@ export function setupTrackWizard(host){
    if(!source?.url){host.notify?.(source?.reason||'Attach the source video first.');return;}
    if(!seq.primitiveScenes?.scenes?.some(s=>s.shotId===shot.id&&s.objects?.length)){host.notify?.('This chapter needs a 3D model first.');return;}
    const own=host.getSequence().camera.filter(k=>k.at>=shot.start-1e-4&&k.at<shot.end).sort((a,b)=>a.at-b.at)[0]?.fov;
-   st={shot:{...shot},source,pins:[],active:0,nextPin:1,density:'normal',phase:'video',frame:null,track:null,proposal:null,frameFrom:'video',resection:null,lens:Number.isFinite(own)?clamp(Math.round(own*10)/10,12,110):null,extra:[],extraFits:[],editFrame:null};
+   st={shot:{...shot},source,pins:[],active:0,nextPin:1,density:'normal',phase:'video',frame:null,track:null,proposal:null,frameFrom:'video',resection:null,lens:Number.isFinite(own)?clamp(Math.round(own*10)/10,12,110):null,extra:[],extraFits:[],editFrame:null,
+     tool:'point',nextRect:1,rectDraft:null,rectWarning:null,rectFaces:{},lastRect:null};
    root.hidden=false;host.setLock?.({start:shot.start,end:shot.end});
    el.density.value='normal';
    say('Loading the video…');

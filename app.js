@@ -36,6 +36,7 @@ import {foldHelpText} from './help-toggles.js';
 import {setupChapterWorkflow} from './chapter-workflow.js';
 import {setupCameraTracking} from './camera-track-ui.js';
 import {setupTrackWizard} from './camera-track-wizard.js';
+import {faceQuad} from './rect-pins.js';
 import {setupViewportTools,TOOL_KEYS} from './viewport-tools.js';
 import {wipeFov} from './camera-resection.js';
 import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace,clearWorkspaceStorage,clearServerWorkspace,markWorkspaceSaved,isEmptyWorkspace,shouldShowWorkspaceWelcome,dismissWorkspaceWelcome} from './workspace-reset.js';
@@ -880,6 +881,7 @@ async function boot(){
      const box=mesh.geometry.boundingBox,scale=new THREE.Vector3().setFromMatrixScale(world);
      const diag=box.max.clone().sub(box.min).multiply(scale).length(),near=diag*.4;
      const v=new THREE.Vector3(),p=new THREE.Vector3();let best=null;
+     const face=hitFaceQuad(hit,position,world,rect);
      for(let i=0;i<Math.min(position.count,30000);i++){
        v.fromBufferAttribute(position,i).applyMatrix4(world);
        if(v.distanceTo(hit.point)>near||v.distanceTo(camera.position)>hit.distance+diag*.15)continue; // not behind the surface
@@ -887,9 +889,21 @@ async function boot(){
        const d=Math.hypot(rect.left+(p.x+1)/2*rect.width-clientX,rect.top+(1-p.y)/2*rect.height-clientY);
        if(!best||d<best.d)best={d,point:v.toArray()};
      }
-     if(best&&best.d<=16)return {point:best.point,snapped:true};
+     if(best&&best.d<=16)return {point:best.point,snapped:true,face};
+     return {point:hit.point.toArray(),snapped:false,face};
    }
    return {point:hit.point.toArray(),snapped:false};
+ }
+ /** Corners of the flat four-cornered face under the click (world and on screen), for rectangle pins; else null. */
+ function hitFaceQuad(hit,position,world,rect){
+   if(!hit.face)return null;
+   const normal=hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(world)).normalize();
+   const v=new THREE.Vector3(),vertices=[];
+   for(let i=0;i<Math.min(position.count,30000);i++){v.fromBufferAttribute(position,i).applyMatrix4(world);vertices.push(v.toArray());}
+   const corners=faceQuad(vertices,normal.toArray(),hit.point.toArray());
+   if(!corners)return null;
+   const screen=corners.map(c=>{const q=new THREE.Vector3(...c).project(camera);return {x:rect.left+(q.x+1)/2*rect.width,y:rect.top+(1-q.y)/2*rect.height};});
+   return {corners,screen};
  }
  let pickStart=null;
  canvas.addEventListener('pointerdown',e=>{if(picking&&viewportTools.tool==='point'&&e.button===0)pickStart={x:e.clientX,y:e.clientY};});

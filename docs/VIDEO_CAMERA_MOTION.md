@@ -178,9 +178,22 @@ Reference Builder clip, or a local file chosen in the panel) and a 3D model.
    (`snapToCorner` in `feature-tracker.js`: Shi-Tomasi-style strength weighted
    toward the click, then sub-pixel refinement). At least 4 points, 6+ recommended,
    up to 24. **Done**.
+   **Rectangle** tool: click the 4 corners of a flat rectangle (a wall, a window, a floor
+   tile) in order around it. They become 4 numbered points with an outline; deleting one deletes
+   the rectangle, and Done waits until an unfinished rectangle has its 4th corner. Crossed or
+   very thin outlines get a warning. Points and rectangles mix freely (a building's front
+   corner still needs a single point). Clicks place corners only when the viewport's
+   Point tool is active, like single points; Orbit leaves the frame and the model alone.
 2. **Model.** The 3D view shows the chapter's primitives. Orbit, then click the
    same spot for each numbered point; clicks snap to the nearest model vertex
    (raycast on pickable meshes). **Skip point** drops one. **Done**.
+   For a rectangle, one click anywhere on the matching flat face matches all 4 corners
+   (`rect-pins.js`: `faceQuad` takes the face's corners from the clicked shape's coplanar
+   vertices; on discs and triangles it refuses and corners are matched one at a time). The
+   corner order is the one that best fits the other matched points (resection at the chapter
+   lens) or, with fewer than 2 of those, the one that looks most like the video from the
+   current 3D view (`rankQuadOrders`). **Turn rectangle** steps through the other 7 orders.
+   Four corners on one plane fix the camera on their own.
 3. **Compare.** `camera-resection.js` solves the camera at that frame from the
    2D/3D pairs (multi-start PnP with Huber refinement and, when the lens is
    unknown, a lens search; it flags ambiguous solutions). The 3D view is drawn
@@ -222,7 +235,8 @@ dark/blurry/low-texture footage may fail, pins must stay visible during the
 move, and saved pins are not reloaded yet. A source that cannot seek is refused.
 Still images cannot be tracked: use **Keep camera as is**.
 
-Tests: `tests/test_camera_resection.mjs`, `tests/test_camera_anchor.mjs`,
+Tests: `tests/test_rect_pins.mjs`, `tests/browser/camera-track-rect.mjs` (Rectangle tool,
+one-click face match, Turn rectangle), `tests/test_camera_resection.mjs`, `tests/test_camera_anchor.mjs`,
 `tests/test_anchored_track.mjs` (rendered synthetic video, both passes),
 `tests/test_feature_tracker.mjs` (LK accuracy, corner snapping),
 `tests/test_track_wizard.mjs`, and in Chromium
