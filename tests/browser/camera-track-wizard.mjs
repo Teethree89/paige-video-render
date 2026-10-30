@@ -46,6 +46,7 @@ try{
    const {createDraftTimeline}=await import('/shot-analysis.js');
    const file=new File([await (await fetch('/tests/fixtures/track-boxes.mp4')).blob()],'track-boxes.mp4',{type:'video/mp4'});
    const timeline=createDraftTimeline({duration:6,cuts:[3],title:'Wizard test'});
+   timeline.camera.forEach(k=>{k.fov=50;}); // the chapter's lens: the wizard matches points at this zoom by default
    timeline.videoIntake.sourceId='wizard-source';timeline.videoIntake.sourceName=file.name;
    timeline.primitiveScenes={schemaVersion:1,scenes:[{shotId:'draft_001',objects:boxes.map(b=>({id:b.id,name:b.id,primitive:'box',
      position:b.center,rotation:[0,0,0],scale:b.size,material:{color:'#8899aa',metalness:.1,roughness:.7}}))}]};
@@ -132,6 +133,8 @@ try{
  assert.equal(await page.evaluate(()=>getComputedStyle(document.getElementById('trackWizard')).getPropertyValue('--wipe').trim()),'30%');
  assert.equal(await page.isVisible('#twVideoLayer[data-wipe="on"]'),true);
  if(process.env.UI_SCREENSHOT_DIR)await page.screenshot({path:process.env.UI_SCREENSHOT_DIR+'/wizard-3-compare.png'});
+ assert.equal(await page.inputValue('#twLens'),'50','the chapter lens is used by default');
+ assert.match(await page.textContent('#twLensNote'),/Using this chapter's lens \(50°\)/);
  // The lens can be fixed by hand; clearing the box estimates it again.
  await page.locator('#twLens').fill('55');await page.locator('#twLens').dispatchEvent('change');
  await page.waitForFunction(()=>/lens 55°(?! \(estimated\))/.test(document.getElementById('twStats').textContent));

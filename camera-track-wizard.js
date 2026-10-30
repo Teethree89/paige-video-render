@@ -351,7 +351,7 @@ export function setupTrackWizard(host){
    setPhase('compare');if(!keepWipe)setWipe(50);renderCompare();
    const own=chapterFov();
    const far=st.lens==null&&own&&(res.fov<own*.75||res.fov>own*1.33);
-   el.lensNote.textContent=st.lens!=null?'Fixed. Clear the box to estimate it again.':
+   el.lensNote.textContent=st.lens!=null?(Math.abs(st.lens-(own||-1))<.05?`Using this chapter's lens (${st.lens}°), so the points are matched at that zoom and the camera distance follows from it. Clear the box to estimate the lens from your points instead (can drift).`:'Fixed. Clear the box to estimate it again.'):
      far?`Estimated ${res.fov.toFixed(0)}°, but this chapter's camera uses ${own.toFixed(0)}°. A much narrower lens puts the camera far from the model: type the real lens angle (${own.toFixed(0)}° keeps the current one).`:
      'Estimated from your points. A few points at similar depth cannot tell lens from distance: type the lens angle if you know it.';
    el.lensNote.dataset.kind=far?'warn':'';
@@ -496,7 +496,8 @@ export function setupTrackWizard(host){
    const source=host.resolveSource(shot);
    if(!source?.url){host.notify?.(source?.reason||'Attach the source video first.');return;}
    if(!seq.primitiveScenes?.scenes?.some(s=>s.shotId===shot.id&&s.objects?.length)){host.notify?.('This chapter needs a 3D model first.');return;}
-   st={shot:{...shot},source,pins:[],active:0,nextPin:1,density:'normal',phase:'video',frame:null,track:null,proposal:null,resection:null,lens:null,extra:[],extraFits:[],editFrame:null};
+   const own=host.getSequence().camera.filter(k=>k.at>=shot.start-1e-4&&k.at<shot.end).sort((a,b)=>a.at-b.at)[0]?.fov;
+   st={shot:{...shot},source,pins:[],active:0,nextPin:1,density:'normal',phase:'video',frame:null,track:null,proposal:null,resection:null,lens:Number.isFinite(own)?clamp(Math.round(own*10)/10,12,110):null,extra:[],extraFits:[],editFrame:null};
    root.hidden=false;
    el.density.value='normal';
    say('Loading the video…');
