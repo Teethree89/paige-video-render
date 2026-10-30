@@ -742,3 +742,5 @@ html,body{font-size:14px}
 .clip-version button{flex-shrink:0;padding:3px 8px;border-radius:4px;background:#182434;color:#d4e5f0;border:1px solid #41536a;font-size:11px}
 .clip-version-empty{margin:0;font-size:11px;color:#8ea1b6}
 .rb-scene-label .clip-chips{margin-top:3px}
+
+.field[hidden]{display:none!important}

@@ -140,6 +140,23 @@ try{
  await importer.waitForFunction(()=>/^Tracked /.test(document.getElementById('cameraTrackStatus').textContent),null,{timeout:180000});
  assert.match(await importer.textContent('#cameraTrackStatus'),/^Tracked orbit/);
  assert.equal(await importer.evaluate(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).shots[0].videoCameraMotion.source),'feature-track');
+ // The Source tab can attach a video to the same kind of project (no 'not a single-video import' dead end).
+ await importer.evaluate(s=>{localStorage.setItem('atoms-ai-sequence-v1',s);},JSON.stringify(plain));
+ await importer.reload();
+ await importer.waitForFunction(()=>window.__atomsEditorStarted===true);
+ await importer.locator('#inspectorSourceButton').click();
+ assert.equal(await importer.isVisible('#sourceRelinkFile'),true);
+ await importer.locator('#sourceRelinkFile').setInputFiles(resolve(root,'tests/fixtures/track-orbit.mp4'));
+ await importer.waitForFunction(()=>/saved in this browser until/.test(document.getElementById('sourceRelinkStatus').textContent),null,{timeout:30000});
+ assert.equal(await importer.evaluate(()=>{const v=JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).videoIntake;return v&&v.sourceName;}),'track-orbit.mp4');
+ await importer.waitForFunction(()=>!document.getElementById('sourceOverlayEnabled').disabled);
+ await importer.locator('#inspectorMotionButton').click();
+ await importer.waitForFunction(()=>!document.getElementById('cameraTrackStart').disabled,null,{timeout:30000});
+ assert.match(await importer.textContent('#cameraTrackStatus'),/Not tracked yet|Tracked/);
+ await importer.reload();
+ await importer.waitForFunction(()=>window.__atomsEditorStarted===true);
+ await importer.locator('#inspectorSourceButton').click();
+ await importer.waitForFunction(()=>!document.getElementById('sourceOverlayEnabled').disabled,null,{timeout:30000});
  // A video shorter than the chapter is refused with a clear reason.
  const longPlain={...plain,duration:6,shots:[{...plain.shots[0],end:6}],camera:[plain.camera[0],{...plain.camera[1],at:5.9}]};
  await importer.evaluate(s=>{localStorage.setItem('atoms-ai-sequence-v1',s);},JSON.stringify(longPlain));
