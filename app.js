@@ -775,6 +775,7 @@ async function boot(){
  cameraTracking=setupCameraTracking({
    getSequence:()=>sequence,getShot:()=>sequence?shotAt(playhead):null,
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
+   canUseFile:()=>!sequence?.referenceSequence,
    // Local sources only: the cached single video or a Reference Builder clip.
    getSource:shot=>{
      if(sequence.referenceSequence){
@@ -784,7 +785,7 @@ async function boot(){
        return {url:source.url,toSourceTime:t=>clamp(source.sourceIn+t-shot.start,source.sourceIn,source.sourceOut-.001)};
      }
      if(sequence.videoIntake){
-       if(!activeSingleVideoUrl)return {reason:'Reattach the source video (Source tab) to track its camera.'};
+       if(!activeSingleVideoUrl)return {reason:'The source video is not attached. Reattach it in the Source tab, or choose a video file below.'};
        return {url:activeSingleVideoUrl,toSourceTime:t=>t};
      }
      return null;
