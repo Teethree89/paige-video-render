@@ -716,3 +716,101 @@ html,body{font-size:14px}
 .camera-track-progress[hidden]{display:none}
 
 .field[hidden]{display:none!important}
+
+/* Camera tracking wizard: pin points in the video, match them on the model, compare, track, preview. */
+.track-wizard{position:absolute;inset:0;z-index:40;pointer-events:none;color:#e7f3fa;font-size:12px;--wipe:50%}
+.track-wizard[hidden]{display:none!important}
+.tw-backdrop{position:absolute;inset:0;background:rgba(4,9,15,.95);opacity:0;pointer-events:none}
+.track-wizard[data-phase="video"] .tw-backdrop{opacity:1;pointer-events:auto}
+.tw-stage{position:absolute;pointer-events:none}
+.tw-frame-box{position:absolute;pointer-events:none;touch-action:none}
+.tw-video-layer,.tw-canvas-holder{position:absolute;inset:0}
+.tw-canvas-holder canvas{display:block;width:100%;height:100%;background:#050b12}
+.tw-video-layer[data-wipe="on"]{clip-path:inset(0 calc(100% - var(--wipe)) 0 0)}
+.tw-overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.tw-cross{stroke:#76f3f5;stroke-width:2;fill:none}.tw-ring{stroke:#f3b266;stroke-width:2.2;fill:rgba(243,178,102,.12)}
+.tw-err{stroke:#f3b266;stroke-opacity:.7;stroke-width:1.5;stroke-dasharray:4 3}
+.tw-marks{position:absolute;inset:0;pointer-events:none}
+.tw-mark{position:absolute;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;border:2px solid #76f3f5;background:rgba(7,24,32,.6);color:#e9ffff;font-size:11px;font-weight:800;display:grid;place-items:center;cursor:grab;touch-action:none;pointer-events:none}
+.track-wizard[data-phase="video"] .tw-mark{pointer-events:auto}
+.track-wizard[data-phase="video"] .tw-frame-box,.track-wizard[data-phase="compare"] .tw-frame-box{pointer-events:auto}
+.track-wizard[data-phase="video"] .tw-frame-box{cursor:crosshair}
+.track-wizard[data-phase="compare"] .tw-frame-box{cursor:ew-resize}
+.track-wizard[data-phase="compare"] .tw-marks,.track-wizard[data-phase="tracking"] .tw-marks,.track-wizard[data-phase="preview"] .tw-marks{display:none}
+.tw-mark[data-state="active"]{border-color:#f3b266;background:rgba(60,38,10,.8);box-shadow:0 0 0 4px rgba(243,178,102,.3)}
+.tw-mark[data-state="done"]{border-color:#8df0bf;background:rgba(18,50,36,.75)}
+.tw-handle{position:absolute;top:0;bottom:0;left:var(--wipe);width:2px;margin-left:-1px;background:#e7fdff;box-shadow:0 0 0 1px rgba(0,0,0,.45);pointer-events:none}
+.tw-handle::after{content:"◂ ▸";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#e7fdff;color:#06222a;font-size:10px;font-weight:800;padding:5px 6px;border-radius:12px;white-space:nowrap}
+.tw-card{position:absolute;background:rgba(10,18,28,.96);border:1px solid #2f4a60;border-radius:10px;padding:12px 14px;pointer-events:auto;box-shadow:0 16px 50px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:8px;min-height:0}
+.tw-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.tw-card h2{margin:3px 0 0;font-size:16px;line-height:1.25}
+.tw-eyebrow{font-size:10px;letter-spacing:1.4px;font-weight:800;color:#76f3f5}
+.tw-close{background:transparent;border:1px solid #34495d;color:#9db1c4;border-radius:4px;padding:4px 9px;font-size:11px}
+.tw-help{margin:0;color:#b2c3d4;line-height:1.45}
+.tw-time-row{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;color:#9db1c4}
+.tw-time-row input{width:100%}
+.tw-points{list-style:none;margin:0;padding:0;display:grid;gap:4px;overflow:auto;min-height:0}
+.tw-points li{display:flex;gap:4px}
+.tw-point{flex:1;display:flex;gap:8px;align-items:center;text-align:left;padding:5px 8px;border-radius:5px;background:#101e2c;border:1px solid #233548;color:#d4e5f0}
+.tw-point span{color:#8ea1b6;font-size:11px}
+.tw-points li[data-state="active"] .tw-point{border-color:#f3b266}.tw-points li[data-state="done"] .tw-point{border-color:#2b5446}
+.tw-del{background:#101e2c;border:1px solid #4a3340;color:#e7a9b9;border-radius:5px;padding:0 9px}
+.tw-wipe-row{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;color:#b2c3d4}
+.tw-wipe-row[hidden],.tw-density[hidden],.tw-time-row[hidden]{display:none!important}
+.tw-density{display:flex;gap:8px;align-items:center;color:#b2c3d4}
+.tw-density select{background:#081826;color:#ecfbff;border:1px solid #3d5a6a;border-radius:5px;padding:5px 8px}
+.tw-progress{width:100%;height:6px;accent-color:#76f3f5}
+.tw-progress[hidden]{display:none}
+.tw-stats{margin:0;color:#9bd8cf;font-size:11px;min-height:0}.tw-stats:empty{display:none}
+.tw-status{margin:0;color:#cfe0ec;line-height:1.4}.tw-status[data-kind="warn"]{color:#ffd9a6}.tw-status[data-kind="error"]{color:#ffb4b4}
+.tw-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.tw-actions button{padding:8px 12px;border-radius:4px;font-weight:700}
+.tw-actions [hidden]{display:none!important}
+.tw-card .primary{background:#a7fcf5;color:#0b242c}.tw-card .secondary{background:#182434;color:#d4e5f0;border:1px solid #41536a}
+.tw-card .primary:disabled{opacity:.45}
+/* Per phase layout. */
+.track-wizard[data-phase="video"] .tw-stage{left:16px;right:276px;top:16px;bottom:16px}
+.track-wizard[data-phase="video"] .tw-card{right:16px;top:16px;bottom:16px;width:244px}
+.track-wizard[data-phase="video"] .tw-points{flex:1}
+.track-wizard[data-phase="model"] .tw-stage{left:14px;top:14px;width:320px;height:190px;background:rgba(4,9,15,.7);border-radius:8px}
+.track-wizard[data-phase="model"] .tw-card{left:14px;top:212px;width:320px;max-height:calc(100% - 226px)}
+.track-wizard[data-phase="model"] .tw-points{max-height:150px}
+.track-wizard[data-phase="compare"] .tw-stage{inset:0}
+.track-wizard[data-phase="compare"] .tw-card{left:50%;transform:translateX(-50%);bottom:16px;width:min(720px,calc(100% - 32px))}
+.track-wizard[data-phase="compare"] .tw-points,.track-wizard[data-phase="tracking"] .tw-points,.track-wizard[data-phase="preview"] .tw-points{display:none}
+.track-wizard[data-phase="tracking"] .tw-stage,.track-wizard[data-phase="preview"] .tw-stage{display:none}
+.track-wizard[data-phase="tracking"] .tw-card,.track-wizard[data-phase="preview"] .tw-card{left:50%;transform:translateX(-50%);bottom:16px;width:min(700px,calc(100% - 32px))}
+.track-wizard[data-phase="tracking"] .tw-help,.track-wizard[data-phase="preview"] .tw-help:empty{display:none}
+@media(max-width:760px){
+ .track-wizard[data-phase="video"] .tw-stage{left:8px;right:8px;top:8px;bottom:290px}
+ .track-wizard[data-phase="video"] .tw-card{left:8px;right:8px;top:auto;bottom:8px;width:auto;max-height:274px}
+ .track-wizard[data-phase="model"] .tw-stage{width:200px;height:120px}
+ .track-wizard[data-phase="model"] .tw-card{left:14px;top:142px;width:calc(100% - 28px);max-width:340px}
+}
+
+/* While the tracking wizard pins and compares, the viewport gets the whole editor column. */
+.main-col.track-focus>.transport,.main-col.track-focus>.timeline-section,.main-col.track-focus>.timeline-resizer,.main-col.track-focus>.workflow-guide{display:none}
+.main-col.track-focus #returnTimelineCameraBtn,.main-col.track-focus #sceneCreateMenuButton,.main-col.track-focus #renderDiagnostics,.main-col.track-focus .preview-quality{display:none}
+.tw-card{overflow:auto}
+/* Compact wizard layouts (the lists must not stretch; the compare card must not hide the frame). */
+.tw-points{align-content:start}
+.tw-point{padding:4px 8px;font-size:12px}
+.tw-del{padding:0 9px;line-height:1}
+.track-wizard[data-phase="compare"] .tw-card{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 14px;padding:8px 12px;bottom:10px;width:min(920px,calc(100% - 24px));background:rgba(10,18,28,.9)}
+.track-wizard[data-phase="compare"] .tw-card-head{flex:1 1 230px}
+.track-wizard[data-phase="compare"] .tw-card h2{font-size:14px;margin:1px 0 0}
+.track-wizard[data-phase="compare"] .tw-help{display:none}
+.track-wizard[data-phase="compare"] .tw-wipe-row{flex:2 1 300px}
+.track-wizard[data-phase="compare"] .tw-stats{flex:1 1 100%;order:5}
+.track-wizard[data-phase="compare"] .tw-status{flex:1 1 380px;order:6;font-size:11px}
+.track-wizard[data-phase="compare"] .tw-actions{flex:0 0 auto;order:7}
+.track-wizard[data-phase="compare"] .tw-actions button{padding:6px 12px}
+
+/* Preview: a slim bar at the top so the camera path stays visible and the timeline stays usable. */
+.track-wizard[data-phase="preview"] .tw-card{top:10px;bottom:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:8px 12px;width:min(940px,calc(100% - 24px));background:rgba(10,18,28,.92)}
+.track-wizard[data-phase="preview"] .tw-card-head{flex:1 1 200px}
+.track-wizard[data-phase="preview"] .tw-card h2{font-size:14px;margin:1px 0 0}
+.track-wizard[data-phase="preview"] .tw-actions{flex:0 0 auto}
+.track-wizard[data-phase="preview"] .tw-actions button{padding:6px 11px}
+.track-wizard[data-phase="preview"] .tw-stats{flex:1 1 100%;order:5}
+.track-wizard[data-phase="preview"] .tw-status{flex:1 1 100%;order:6;font-size:11px}

@@ -34,7 +34,8 @@ import {shotAnchorMap,fitDistance,restoreSavedPrimitiveWorld,createPreviewRender
 import {foldHelpText} from './help-toggles.js';
 import {setupChapterWorkflow} from './chapter-workflow.js';
 import {setupCameraTracking} from './camera-track-ui.js';
-import {hasUntouchedPlaceholderCamera} from './video-camera-motion.js';
+import {setupTrackWizard} from './camera-track-wizard.js';
+import {wipeFov} from './camera-resection.js';
 import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace,clearWorkspaceStorage,clearServerWorkspace,markWorkspaceSaved,isEmptyWorkspace,shouldShowWorkspaceWelcome,dismissWorkspaceWelcome} from './workspace-reset.js';
 
 foldHelpText();
@@ -110,7 +111,7 @@ previewQuality.addEventListener('change',()=>{
 });
 const cameraBoundsCache=new Map();
 let sceneEffectsPanel=null,lastEffectsShot=null,lastShadowEnabled=true;
-let chapterWorkflow=null,cameraTracking=null;
+let chapterWorkflow=null,cameraTracking=null,trackWizard=null,compareView=null,reapplyCompare=null;
 let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,arrayPrototypeEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
 function commitEditedScenes(doc){
@@ -788,6 +789,7 @@ async function boot(){
    getSequence:()=>sequence,getShot:()=>sequence?shotAt(playhead):null,
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
    canUseFile:()=>!sequence?.referenceSequence,
+   onOpen:()=>trackWizard?.open(),
    // Local sources only: the cached single video or a Reference Builder clip.
    getSource:shot=>{
      if(sequence.referenceSequence){
@@ -801,28 +803,95 @@ async function boot(){
        return {url:activeSingleVideoUrl,toSourceTime:t=>t};
      }
      return null;
-   },
-   onBusy:()=>chapterWorkflow?.refresh(true),
-   onSaved:(shotId,motion)=>{
-     const shot=sequence.shots.find(s=>s.id===shotId);
-     if(!shot||shot.start!==motion.start||shot.end!==motion.end)throw Error('Chapter changed during tracking');
-     shot.videoCameraMotion=motion;
-     saveLocal();
-     const accepted=sequence.primitiveScenes?.scenes?.some(s=>s.shotId===shotId&&s.objects?.length);
-     if(!accepted)return 'Saved. Generate or build this chapter\'s models, then preview the tracked motion.';
-     if(shotAt(playhead)?.id!==shotId)return 'Saved. Open this chapter to preview the tracked motion.';
-     el('inspectorMotionButton')?.click();acceptedCameraSync?.refresh?.();
-     const mode=el('acceptedCameraSyncMode');
-     if(mode){mode.value='video-motion';mode.dispatchEvent(new Event('change'));}
-     // Only untouched placeholder cameras auto-stage; authored keys need an explicit preview.
-     if(hasUntouchedPlaceholderCamera(sequence,shot)&&!el('acceptedCameraSyncPreview')?.disabled){
-       el('acceptedCameraSyncPreview').click();spotlight('acceptedCameraSyncPanel');
-       return 'Preview staged below: scrub it, then Apply to camera keys.';
-     }
-     spotlight('acceptedCameraSyncPanel');
-     return 'Choose Preview camera sync below to compare it with your saved keys.';
    }
  });
+ // ---- Camera tracking wizard host: all 3D-view work for pinning and comparing. Nothing here is saved. ----
+ const pinGroup=new THREE.Group();pinGroup.name='tracking pins (temporary)';scene.add(pinGroup);
+ const pickRaycaster=new THREE.Raycaster(),pickPointer=new THREE.Vector2();
+ let picking=null;
+ function pinSprite(n){
+   const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d');
+   g.fillStyle='rgba(20,60,50,.92)';g.strokeStyle='#8df0bf';g.lineWidth=5;g.beginPath();g.arc(32,32,26,0,Math.PI*2);g.fill();g.stroke();
+   g.fillStyle='#eafff5';g.font='bold 30px sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(String(n),32,34);
+   const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false,transparent:true,sizeAttenuation:false}));
+   sprite.scale.set(.045,.045,1);sprite.renderOrder=999;return sprite;
+ }
+ const clearPins=()=>{for(const child of [...pinGroup.children]){pinGroup.remove(child);child.material.map?.dispose();child.material.dispose();}};
+ /** Raycast the model; snap to the nearest corner of the hit shape when one is close on screen. */
+ function pickModelPoint(clientX,clientY){
+   const rect=canvas.getBoundingClientRect();
+   pickPointer.set((clientX-rect.left)/rect.width*2-1,-((clientY-rect.top)/rect.height)*2+1);
+   pickRaycaster.setFromCamera(pickPointer,camera);
+   const hit=pickRaycaster.intersectObjects(primitiveWorld.getPickableMeshes(shotAt(playhead).id),false).find(h=>h.object.userData?.primitiveId);
+   if(!hit)return {point:null};
+   const mesh=hit.object,position=mesh.geometry?.attributes?.position;
+   if(position){
+     const world=mesh.matrixWorld.clone();
+     if(mesh.isInstancedMesh&&hit.instanceId!=null){const inst=new THREE.Matrix4();mesh.getMatrixAt(hit.instanceId,inst);world.multiply(inst);}
+     mesh.geometry.computeBoundingBox();
+     const box=mesh.geometry.boundingBox,scale=new THREE.Vector3().setFromMatrixScale(world);
+     const diag=box.max.clone().sub(box.min).multiply(scale).length(),near=diag*.4;
+     const v=new THREE.Vector3(),p=new THREE.Vector3();let best=null;
+     for(let i=0;i<Math.min(position.count,30000);i++){
+       v.fromBufferAttribute(position,i).applyMatrix4(world);
+       if(v.distanceTo(hit.point)>near||v.distanceTo(camera.position)>hit.distance+diag*.15)continue; // not behind the surface
+       p.copy(v).project(camera);if(p.z<-1||p.z>1)continue;
+       const d=Math.hypot(rect.left+(p.x+1)/2*rect.width-clientX,rect.top+(1-p.y)/2*rect.height-clientY);
+       if(!best||d<best.d)best={d,point:v.toArray()};
+     }
+     if(best&&best.d<=16)return {point:best.point,snapped:true};
+   }
+   return {point:hit.point.toArray(),snapped:false};
+ }
+ let pickStart=null;
+ canvas.addEventListener('pointerdown',e=>{if(picking&&e.button===0)pickStart={x:e.clientX,y:e.clientY};});
+ canvas.addEventListener('pointerup',e=>{
+   if(!picking||!pickStart||e.button!==0)return;
+   const moved=Math.hypot(e.clientX-pickStart.x,e.clientY-pickStart.y);pickStart=null;
+   if(moved<=5)picking(pickModelPoint(e.clientX,e.clientY)); // a drag is an orbit, not a pick
+ });
+ const cameraBasis=(R,m=new THREE.Matrix4())=>m.makeBasis(new THREE.Vector3(R[0],R[1],R[2]),new THREE.Vector3(-R[3],-R[4],-R[5]),new THREE.Vector3(-R[6],-R[7],-R[8]));
+ function applyCompareView(){
+   if(!compareView)return;
+   const {pose,fov,videoAspect,center,forward}=compareView;
+   camera.position.set(...center);
+   camera.quaternion.setFromRotationMatrix(cameraBasis(pose.R));
+   camera.fov=wipeFov(fov,videoAspect,camera.aspect);
+   const bounds=primitiveWorld.getBounds(shotAt(playhead).id),span=bounds?bounds.radius*6+200:1000;
+   camera.near=.1;camera.far=Math.max(500,span);camera.updateProjectionMatrix();
+   controls.target.set(center[0]+forward[0]*50,center[1]+forward[1]*50,center[2]+forward[2]*50);
+ }
+ reapplyCompare=applyCompareView;
+ trackWizard=setupTrackWizard({
+   getSequence:()=>sequence,getShot:()=>sequence?shotAt(playhead):null,
+   resolveSource:shot=>cameraTracking?.resolveSource(shot),
+   canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
+   getAnchor:id=>[...(primitiveAnchors()[id]||[0,0,0])],
+   notify:text=>{cameraTracking?.tell(text);el('saveStatus').textContent='● '+text.slice(0,60).toUpperCase();},
+   enterModelView:shotId=>{setPlaying(false);sceneObjectEditor?.setActive(false);compareView=null;showGeneratedGeometry(shotId,false);},
+   exitView:()=>{compareView=null;endGeometryReview();},
+   setPicking:(on,handler)=>{picking=on?handler:null;pickStart=null;canvas.style.cursor=on?'crosshair':'';},
+   setMarkers:list=>{clearPins();for(const m of list){const sprite=pinSprite(m.n);sprite.position.set(...m.X);pinGroup.add(sprite);}requestViewportRender();},
+   showCompareView:({pose,fov,videoAspect})=>{
+     setPlaying(false);sceneObjectEditor?.setActive(false);
+     if(reviewShotId!==shotAt(playhead).id)showGeneratedGeometry(shotAt(playhead).id,false,{editMode:true});
+     reviewStage.visible=false;controls.enabled=false;orbitMode=true;
+     const r=pose.R,c=pose.t;
+     const center=[-(r[0]*c[0]+r[3]*c[1]+r[6]*c[2]),-(r[1]*c[0]+r[4]*c[1]+r[7]*c[2]),-(r[2]*c[0]+r[5]*c[1]+r[8]*c[2])];
+     compareView={pose,fov,videoAspect,center,forward:[r[6],r[7],r[8]]};
+     applyCompareView();requestViewportRender();
+   },
+   hideCompareView:()=>{compareView=null;},
+   setFocusLayout:on=>{document.querySelector('.main-col')?.classList.toggle('track-focus',!!on);},
+   previewProposal:proposal=>{setPlaying(false);acceptedCameraSync.stageProposal(proposal,
+     'Previewing '+proposal.report.updatedKeys+' tracked camera keys replacing '+proposal.report.removedKeys+'. Scrub or play, then Apply.');},
+   applyProposal:()=>acceptedCameraSync.applyStaged(),
+   discardProposal:()=>acceptedCameraSync?.reset()
+ });
+ // Read-only hooks for browser tests.
+ window.__atomsProject=p=>{const v=new THREE.Vector3(...p).project(camera),r=canvas.getBoundingClientRect();return {x:r.left+(v.x+1)/2*r.width,y:r.top+(1-v.y)/2*r.height,depth:v.z};};
+ window.__atomsTrackWizard=trackWizard;
+ window.__atomsSetView=(p,t,fov)=>{camera.position.set(...p);camera.fov=fov;camera.lookAt(...t);controls.target.set(...t);camera.updateProjectionMatrix();controls.update();requestViewportRender();};
  chapterWorkflow=setupChapterWorkflow({
    getSequence:()=>sequence,getShot:()=>sequence?shotAt(playhead):null,
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
@@ -838,22 +907,15 @@ async function boot(){
      openGeneration:()=>{el('inspectorGenerationButton')?.click();spotlight('aiScenePanel');},
      openManual:()=>{el('inspectorSceneButton')?.click();spotlight('primitiveEditor');},
      openCamera:()=>{
-       if(cameraTracking&&!el('cameraTrackPanel')?.hidden&&!el('cameraTrackStart')?.disabled&&!sequence.shots.find(s=>s.id===shotAt(playhead).id)?.videoCameraMotion){
-         el('inspectorMotionButton')?.click();spotlight('cameraTrackPanel');return;
-       }
-       const shot=shotAt(playhead),accepted=sequence.primitiveScenes?.scenes?.some(s=>s.shotId===shot.id&&s.objects?.length);
-       if(accepted){
-         el('inspectorMotionButton')?.click();acceptedCameraSync?.refresh?.();
-         const mode=el('acceptedCameraSyncMode');
-         if(mode&&shot.videoCameraMotion&&mode.value!=='video-motion'){mode.value='video-motion';mode.dispatchEvent(new Event('change'));}
-         if(spotlight('acceptedCameraSyncPanel'))return;
-       }
-       el('inspectorGenerationButton')?.click();
-       if(!spotlight('videoMotionPanel'))spotlight('aiScenePanel');
+       const shot=shotAt(playhead),source=cameraTracking?.resolveSource(shot),
+         hasModel=sequence.primitiveScenes?.scenes?.some(s=>s.shotId===shot.id&&s.objects?.length);
+       if(source?.url&&hasModel&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.()){trackWizard?.open();return;}
+       // Missing video or model: show the panel that explains what is needed (and offers the file picker).
+       el('inspectorMotionButton')?.click();spotlight('cameraTrackPanel');
      },
      openRefine:()=>{if(!el('sceneModeEdit')?.disabled)el('sceneModeEdit').click();el('inspectorSceneButton')?.click();},
      // Proposals, object editing and running jobs need the full viewport.
-     isEditing:()=>!!(reviewShotId||sceneObjectEditor?.active||aiSceneEditor?.hasPending?.()||aiSceneEditor?.isBusy?.())
+     isEditing:()=>!!(reviewShotId||sceneObjectEditor?.active||aiSceneEditor?.hasPending?.()||aiSceneEditor?.isBusy?.()||trackWizard?.isOpen)
    }
  });
  chapterWorkflow?.refresh(true);
@@ -999,7 +1061,7 @@ function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  renderStats.endFrame(performance.now());
  requestAnimationFrame(animate);
 }
-function renderShotName(){let shot=shotAt(playhead),i=sequence.shots.indexOf(shot);el('shotTitle').textContent=String(i+1).padStart(2,'0')+' / '+shot.title;el('stageName').textContent=shot.name;el('shotIndex').textContent=String(i+1).padStart(2,'0');for(const node of document.querySelectorAll('.chapter-item'))node.classList.toggle('current',node.dataset.shot===shot.id);chapterWorkflow?.refresh();cameraTracking?.refresh();}
+function renderShotName(){let shot=shotAt(playhead),i=sequence.shots.indexOf(shot);el('shotTitle').textContent=String(i+1).padStart(2,'0')+' / '+shot.title;el('stageName').textContent=shot.name;el('shotIndex').textContent=String(i+1).padStart(2,'0');for(const node of document.querySelectorAll('.chapter-item'))node.classList.toggle('current',node.dataset.shot===shot.id);chapterWorkflow?.refresh();cameraTracking?.refresh();trackWizard?.refresh();}
 function renderOverlays(){for(let item of sequence.text){let dom=overlayEls.get(item.id);if(!dom)continue;let active=playhead>=item.start&&playhead<item.end,fade=.58,fadeOut=.55;let opacity=active?Math.min(1,curveEasing((playhead-item.start)/fade,{mode:item.textFade||'linear'}),curveEasing((item.end-playhead)/fadeOut,{mode:item.textFade||'linear'})):0;dom.style.opacity=String(clamp(opacity,0,1));dom.style.display=opacity>0?'block':'none';dom.style.left=item.x+'%';dom.style.top=item.y+'%';dom.style.textAlign=item.align||'center';dom.className='scene-caption '+(item.size||'medium')+' '+(item.tone||'white');dom.querySelector('.main-copy').textContent=item.value;dom.querySelector('.sub-copy').textContent=item.subtitle||'';}
 }
 function rebuildOverlayDom(){el('overlayLayer').replaceChildren();overlayEls.clear();for(let item of sequence.text){let dom=document.createElement('div');dom.className='scene-caption';let main=document.createElement('div');main.className='main-copy';let sub=document.createElement('div');sub.className='sub-copy';dom.append(main,sub);el('overlayLayer').appendChild(dom);overlayEls.set(item.id,dom);}renderOverlays();}
@@ -1157,6 +1219,6 @@ window.addEventListener('keydown',e=>{if(el('workspaceStartDialog')?.open)return
    }
  }
  if(e.code==='Space'){e.preventDefault();if(ready)setPlaying(!playing);}if(e.code==='ArrowRight'){e.preventDefault();if(ready){setPlaying(false);seek(playhead+1/30);}}if(e.code==='ArrowLeft'){e.preventDefault();if(ready){setPlaying(false);seek(playhead-1/30);}}if(e.code==='Delete'||e.code==='Backspace'){e.preventDefault();if(ready)deleteSelected();}});
-new ResizeObserver(()=>{let w=viewport.clientWidth,h=viewport.clientHeight;if(w<=0||h<=0)return;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);studioPost.setSize(w,h);requestViewportRender();}).observe(viewport);
+new ResizeObserver(()=>{let w=viewport.clientWidth,h=viewport.clientHeight;if(w<=0||h<=0)return;camera.aspect=w/h;camera.updateProjectionMatrix();reapplyCompare?.();renderer.setSize(w,h);studioPost.setSize(w,h);requestViewportRender();}).observe(viewport);
 boot().catch(error=>{el('errorBanner').hidden=false;el('errorBanner').textContent='Project could not start: '+error.message;console.error(error);});
 

@@ -58,7 +58,8 @@ try{
  assert.match(status,/Restored 1 media file\(s\) from this browser/,status);
  assert.match(status,/1 file\(s\) expired after 48 hours/,status);
  await page.locator('#inspectorMotionButton').click();
- await page.waitForFunction(()=>!document.getElementById('cameraTrackStart').disabled,null,{timeout:30000});
+ // The restored clip counts as the chapter's source; tracking then only waits for a 3D model.
+ await page.waitForFunction(()=>/needs a 3D model/.test(document.getElementById('cameraTrackStatus').textContent),null,{timeout:30000});
  const stored=await page.evaluate(async()=>{
    const {createReferenceMediaStore}=await import('/single-video-source.js');
    const store=createReferenceMediaStore();

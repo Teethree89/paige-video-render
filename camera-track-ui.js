@@ -1,8 +1,8 @@
-// "Track camera from video": decodes the chapter's local source video in this
-// browser, tracks feature points and solves the camera in a Web Worker, then
-// saves a validated shots[].videoCameraMotion estimate. Nothing is uploaded,
-// and no camera keys change until the user previews and applies a sync.
-import {trackingFrameTimes} from './camera-track-pipeline.js';
+// Local video access for the camera-tracking wizard: frame loading for the
+// pinning steps, the anchored tracking run (forward and backward from the
+// reference frame) in a Web Worker, and the Motion-tab panel that opens the
+// wizard. Frames never leave this browser; nothing is uploaded.
+import {trackingFrameTimes,mergeAnchoredPasses,MIN_TRACK_FRAMES} from './camera-track-pipeline.js';
 import {savedVideoMotion} from './video-camera-motion.js';
 import {toGray} from './feature-tracker.js';
 
@@ -42,13 +42,42 @@ export async function sampleGrayFrames(url,times,{width=TRACK_WIDTH,signal,onFra
  }finally{video.pause();video.removeAttribute('src');video.load();}
 }
 
+/**
+ * Scrubbable frame source for the pinning steps. `frame(time)` returns a canvas
+ * (for display) plus its grayscale pixels (for corner snapping).
+ */
+export async function createFrameLoader(url,{maxWidth=1280}={}){
+ const video=document.createElement('video');
+ video.muted=true;video.playsInline=true;video.preload='auto';video.src=url;
+ await waitFor(video,'loadedmetadata',16000);
+ if(video.readyState<2)await waitFor(video,'loadeddata',16000);
+ const width=Math.min(maxWidth,video.videoWidth),height=Math.max(2,Math.round(width*video.videoHeight/video.videoWidth));
+ let queue=Promise.resolve();
+ return {
+   width,height,duration:video.duration,
+   frame(time){
+     const task=queue.then(async()=>{
+       const at=Math.min(Math.max(0,time),Math.max(0,video.duration-.001));
+       if(Math.abs(video.currentTime-at)>.0005){const seeked=waitFor(video,'seeked',12000);video.currentTime=at;await seeked;}
+       if(Math.abs(video.currentTime-at)>.25)throw Error('The source video cannot seek to this time');
+       const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+       const ctx=canvas.getContext('2d',{alpha:false,willReadFrequently:true});
+       ctx.drawImage(video,0,0,width,height);
+       return {canvas,gray:toGray(ctx.getImageData(0,0,width,height).data,width,height),width,height,time:at};
+     });
+     queue=task.catch(()=>{});return task;
+   },
+   close(){video.pause();video.removeAttribute('src');video.load();}
+ };
+}
+
 /** Worker-backed session with an in-page fallback where module workers are unavailable. */
-async function openSession(options){
+export async function openSession(options,{anchored=false}={}){
  let worker=null;
  try{worker=new Worker(new URL('./camera-track-worker.js',import.meta.url),{type:'module'});}catch{worker=null;}
  if(!worker){
-   const {createTrackSession}=await import('./camera-track-pipeline.js');
-   const session=createTrackSession(options);
+   const {createTrackSession,createAnchoredSession}=await import('./camera-track-pipeline.js');
+   const session=anchored?createAnchoredSession(options):createTrackSession(options);
    return {addFrame:(gray,time)=>Promise.resolve(session.addFrame(gray,time)),
      finish:()=>new Promise((resolve,reject)=>setTimeout(()=>{try{resolve(session.finish());}catch(e){reject(e);}},0)),
      close(){}};
@@ -61,7 +90,7 @@ async function openSession(options){
  };
  worker.onerror=event=>{event.preventDefault?.();while(waiting.length)waiting.shift().reject(Error('Tracking worker failed: '+(event.message||'unknown error')));};
  const call=(message,transfer=[])=>new Promise((resolve,reject)=>{waiting.push({resolve,reject});worker.postMessage(message,transfer);});
- await call({type:'start',options});
+ await call({type:'start',options,anchored});
  return {
    addFrame:(gray,time,index)=>call({type:'frame',gray:gray.buffer,time,index},[gray.buffer]).then(d=>d.stats),
    finish:()=>call({type:'finish'}),
@@ -70,50 +99,67 @@ async function openSession(options){
 }
 
 /**
- * Track one chapter. `source` = {url, toSourceTime(chapterSeconds)}.
- * Returns {motion, summary}; throws with `.cancelled` when aborted.
+ * Track one chapter from the user's pinned points. Frames go forward and backward
+ * from the reference frame (each pass in its own worker session); the pinned
+ * points' 3D positions place the path in the model.
+ * @param {{source:{url:string,toSourceTime:Function},chapter:{start:number,end:number},refTime:number,
+ *   pins:{id:string,x:number,y:number,X:number[]}[],refPose:object,fov:number,signal?:AbortSignal,onProgress?:Function}} input
+ *   Pin x/y are normalized (0..1) in the frame.
  */
-export async function trackChapterCamera(shot,source,{signal,onProgress=()=>{},fov=null}={}){
- const times=trackingFrameTimes(shot.start,shot.end);
- let session=null,size=null;
- try{
-   await sampleGrayFrames(source.url,times.map(source.toSourceTime),{signal,onFrame:async(gray,i,dims)=>{
-     if(!session){size=dims;session=await openSession({width:dims.width,height:dims.height,start:shot.start,end:shot.end,
-       ...(Number.isFinite(fov)?{fov}:{})});}
-     const stats=await session.addFrame(gray,times[i],i);
-     onProgress({phase:'tracking',frame:i+1,frames:times.length,active:stats.active});
-   }});
-   if(signal?.aborted)throw Object.assign(Error('Tracking cancelled'),{cancelled:true});
-   onProgress({phase:'solving',frames:times.length});
-   const {motion,summary}=await session.finish();
-   return {motion,summary,size};
- }finally{session?.close();}
+export async function trackAnchored({source,chapter,refTime,pins,refPose,fov,signal,onProgress=()=>{}}){
+ const all=trackingFrameTimes(chapter.start,chapter.end),spacing=(chapter.end-chapter.start)/Math.max(1,all.length-1);
+ const forward=[refTime,...all.filter(t=>t>refTime+spacing/2)];
+ const backward=[refTime,...all.filter(t=>t<refTime-spacing/2).reverse()];
+ const passes=[['forward',forward],['backward',backward]].filter(([,t])=>t.length>=MIN_TRACK_FRAMES);
+ if(!passes.length)throw Error('The reference frame is too close to the edges of this chapter to track. Pick a frame nearer the middle.');
+ const total=passes.reduce((n,[,t])=>n+t.length,0),done={count:0},results={},problems=[];
+ for(const [direction,times] of passes){
+   let session=null;
+   try{
+     await sampleGrayFrames(source.url,times.map(source.toSourceTime),{signal,onFrame:async(gray,i,dims)=>{
+       if(!session)session=await openSession({width:dims.width,height:dims.height,refPose,fov,
+         seeds:pins.map(p=>({id:p.id,x:p.x*dims.width,y:p.y*dims.height,X:p.X}))},{anchored:true});
+       const stats=await session.addFrame(gray,times[i],i);
+       onProgress({phase:'tracking',frame:++done.count,frames:total,active:stats.active,direction});
+     }});
+     if(signal?.aborted)throw Object.assign(Error('Tracking cancelled'),{cancelled:true});
+     onProgress({phase:'solving',frames:total,direction});
+     results[direction]=await session.finish();
+   }catch(error){
+     if(error.cancelled)throw error;
+     problems.push({direction,message:error.message,summary:error.summary||null});
+   }finally{session?.close();}
+ }
+ const main=results.forward||results.backward;
+ if(!main){const first=problems[0];throw Object.assign(Error(first.message),{summary:first.summary,problems});}
+ const frames=mergeAnchoredPasses(results.forward||results.backward,results.forward?results.backward:null);
+ return {frames,problems,passes:Object.fromEntries(Object.entries(results).map(([k,v])=>[k,v.summary])),
+   scale:main.anchored.scale,anchorRmsPx:main.anchored.anchorRmsPx,seedsUsed:main.anchored.seedsUsed,
+   rollDeg:main.anchored.rollDeg,mode:main.anchored.mode};
 }
 
 export function describeTrackSummary(summary){
  if(!summary)return '';
- const seg=summary.segment,trimmed=seg&&seg.frames<seg.total?`${seg.frames} of ${seg.total} frames continuous (the rest held still), `:'';
- return `${trimmed}${summary.frames} frames, ${summary.tracks} tracks, ${summary.posed??0}/${summary.keyframes??0} keyframes solved`+
-   (summary.mode==='parallax'?`, ${summary.points} 3D points`:', rotation only')+
-   (summary.rmsPx!==null?`, ${summary.rmsPx.toFixed(2)} px error`:'')+
-   (summary.fov!=null?`, ${summary.fovEstimated?'estimated ':summary.fovAssumed?'assumed ':''}${summary.fov.toFixed(1)}° lens`:'');
+ return `${summary.frames} frames, ${summary.tracks} tracks, ${summary.posed??0}/${summary.keyframes??0} keyframes solved`+
+   (summary.mode==='parallax'?`, ${summary.points} 3D points`:summary.mode?', rotation only':'')+
+   (summary.rmsPx!=null?`, ${summary.rmsPx.toFixed(2)} px error`:'');
 }
 
 /**
- * Any project can be tracked: when the project has no attached video (an imported
- * JSON, a hand-built timeline) the user picks a local video file whose 0:00
- * matches the timeline's 0:00. That file is used in this tab only.
+ * Motion-tab panel: opens the tracking wizard and, for projects without an
+ * attached video, lets the user choose a local video file for this tab only
+ * (its 0:00 must match the timeline's 0:00).
  * @param {{getSequence:Function,getShot:Function,getSource:(shot:object)=>({url:string,toSourceTime:Function}|{reason:string}|null),
- *   canUseFile?:Function,canEdit:Function,onSaved:(shotId:string,motion:object,summary:object)=>string|void,onBusy?:Function}} options
+ *   canUseFile?:Function,canEdit:Function,onOpen:Function}} options
  */
-export function setupCameraTracking({getSequence,getShot,getSource,canUseFile=()=>true,canEdit=()=>true,onSaved,onBusy=()=>{}}){
+export function setupCameraTracking({getSequence,getShot,getSource,canUseFile=()=>true,canEdit=()=>true,onOpen}){
  const $=id=>document.getElementById(id);
- const root=$('cameraTrackPanel'),start=$('cameraTrackStart'),cancel=$('cameraTrackCancel'),
-   progress=$('cameraTrackProgress'),status=$('cameraTrackStatus'),
+ const root=$('cameraTrackPanel'),start=$('cameraTrackStart'),status=$('cameraTrackStatus'),
    fileWrap=$('cameraTrackFileWrap'),fileInput=$('cameraTrackFile'),fileStatus=$('cameraTrackFileStatus');
  if(!root||!start)return null;
- let controller=null,lastKey=null,chosen=null;
+ let chosen=null,lastKey=null,applied='';
  const clock=t=>Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
+ const tell=text=>{status.textContent=text;};
  /** The project's own source, else the file picked here (never for Reference Builder scenes). */
  function resolveSource(shot){
    const own=getSource(shot);
@@ -122,55 +168,26 @@ export function setupCameraTracking({getSequence,getShot,getSource,canUseFile=()
      return {reason:`The chosen video (${chosen.name}, ${clock(chosen.duration)}) ends before this chapter does (${clock(shot.end)}). Its 0:00 must match the timeline's 0:00.`};
    return {url:chosen.url,toSourceTime:t=>t};
  }
- const tell=text=>{status.textContent=text;};
- let applied='';
  /** Cheap: only touches the DOM when the chapter, source or edit state changed. */
  function refresh(){
    const sequence=getSequence(),shot=getShot();
    if(!sequence||!shot){if(applied!=='none'){applied='none';root.hidden=true;}return;}
    const source=resolveSource(shot),usable=!!source?.url,editable=canEdit(),filePicker=canUseFile();
-   const saved=savedVideoMotion(shot),key=shot.id+'|'+usable+'|'+(saved?.source||saved?.type||'');
-   const state=[key,!!controller,editable,filePicker,chosen?.url||'',source?.reason||''].join('|');
+   const hasModel=!!sequence.primitiveScenes?.scenes?.some(s=>s.shotId===shot.id&&s.objects?.length);
+   const saved=savedVideoMotion(shot),keyed=shot.cameraSync?.mode==='anchored-track';
+   const state=[shot.id,usable,editable,filePicker,hasModel,keyed,chosen?.url||'',source?.reason||'',saved?.type||''].join('|');
    if(state===applied)return;
-   applied=state;
-   root.hidden=false;
+   applied=state;root.hidden=false;
    if(fileWrap)fileWrap.hidden=!filePicker;
-   start.disabled=!!controller||!usable||!editable;
-   start.title=usable?'Track feature points through this chapter on this device':(source?.reason||'Choose the source video first.');
-   if(controller||lastKey===key)return;
-   lastKey=key;
-   tell(!usable?(source?.reason||(filePicker?'Choose the video this timeline came from (below) to track its camera.':'Attach this chapter\'s source video to track its camera.')):
-     saved?.source==='feature-track'?`Tracked: ${saved.type} · ${Math.round(saved.confidence*100)}% confidence. Preview it under Sync accepted model camera.`:
-     saved?'This chapter has an AI motion estimate. Tracking replaces it with a measured one.':
-     'Not tracked yet. Runs locally; nothing is uploaded.');
- }
- async function run(){
-   const shot=getShot(),source=shot&&resolveSource(shot);
-   if(!shot||!source?.url||controller||!canEdit())return;
-   const chapter={id:shot.id,start:shot.start,end:shot.end};
-   controller=new AbortController();onBusy(true);
-   start.disabled=true;cancel.hidden=false;progress.hidden=false;progress.removeAttribute('value');
-   tell('Decoding frames…');
-   try{
-     const {motion,summary}=await trackChapterCamera(chapter,source,{signal:controller.signal,onProgress:p=>{
-       if(p.phase==='tracking'){progress.max=p.frames;progress.value=p.frame;
-         tell(`Tracking frame ${p.frame}/${p.frames} · ${p.active} points`);}
-       else{progress.removeAttribute('value');tell(`Solving camera from ${p.frames} frames…`);}
-     }});
-     const now=getSequence()?.shots.find(s=>s.id===chapter.id);
-     if(!now||now.start!==chapter.start||now.end!==chapter.end)throw Error('The chapter changed while tracking. Track it again.');
-     const note=onSaved(chapter.id,motion,summary);
-     // Keep this detailed result instead of the generic status line.
-     const now2=getSequence()?.shots.find(s=>s.id===chapter.id);
-     lastKey=chapter.id+'|true|'+(savedVideoMotion(now2)?.source||'');
-     tell(`Tracked ${motion.type} · ${Math.round(motion.confidence*100)}% confidence (${describeTrackSummary(summary)}). `+(note||''));
-   }catch(error){
-     tell(error.cancelled?'Tracking cancelled. Nothing was saved.':
-       `${error.message}${error.summary?' ('+describeTrackSummary(error.summary)+')':''}. Nothing was saved. `+
-       'Very dark, blurry or textureless shots may not track; use AI motion analysis or keep the camera.');
-   }finally{
-     controller=null;onBusy(false);cancel.hidden=true;progress.hidden=true;refresh();
-   }
+   const ready=usable&&hasModel&&editable;
+   start.disabled=!ready;
+   const why=!usable?(source?.reason||(filePicker?'Choose the video this timeline came from (below) to track its camera.':'Attach this chapter\'s source video to track its camera.')):!hasModel?'This chapter needs a 3D model first: generate or build one, then come back to match points.':
+     !editable?'Finish the active AI job or proposal first.':'';
+   start.title=why||'Match points between the video and the 3D model, then track the camera';
+   if(lastKey===state)return;
+   lastKey=state;
+   tell(why||(keyed?'This chapter\'s camera was tracked from pinned points. Open the tracker again to redo or adjust it.':
+     'Not tracked yet. You will pin the same points in the video and on the model, then track the motion. Runs on this device; nothing is uploaded.'));
  }
  fileInput?.addEventListener('change',async()=>{
    const file=fileInput.files?.[0];fileInput.value='';
@@ -193,12 +210,11 @@ export function setupCameraTracking({getSequence,getShot,getSource,canUseFile=()
      const total=getSequence()?.duration;
      fileStatus.textContent=`Using ${file.name} (${clock(probe.duration)}) for tracking in this tab only; it is not saved or uploaded. Its 0:00 must match the timeline's 0:00.`+
        (Number.isFinite(total)&&Math.abs(probe.duration-total)>1?` Note: the timeline is ${clock(total)} long.`:'');
-     lastKey=null;refresh();
+     lastKey=null;applied='';refresh();
    }catch(error){URL.revokeObjectURL(url);fileStatus.textContent='Could not use this video: '+error.message;}
    finally{probe.removeAttribute('src');probe.load();}
  });
- start.addEventListener('click',run);
- cancel.addEventListener('click',()=>controller?.abort());
+ start.addEventListener('click',()=>{if(!start.disabled)onOpen();});
  refresh();
- return {refresh,run,isBusy:()=>!!controller};
+ return {refresh,resolveSource,tell};
 }

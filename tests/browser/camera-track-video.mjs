@@ -1,6 +1,6 @@
-// Real Chromium: decode tests/fixtures/track-orbit.mp4, track features in the
-// module Web Worker, solve the camera and check the orbit is recovered.
-// Also checks the editor's tracking panel on a draft chapter. Local only:
+// Real Chromium: decode tests/fixtures/track-orbit.mp4 frames and check the editor's
+// Motion-tab tracking panel (wizard entry, file picker, refusals). The wizard itself
+// is covered by camera-track-wizard.mjs. Local only:
 // no provider, upload or network access beyond this test server.
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
@@ -35,21 +35,18 @@ try{
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(base+'/blank');
  const result=await page.evaluate(async()=>{
-   const {trackChapterCamera}=await import('/camera-track-ui.js');
-   // The editor tracks local object URLs (cached File / Reference Builder media), not HTTP ranges.
+   const {sampleGrayFrames}=await import('/camera-track-ui.js');
+   // The editor decodes local object URLs (cached File / Reference Builder media), not HTTP ranges.
    const url=URL.createObjectURL(await (await fetch('/tests/fixtures/track-orbit.mp4')).blob());
-   const progress=[];
-   const out=await trackChapterCamera({start:0,end:3},{url,toSourceTime:t=>t},
-     {onProgress:p=>progress.push(p.phase)});
-   return {motion:out.motion,summary:out.summary,size:out.size,phases:[...new Set(progress)]};
+   const frames=[];
+   const size=await sampleGrayFrames(url,[0,1,2],{onFrame:g=>{frames.push(g.slice());}});
+   return {count:frames.length,width:size.width,height:size.height,pixels:frames[0].length,
+     differs:frames[0].some((v,i)=>v!==frames[2][i])};
  });
- assert.deepEqual(result.phases,['tracking','solving']);
- assert.equal(result.size.width,480);
- assert.equal(result.summary.mode,'parallax');
- assert.equal(result.motion.type,'orbit',JSON.stringify(result.summary));
- assert.equal(result.motion.source,'feature-track');
- assert.ok(Math.abs(result.summary.fov-50)<6,'lens estimate near the rendered 50° FOV: '+result.summary.fov);
- assert.ok(result.summary.posed===result.summary.keyframes,'every keyframe posed');
+ assert.equal(result.count,3);
+ assert.equal(result.width,480);
+ assert.equal(result.pixels,result.width*result.height);
+ assert.equal(result.differs,true,'different times decode different frames');
 
  // Editor, step 3 end to end: cached local source + accepted geometry ->
  // Track -> staged preview (placeholder camera) -> Apply -> chapter asks for a name.
@@ -76,21 +73,15 @@ try{
  await editor.waitForFunction(()=>!document.getElementById('cameraTrackStart').disabled,null,{timeout:30000});
  assert.equal(await editor.isVisible('#chapterPendingOverlay'),true,'chapter is pending before tracking');
  assert.match(await editor.textContent('#chapterPendingTitle'),/not yet been camera tracked/);
+ assert.match(await editor.textContent('#cameraTrackStatus'),/pin the same points/);
+ // There is no automatic tracking: the button opens the per-chapter wizard.
  await editor.locator('#cameraTrackStart').click();
- await editor.waitForFunction(()=>/^Tracked /.test(document.getElementById('cameraTrackStatus').textContent),null,{timeout:180000});
- const status=await editor.textContent('#cameraTrackStatus');
- assert.match(status,/^Tracked orbit/,status);
- assert.match(status,/Preview staged/,status);
- const saved=await editor.evaluate(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).shots[0].videoCameraMotion);
- assert.equal(saved.source,'feature-track');assert.equal(saved.type,'orbit');
- assert.equal(await editor.isDisabled('#acceptedCameraSyncApply'),false,'tracked preview is staged for Apply');
- const before=await editor.evaluate(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).camera.map(k=>k.generated));
- assert.ok(before.every(g=>g==='placeholder'),'staging alone changes no saved keys');
- await editor.locator('#acceptedCameraSyncApply').click();
- await editor.waitForFunction(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).camera.some(k=>k.generated==='video-track'));
- await editor.waitForSelector('#chapterNameCard:not([hidden])');
- assert.equal(await editor.isVisible('#chapterPendingOverlay'),false);
- if(process.env.UI_SCREENSHOT_DIR)await editor.screenshot({path:process.env.UI_SCREENSHOT_DIR+'/tracked-name.png'});
+ await editor.waitForSelector('#trackWizard:not([hidden]) #twFrameBox canvas');
+ assert.equal(await editor.isDisabled('#twDone'),true,'Done needs pinned points');
+ const keysBefore=await editor.evaluate(()=>localStorage.getItem('atoms-ai-sequence-v1'));
+ await editor.locator('#twCancel').click();
+ await editor.waitForSelector('#trackWizard',{state:'hidden'});
+ assert.equal(await editor.evaluate(()=>localStorage.getItem('atoms-ai-sequence-v1')),keysBefore,'cancelling changes nothing');
  await context.close();
 
  // A draft video chapter without its cached source explains how to track.
@@ -119,12 +110,10 @@ try{
  assert.equal(await importer.isDisabled('#cameraTrackStart'),true);
  assert.match(await importer.textContent('#cameraTrackStatus'),/Choose the video this timeline came from/);
  await importer.locator('#cameraTrackFile').setInputFiles(resolve(root,'tests/fixtures/track-orbit.mp4'));
- await importer.waitForFunction(()=>!document.getElementById('cameraTrackStart').disabled,null,{timeout:30000});
- assert.match(await importer.textContent('#cameraTrackFileStatus'),/for tracking in this tab only; it is not saved or uploaded/);
- await importer.locator('#cameraTrackStart').click();
- await importer.waitForFunction(()=>/^Tracked /.test(document.getElementById('cameraTrackStatus').textContent),null,{timeout:180000});
- assert.match(await importer.textContent('#cameraTrackStatus'),/^Tracked orbit/);
- assert.equal(await importer.evaluate(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).shots[0].videoCameraMotion.source),'feature-track');
+ await importer.waitForFunction(()=>/for tracking in this tab only; it is not saved or uploaded/.test(document.getElementById('cameraTrackFileStatus').textContent),null,{timeout:30000});
+ // The video alone is not enough: the chapter also needs a 3D model to match points against.
+ assert.equal(await importer.isDisabled('#cameraTrackStart'),true);
+ assert.match(await importer.textContent('#cameraTrackStatus'),/needs a 3D model/);
  // The Source tab can attach a video to the same kind of project (no 'not a single-video import' dead end).
  await importer.evaluate(s=>{localStorage.setItem('atoms-ai-sequence-v1',s);},JSON.stringify(plain));
  await importer.reload();
@@ -136,8 +125,7 @@ try{
  assert.equal(await importer.evaluate(()=>{const v=JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).videoIntake;return v&&v.sourceName;}),'track-orbit.mp4');
  await importer.waitForFunction(()=>!document.getElementById('sourceOverlayEnabled').disabled);
  await importer.locator('#inspectorMotionButton').click();
- await importer.waitForFunction(()=>!document.getElementById('cameraTrackStart').disabled,null,{timeout:30000});
- assert.match(await importer.textContent('#cameraTrackStatus'),/Not tracked yet|Tracked/);
+ await importer.waitForSelector('#cameraTrackPanel:not([hidden])',{timeout:30000});
  await importer.reload();
  await importer.waitForFunction(()=>window.__atomsEditorStarted===true);
  await importer.locator('#inspectorSourceButton').click();
@@ -152,5 +140,5 @@ try{
  await importer.waitForFunction(()=>/ends before this chapter does/.test(document.getElementById('cameraTrackStatus').textContent),null,{timeout:30000});
  assert.equal(await importer.isDisabled('#cameraTrackStart'),true);
  assert.deepEqual(errors,[]);
- console.log('PASS: browser tracked',result.motion.type,JSON.stringify(result.summary));
+ console.log('PASS: browser frame decoding and the Motion-tab tracking panel');
 }finally{await browser?.close();server.close();}

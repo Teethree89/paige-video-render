@@ -186,3 +186,67 @@ export const VIDEO_SCENARIOS=Object.freeze([
  {name:'video · pan',type:'pan',path:SCENARIOS.find(s=>s.name==='pan').path},
  {name:'video · static',type:'static',path:SCENARIOS.find(s=>s.name==='static').path},
 ]);
+
+/** The boxes of the wizard test model (position = center, size = full extents), shared by the video and the editor. */
+export const WIZARD_BOXES=Object.freeze([
+ {id:'block',center:[0,4,0],size:[16,8,10],tone:150},
+ {id:'tower',center:[6,8,-2],size:[4,16,4],tone:185},
+ {id:'annex',center:[-12,1.5,6],size:[6,3,8],tone:120},
+]);
+export const wizardPath=u=>{const a=(-25+50*u)*Math.PI/180;return {position:[36*Math.sin(a),14,36*Math.cos(a)],target:[0,4,0]};};
+
+/**
+ * Render a gray video of textured boxes seen along `path` (painter's algorithm, back faces culled,
+ * dark edges and speckle so corners are crisp and features can be tracked).
+ */
+export function renderBoxScene({boxes=WIZARD_BOXES,path=wizardPath,frames=36,width=480,height=270,fov=50,noise=.6,seed=5}={}){
+ const random=seededRandom(seed),focal=focalFromFov(fov,height),images=[],poses=[];
+ const faceDefs=(b)=>{
+   const [cx,cy,cz]=b.center,[sx,sy,sz]=b.size,h=[sx/2,sy/2,sz/2],out=[];
+   for(const axis of [0,1,2])for(const sign of [-1,1]){
+     const n=[0,0,0];n[axis]=sign;const u=(axis+1)%3,v=(axis+2)%3,corners=[];
+     for(const [a,c] of [[-1,-1],[1,-1],[1,1],[-1,1]]){const p=[cx,cy,cz];p[axis]+=sign*h[axis];p[u]+=a*h[u];p[v]+=c*h[v];corners.push(p);}
+     const center=[cx,cy,cz];center[axis]+=sign*h[axis];
+     const tone=b.tone+(axis===1?(sign>0?55:-70):axis===0?-18*sign:10*sign);
+     const speckle=Array.from({length:70},()=>{const p=[cx,cy,cz];p[axis]+=sign*h[axis];p[u]+=(random()*2-1)*h[u]*.94;p[v]+=(random()*2-1)*h[v]*.94;
+       return {p,amp:(random()<.5?-1:1)*(35+random()*45),size:.9+random()*.9};});
+     out.push({n,corners,center,tone:Math.max(30,Math.min(235,tone)),speckle});
+   }
+   return out;
+ };
+ const faces=boxes.flatMap(faceDefs);
+ for(let f=0;f<frames;f++){
+   const {position,target}=path(f/(frames-1)),pose=lookAtPose(position,target);poses.push(pose);
+   const img=new Float32Array(width*height);
+   for(let y=0;y<height;y++)for(let x=0;x<width;x++)img[y*width+x]=46+10*Math.sin(x/90)+8*Math.cos(y/60);
+   const proj=p=>{const c=mv(pose.R,p).map((v,i)=>v+pose.t[i]);return c[2]<.3?null:{x:width/2+focal*c[0]/c[2],y:height/2+focal*c[1]/c[2],z:c[2]};};
+   const visible=faces.filter(fc=>fc.n.reduce((s,v,i)=>s+v*(position[i]-fc.center[i]),0)>0)
+     .map(fc=>({fc,d:Math.hypot(...position.map((v,i)=>v-fc.center[i]))})).sort((a,b)=>b.d-a.d);
+   for(const {fc} of visible){
+     const q=fc.corners.map(proj);if(q.some(p=>!p))continue;
+     // Scanline fill of the (convex) quad.
+     const minY=Math.max(0,Math.floor(Math.min(...q.map(p=>p.y)))),maxY=Math.min(height-1,Math.ceil(Math.max(...q.map(p=>p.y))));
+     for(let y=minY;y<=maxY;y++){
+       const xs=[];
+       for(let i=0;i<4;i++){const a=q[i],b=q[(i+1)%4];if((a.y<=y&&b.y>y)||(b.y<=y&&a.y>y))xs.push(a.x+(y-a.y)/(b.y-a.y)*(b.x-a.x));}
+       if(xs.length<2)continue;xs.sort((a,b)=>a-b);
+       for(let x=Math.max(0,Math.ceil(xs[0]));x<=Math.min(width-1,Math.floor(xs.at(-1)));x++)img[y*width+x]=fc.tone;
+     }
+     const inside=(x,y)=>{let c=false;for(let i=0,j=3;i<4;j=i++){if((q[i].y>y)!==(q[j].y>y)&&x<(q[j].x-q[i].x)*(y-q[i].y)/(q[j].y-q[i].y)+q[i].x)c=!c;}return c;};
+     for(const sp of fc.speckle){
+       const p=proj(sp.p);if(!p)continue;const s=Math.min(3.4,Math.max(1,focal*sp.size/p.z/9)),r=Math.ceil(2.5*s);
+       for(let y=Math.max(0,Math.floor(p.y-r));y<=Math.min(height-1,Math.ceil(p.y+r));y++)for(let x=Math.max(0,Math.floor(p.x-r));x<=Math.min(width-1,Math.ceil(p.x+r));x++)
+         if(inside(x,y))img[y*width+x]+=sp.amp*Math.exp(-((x-p.x)**2+(y-p.y)**2)/(2*s*s));
+     }
+     // Dark outline: crisp, strong corners.
+     for(let i=0;i<4;i++){
+       const a=q[i],b=q[(i+1)%4],steps=Math.ceil(Math.hypot(b.x-a.x,b.y-a.y))+1;
+       for(let k=0;k<=steps;k++){const x=a.x+(b.x-a.x)*k/steps,y=a.y+(b.y-a.y)*k/steps;
+         for(const [dx,dy] of [[0,0],[1,0],[0,1]]){const xi=Math.round(x)+dx,yi=Math.round(y)+dy;if(xi>=0&&yi>=0&&xi<width&&yi<height)img[yi*width+xi]=22;}}
+     }
+   }
+   for(let i=0;i<img.length;i++)img[i]=Math.max(0,Math.min(255,img[i]+gauss(random)*noise));
+   images.push(img);
+ }
+ return {width,height,frames:images,truth:{poses,fov}};
+}
