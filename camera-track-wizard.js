@@ -9,7 +9,7 @@
 // Everything runs in this browser. The host (app.js) owns the 3D view.
 import {snapToCorner} from './feature-tracker.js';
 import {resectCamera,projectPoint,MIN_PIN_POINTS} from './camera-resection.js';
-import {pathToKeys,buildAnchoredCameraProposal,applyReferenceCorrections,DENSITY} from './camera-anchor.js';
+import {segmentsToKeys,buildAnchoredCameraProposal,DENSITY} from './camera-anchor.js';
 import {createFrameLoader,trackAnchored,describeTrackSummary} from './camera-track-ui.js';
 
 export const MAX_PINS=24;
@@ -388,7 +388,7 @@ export function setupTrackWizard(host){
    el.stats.textContent=`${quality} match · average ${res.rmsPx.toFixed(1)} px · worst point ${worstNumber} (${worst.toFixed(1)} px) · lens ${res.fov.toFixed(0)}°${res.fovEstimated?' (estimated)':''}`+
      (st.extraFits.length?` · ${st.extraFits.filter(f=>f.usable).length} extra reference frame${st.extraFits.filter(f=>f.usable).length===1?'':'s'} will correct drift`:'');
    say(res.ambiguous?'These points fit more than one camera position. Add more points, spread out in depth, for a reliable match.':
-     quality==='poor'?'The points disagree. Go back and check that each video point is matched to the same spot on the model.':
+     quality==='poor'?'The points disagree with the model. Go back and check that each video point is matched to the same spot, and that this is the video the timeline was made from.':
      'Drag the slider to compare. If it lines up, press Track motion.',res.ambiguous||quality==='poor'?'warn':'');
  }
 
@@ -398,15 +398,15 @@ export function setupTrackWizard(host){
    const centroid=[0,1,2].map(k=>pins.reduce((s,p)=>s+p.X[k],0)/pins.length);
    const target=Math.max(1,Math.hypot(...centroid.map((c,k)=>c-res.center[k])));
    const refs=(st.extraFits||[]).filter(f=>f.usable).map(f=>({time:f.time,center:f.res.center,forward:f.res.forward}));
-   const fixed=applyReferenceCorrections(st.track.frames,refs,st.refTime);
-   const keys=pathToKeys(fixed.frames,{fov:res.fov,targetDistance:target,density:st.density});
+   const fixed=segmentsToKeys(st.track.segments,{fov:res.fov,targetDistance:target,density:st.density,refs});
+   const keys=fixed.keys;
    const savedPins={version:1,refTime:st.refTime,fov:Math.round(res.fov*100)/100,
      points:pins.map(p=>({x:Math.round(p.x*1e5)/1e5,y:Math.round(p.y*1e5)/1e5,X:p.X.map(v=>Math.round(v*1000)/1000)}))};
    if(refs.length)savedPins.extraFrames=(st.extra||[]).filter((e,i)=>st.extraFits[i]?.usable).map(e=>({time:Math.round(e.time*1000)/1000,
      points:pins.map((p,k)=>e.obs[p.id]?{point:k,x:Math.round(e.obs[p.id].x*1e5)/1e5,y:Math.round(e.obs[p.id].y*1e5)/1e5}:null).filter(Boolean)}));
    const proposal=buildAnchoredCameraProposal(seq,shot.id,{keys,anchor:host.getAnchor(shot.id),pins:savedPins,
      summary:{scale:st.track.scale,anchorRmsPx:st.track.anchorRmsPx==null?null:Math.round(st.track.anchorRmsPx*100)/100,
-       pins:pins.length,rollDeg:Math.round(st.track.rollDeg*10)/10,referenceFrames:refs.length+1,
+       pins:pins.length,rollDeg:Math.round(st.track.rollDeg*10)/10,referenceFrames:refs.length+1,segments:fixed.segments,
        correctionDeg:fixed.corrections.length?Math.round(Math.max(...fixed.corrections.map(c=>c.degrees))*10)/10:0}});
    host.previewProposal(proposal);
    st.proposal=proposal;
@@ -415,8 +415,15 @@ export function setupTrackWizard(host){
      (st.track.anchorRmsPx!=null?` · pinned points reproject within ${st.track.anchorRmsPx.toFixed(1)} px`:'')+
      (st.track.rollDeg>4?` · note: the video camera is rolled ${st.track.rollDeg.toFixed(0)}°, which keys cannot store`:'')+
      (fixed.corrections.length?` · ${refs.length} extra reference frame${refs.length===1?'':'s'} corrected the path by up to ${Math.max(...fixed.corrections.map(c=>c.degrees)).toFixed(1)}°`:'')+
-     (st.track.problems.length?` · ${st.track.problems.map(p=>p.direction+': '+p.message).join('; ')} (camera held there)`:'');
+     (fixed.segments>1?` · ${fixed.segments} tracked stretches joined by a cut`:'')+
+     (st.track.gaps.length?` · NOT TRACKED ${st.track.gaps.map(g=>`${clock(g.from)}–${clock(g.to)}`).join(', ')}${st.track.cutAt!=null?` (the picture cuts at ${clock(st.track.cutAt)}; add a reference frame after the cut to continue)`:''}: camera held there`:'')+
+     (st.track.problems.length?` · ${st.track.problems.map(p=>p.direction+': '+p.message).join('; ')}`:'');
    say('Scrub or play the timeline to review the new camera. Apply to save it, or go back to adjust the points.');
+ }
+ /** Extra reference frames that can each start a tracked stretch: their own camera fix and the points seen there. */
+ function extraSegments(){
+   return (st.extra||[]).map((e,i)=>({e,fit:st.extraFits?.[i]})).filter(({fit})=>fit?.usable).map(({e,fit})=>({time:e.time,refPose:fit.res.pose,
+     pins:matchedPins(st.pins).filter(p=>e.obs[p.id]).map(p=>({id:p.id,x:e.obs[p.id].x,y:e.obs[p.id].y,X:p.X}))}));
  }
  async function startTracking(){
    const res=st.resection,pins=matchedPins(st.pins);
@@ -426,6 +433,7 @@ export function setupTrackWizard(host){
    try{
      st.track=await trackAnchored({source:st.source,chapter:{start:st.shot.start,end:st.shot.end},refTime:st.refTime,
        pins:pins.map(p=>({id:p.id,x:p.x,y:p.y,X:p.X})),refPose:res.pose,fov:res.fov,signal:st.abort.signal,
+       extras:extraSegments(),
        onProgress:p=>{
          if(p.phase==='tracking'){el.progress.max=p.frames;el.progress.value=p.frame;say(`Tracking frame ${p.frame}/${p.frames} (${p.direction}) · ${p.active} points`);}
          else{el.progress.removeAttribute('value');say('Solving the camera path…');}

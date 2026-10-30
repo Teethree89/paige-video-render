@@ -113,6 +113,28 @@ export function applyReferenceCorrections(frames,refs,baseTime){
  return {frames:out,corrections};
 }
 
+/**
+ * Keys for several tracked segments, each started from its own reference frame (a cut ends a
+ * segment; the next one starts at an extra reference frame after it). Extra fixes inside a
+ * segment correct its drift; the first key of every later segment is a hard cut.
+ * @param {{frames:object[],baseTime:number}[]} segments
+ * @param {{time:number,center:number[],forward:number[]}[]} refs absolute cameras at extra reference frames
+ */
+export function segmentsToKeys(segments,{fov,targetDistance,density='normal',refs=[]}){
+ const ordered=segments.map(s=>({...s,from:Math.min(...s.frames.map(f=>f.time)),to:Math.max(...s.frames.map(f=>f.time))}))
+   .filter(s=>Number.isFinite(s.from)&&s.frames.length>=2).sort((a,b)=>a.from-b.from);
+ const keys=[],corrections=[];
+ ordered.forEach((seg,i)=>{
+   const inside=refs.filter(r=>r.time>=seg.from-1e-3&&r.time<=seg.to+1e-3);
+   const fixed=applyReferenceCorrections(seg.frames,inside,seg.baseTime);
+   corrections.push(...fixed.corrections);
+   const segKeys=pathToKeys(fixed.frames,{fov,targetDistance,density});
+   if(i>0&&segKeys.length)segKeys[0].cut=true;
+   keys.push(...segKeys);
+ });
+ return {keys,corrections,segments:ordered.length};
+}
+
 /** Turn anchored frames into camera keys (world coordinates). Each frame's `time` (else `times[frame]`) is its chapter time. */
 export function pathToKeys(frames,{times=null,fov,targetDistance,density='normal'}){
  const d=DENSITY[density]||DENSITY.normal;
@@ -143,8 +165,8 @@ export function buildAnchoredCameraProposal(sequence,shotId,{keys,anchor,summary
  const fps=Math.max(1,sequence.fps||30),last=sequence.shots.at(-1)?.id===shotId;
  const tail=last?shot.end:Math.max(shot.start,shot.end-1/fps);
  let list=keys.map(k=>({...k,at:Math.min(tail,Math.max(shot.start,k.at))})).sort((a,b)=>a.at-b.at);
- if(list[0].at>shot.start+.02)list.unshift({...list[0],at:shot.start}); // hold until the first tracked frame
- if(list.at(-1).at<tail-.02)list.push({...list.at(-1),at:tail});      // and from the last one to the chapter end
+ if(list[0].at>shot.start+.02)list.unshift({...list[0],at:shot.start,cut:false}); // hold until the first tracked frame
+ if(list.at(-1).at<tail-.02)list.push({...list.at(-1),at:tail,cut:false});      // and from the last one to the chapter end
  list=list.filter((k,i)=>!i||k.at>list[i-1].at+1/(fps*2));
  if(list.length<2)throw Error('Chapter too short for tracked keys.');
  for(const k of list)if([...k.p,...k.t].some(n=>!Number.isFinite(n)||Math.abs(n)>10000)||!(k.fov>=10&&k.fov<=110))
@@ -153,7 +175,7 @@ export function buildAnchoredCameraProposal(sequence,shotId,{keys,anchor,summary
  const removed=output.camera.filter(mine),used=new Set(output.camera.filter(k=>!mine(k)).map(k=>k.id));
  const newKeys=list.map((k,i)=>{
    let id='track_'+shotId+'_'+i;while(used.has(id))id+='_';used.add(id);
-   return {id,at:Math.round(k.at*1000)/1000,p:k.p,t:k.t,fov:k.fov,cut:i===0,curve:{mode:'linear'},generated:'video-track'};
+   return {id,at:Math.round(k.at*1000)/1000,p:k.p,t:k.t,fov:k.fov,cut:i===0||!!k.cut,curve:{mode:'linear'},generated:'video-track'};
  });
  output.camera=[...output.camera.filter(k=>!mine(k)),...newKeys].sort((a,b)=>a.at-b.at);
  const next=output.shots.find(s=>s.id===shotId);
