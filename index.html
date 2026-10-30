@@ -107,6 +107,36 @@
           <div class="chapter-name-row"><input id="chapterNameInput" type="text" maxlength="80" autocomplete="off" spellcheck="true"><button id="chapterNameSave" type="button" class="secondary">Save name</button><button id="chapterNameNext" type="button" class="primary">Save &amp; next chapter →</button></div>
           <p id="chapterNameStatus" class="chapter-name-status" role="status" aria-live="polite"></p>
         </section>
+        <section id="trackWizard" class="track-wizard" role="dialog" aria-modal="false" aria-labelledby="twTitle" hidden>
+          <div class="tw-backdrop"></div>
+          <div class="tw-stage" id="twStage">
+            <div class="tw-frame-box" id="twFrameBox">
+              <div class="tw-video-layer" id="twVideoLayer"><div id="twCanvasHolder" class="tw-canvas-holder"></div></div>
+              <svg id="twOverlay" class="tw-overlay" aria-hidden="true" hidden></svg>
+              <div id="twMarks" class="tw-marks"></div>
+              <div id="twHandle" class="tw-handle" aria-hidden="true" hidden></div>
+            </div>
+          </div>
+          <div class="tw-card">
+            <div class="tw-card-head"><div><span id="twStep" class="tw-eyebrow">STEP 1 OF 3 · VIDEO</span><h2 id="twTitle">Mark points in the video</h2></div><button id="twCancel" type="button" class="tw-close">Cancel</button></div>
+            <p id="twHelp" class="tw-help"></p>
+            <div id="twTimeRow" class="tw-time-row"><label for="twTime">Reference frame</label><input id="twTime" type="range" min="0" max="1" step="0.0333" value="0"><output id="twTimeText">0:00.00</output></div>
+            <ol id="twPoints" class="tw-points" aria-label="Pinned points"></ol>
+            <label class="tw-wipe-row" id="twWipeRow" hidden><span>Video</span><input id="twWipe" type="range" min="0" max="100" step="0.5" value="50" aria-label="Before and after wipe"><span>Model</span></label>
+            <label class="tw-density" hidden>Key density <select id="twDensity"><option value="few">Few keys</option><option value="normal" selected>Normal</option><option value="many">Many keys</option></select></label>
+            <progress id="twProgress" class="tw-progress" hidden></progress>
+            <p id="twStats" class="tw-stats"></p>
+            <p id="twStatus" class="tw-status" role="status" aria-live="polite"></p>
+            <div class="tw-actions">
+              <button id="twBack" type="button" class="secondary" hidden>Back</button>
+              <button id="twClear" type="button" class="secondary" hidden>Clear points</button>
+              <button id="twSkip" type="button" class="secondary" hidden>Skip point</button>
+              <button id="twDiscard" type="button" class="secondary" hidden>Discard preview</button>
+              <button id="twApply" type="button" class="primary" hidden>Apply keyframes</button>
+              <button id="twDone" type="button" class="primary">Done</button>
+            </div>
+          </div>
+        </section>
         <p id="sceneCreateFeedback" class="scene-create-feedback" role="status" aria-live="polite" hidden></p>
         <div id="errorBanner" class="error-banner" hidden>Unable to load Three.js. An internet connection is needed for the CDN modules.</div>
         <button id="argonParticleReopen" class="argon-particle-reopen" type="button" hidden aria-label="Expand generation status">
@@ -152,14 +182,13 @@
         <div class="section-label">SEQUENCE</div><div class="stat-row"><span>Project</span><b id="projectName">Advanced Materials</b></div><div class="stat-row"><span>Runtime</span><b id="projectRuntime">56.47 s</b></div><div class="stat-row"><span>Camera keys</span><b id="keyCount">—</b></div><div class="stat-row"><span>Text overlays</span><b id="textCount">—</b></div>
         <button id="workspaceStartOpenBtn" class="wide secondary" type="button" hidden>Start / Open…</button><button id="resetBtn" disabled class="wide secondary" type="button">Reset original timeline</button><button id="clearWorkspaceBtn" disabled class="wide danger" type="button" title="Start with an empty workspace; keep the saved object and array libraries">Clear workspace…</button><p class="field-help">Remove this project’s video, scenes, and timeline without deleting reusable library assets.</p><div class="divider"></div>
         <section id="cameraTrackPanel" class="camera-sync-panel camera-track-panel" hidden aria-label="Track camera motion from the chapter's source video">
-          <div class="section-label">TRACK CAMERA FROM VIDEO · LOCAL / FREE</div>
-          <p class="field-help">Follows hundreds of image points through this chapter and solves the camera path on this device. Nothing is uploaded or sent to AI. The result is a reviewable estimate: preview it under Sync accepted model camera and Apply before any keys change.</p>
+          <div class="section-label">TRACK CAMERA · LOCAL / FREE</div>
+          <p class="field-help">Per chapter: pin the same points in the video and on the 3D model, check the match with a before/after slider, then track the motion and preview it. Placement is exact because it comes from your points, not a guess. Nothing is uploaded or sent to AI.</p>
           <label id="cameraTrackFileWrap" class="field" hidden>Video file to track (for projects without an attached video)
             <input id="cameraTrackFile" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm">
           </label>
           <p id="cameraTrackFileStatus" class="field-help" role="status" hidden></p>
-          <div class="primitive-buttons"><button id="cameraTrackStart" class="secondary" type="button">Track camera from video</button><button id="cameraTrackCancel" class="ghost" type="button" hidden>Cancel</button></div>
-          <progress id="cameraTrackProgress" class="camera-track-progress" hidden></progress>
+          <div class="primitive-buttons"><button id="cameraTrackStart" class="secondary" type="button">Track camera…</button></div>
           <p id="cameraTrackStatus" class="field-help" role="status" aria-live="polite">Not tracked yet.</p>
         </section>
         <section id="acceptedCameraSyncPanel" class="camera-sync-panel accepted-camera-sync" hidden aria-label="Sync camera to already accepted 3D chapter model">

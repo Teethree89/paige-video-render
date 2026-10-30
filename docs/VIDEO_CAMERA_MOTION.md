@@ -162,37 +162,58 @@ push, pull, truck, pedestal, orbit, pan, tilt, static and crane paths, plus
 noisy tracks with 8% outliers and an independently moving object, short
 (8-frame) staggered tracks, and unknown 42°/60° FOVs. Errors are gauge-free:
 relative rotation, camera centers after a similarity alignment on the
-triangulated points, and FOV. Not yet built: the optional click-to-anchor PnP
-against accepted geometry.
+triangulated points, and FOV. Click-to-anchor PnP against accepted geometry is the wizard below.
 
-## Track camera from video (browser, local / free)
+## Track camera from pinned points (browser wizard, local / free)
 
-Motion tab → **Track camera from video**. For the current chapter it seeks the
-local source (the cached single video, or a Reference Builder video clip with
-its in/out mapping) at about 12 fps (24–150 frames), draws 480 px wide
-grayscale frames, and streams them to `camera-track-worker.js` (module Web
-Worker; in-page fallback). `feature-tracker.js` detects Shi-Tomasi corners and
-follows them with pyramidal Lucas–Kanade plus a forward–backward check,
-re-detecting as features are lost. `camera-track-pipeline.js` keeps ≤30
-evenly spaced keyframes, runs the solver and returns the validated estimate.
-Nothing is uploaded and no provider is called.
+Automatic whole-chapter tracking was removed: with no link to the model it
+could not know where the camera started, and results were far from the video.
+Tracking is now a per-chapter wizard that anchors the camera to the model with
+points the person chooses. Motion tab → **Track camera…** (also step 3 of the
+chapter guide). It needs the chapter's source video (cached single video,
+Reference Builder clip, or a local file chosen in the panel) and a 3D model.
 
-The estimate is saved as `shots[].videoCameraMotion` (`source:'feature-track'`).
-With accepted geometry, the Sync panel switches to **Use analyzed video motion**;
-an untouched placeholder camera is staged as a preview automatically, authored
-keys need an explicit Preview. Apply still writes the keys. Before geometry
-exists, AI generation reuses the tracked estimate like an AI one. A source that
-cannot seek is refused (it would otherwise look like a static camera).
+1. **Video.** Scrub to a frame (the slider is locked once points exist) and
+   click distinctive spots. Each click snaps to the best nearby corner
+   (`snapToCorner` in `feature-tracker.js`: Shi-Tomasi-style strength weighted
+   toward the click, then sub-pixel refinement). At least 4 points, 6+ recommended,
+   up to 24. **Done**.
+2. **Model.** The 3D view shows the chapter's primitives. Orbit, then click the
+   same spot for each numbered point; clicks snap to the nearest model vertex
+   (raycast on pickable meshes). **Skip point** drops one. **Done**.
+3. **Compare.** `camera-resection.js` solves the camera at that frame from the
+   2D/3D pairs (multi-start PnP with Huber refinement and, when the lens is
+   unknown, a lens search; it flags ambiguous solutions). The 3D view is drawn
+   from that camera and a left-to-right **before/after wipe** shows video over
+   model (`wipeFov` keeps letterboxed framing aligned). Back returns to fix points.
+4. **Track.** `trackAnchored` follows the pinned points (seeded, ids kept) forward
+   and backward from the reference frame with the local tracker, and
+   `solveCameraTracks` recovers relative motion. `camera-anchor.js` places it
+   in the model: rotation and position at the reference frame come from the
+   resection, scale from the distances of the pinned points. A pass that hits a
+   cut, or has fewer than 6 frames, holds the camera instead of guessing.
+5. **Preview and Apply.** The proposal is staged through the existing
+   `acceptedCameraSync` preview. **Apply** replaces ONLY this chapter's camera
+   keys (`generated:'video-track'`, density few/normal/many), freezes
+   `sceneAnchor`, stores `trackingPins`, and changes no model, text or other
+   chapter. Undo restores the old keys.
+
+Nothing is uploaded and no provider is called; frames are read from the local
+file only. Refusals: fewer than 3 pinned points followed in 3D, > 50% of frames
+unposed, or reprojection error above 2.5 px. Limits: the lens is estimated
+(relative), camera roll cannot be stored in timeline keys (it is reported),
+dark/blurry/low-texture footage may fail, pins must stay visible during the
+move, and saved pins are not reloaded yet. A source that cannot seek is refused.
 Still images cannot be tracked: use **Keep camera as is**.
 
-Tests: `tests/test_feature_tracker.mjs` (LK accuracy, keyframes, and rendered
-synthetic videos end to end), `node scripts/camera_track_harness.mjs --video`,
-and `tests/browser/camera-track-video.mjs`, which decodes the committed
-`tests/fixtures/track-orbit.mp4` (regenerate with
-`node tests/browser/make-track-fixture.mjs`) in Chromium, then tracks, previews
-and applies it in the editor. Limits: dark, blurry, low-texture or heavily
-animated shots may fail or be low confidence; lens zoom is not modeled;
-the solve is relative (geometry fitting supplies scale and facing).
+Tests: `tests/test_camera_resection.mjs`, `tests/test_camera_anchor.mjs`,
+`tests/test_anchored_track.mjs` (rendered synthetic video, both passes),
+`tests/test_feature_tracker.mjs` (LK accuracy, corner snapping),
+`tests/test_track_wizard.mjs`, and in Chromium
+`tests/browser/camera-track-wizard.mjs` (real clicks through all five steps on
+`tests/fixtures/track-boxes.mp4`, key error vs the true path, Apply scope) and
+`tests/browser/camera-track-video.mjs` (panel, file picker, refusals).
+Regenerate fixtures with `node tests/browser/make-track-fixture.mjs`.
 
 ## Guided chapter workflow
 

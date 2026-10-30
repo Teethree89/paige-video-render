@@ -114,3 +114,25 @@ test('a plausible-lens default replaces an implausible estimated lens when it fi
  const {summary}=trackClip(video);
  assert.ok(summary.fov>=25&&summary.fov<=70,'lens stays in a plausible range: '+summary.fov);
 });
+
+import {snapToCorner} from '../feature-tracker.js';
+// A bright rectangle with a corner at (60,40).
+const rectangle=(w=160,h=120,x0=60,y0=40)=>{const g=new Float32Array(w*h).fill(40);
+ for(let y=y0;y<h-20;y++)for(let x=x0;x<w-30;x++)g[y*w+x]=210;return g;};
+
+test('best corner: a click near a corner snaps onto it',()=>{
+ const g=rectangle();
+ for(const [cx,cy] of [[63,44],[56,36],[64,38],[57,45]]){
+   const r=snapToCorner(g,160,120,cx,cy);
+   assert.equal(r.snapped,true,`click ${cx},${cy}`);
+   assert.ok(Math.hypot(r.x-59.5,r.y-39.5)<1.6,`snapped to ${r.x.toFixed(2)},${r.y.toFixed(2)}`);
+ }
+});
+test('best corner: flat areas and edges are not snapped, and clicks far away are ignored',()=>{
+ const g=rectangle();
+ const flat=snapToCorner(g,160,120,20,100);
+ assert.equal(flat.snapped,false);assert.equal(flat.x,20);assert.equal(flat.y,100);
+ assert.equal(snapToCorner(g,160,120,100,38,{radius:3}).snapped,false,'an edge has no corner');
+ assert.equal(snapToCorner(g,160,120,90,70,{radius:6}).snapped,false);
+ const edge=snapToCorner(g,160,120,3,3);assert.equal(edge.snapped,false,'image borders are safe');
+});

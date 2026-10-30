@@ -204,8 +204,8 @@ function poseFromEssential(E,p1,p2,indices){
 }
 
 // Robust (Huber) residual and Jacobian of one pixel observation.
-function huber(e,k){return e<=k?{w:1,rho:e*e}:{w:k/e,rho:2*k*e-k*k};}
-function pixelResidual(pose,X,focal,o){
+export function huber(e,k){return e<=k?{w:1,rho:e*e}:{w:k/e,rho:2*k*e-k*k};}
+export function pixelResidual(pose,X,focal,o){
  const Xc=plus(mv(pose.R,X),pose.t);if(Xc[2]<=1e-9)return null;
  const a=[Xc[0]/Xc[2],Xc[1]/Xc[2]];
  return {Xc,a,r:[focal*a[0]-o.dx,focal*a[1]-o.dy]};
@@ -217,7 +217,7 @@ const mul23x33=(J,M)=>{const out=new Array(6);for(let r=0;r<2;r++)for(let c=0;c<
 // Left-perturbation rotation Jacobian: d(exp(w) R X)/dw = -[RX]x.
 const negSkew=v=>[0,v[2],-v[1],-v[2],0,v[0],v[1],-v[0],0];
 
-function refinePose(start,matches,focal,huberPx,iterations=25){
+export function refinePose(start,matches,focal,huberPx,iterations=25){
  let pose={R:start.R.slice(),t:start.t.slice()},lambda=1e-3;
  const cost=p=>{let c=0;for(const m of matches){const res=pixelResidual(p,m.X,focal,m.o);
    c+=res?huber(Math.hypot(res.r[0],res.r[1]),huberPx).rho:1e6;}return c;};
@@ -250,7 +250,7 @@ function refinePose(start,matches,focal,huberPx,iterations=25){
  return pose;
 }
 // Linear PnP from at least six 3D-2D matches (normalized coordinates).
-function poseDLT(matches){
+export function poseDLT(matches){
  const m=matches.reduce((s,x)=>plus(s,x.X),[0,0,0]).map(v=>v/matches.length);
  const s=Math.max(1e-9,median(matches.map(x=>norm(minus(x.X,m)))));
  const A=new Float64Array(144);
@@ -627,7 +627,7 @@ function classify(keys,mode,rotationSpan){
  return name==='forward'?(dot(d,f)>0?'push':'pull'):name;
 }
 // Choose up to `limit` frames so linear interpolation stays near the path.
-function simplify(samples,limit,tolerance){
+export function simplifyPath(samples,limit,tolerance){
  const chosen=[0,samples.length-1];
  const err=(i)=>{const sorted=[...chosen].sort((a,b)=>a-b);let lo=sorted[0],hi=sorted.at(-1);
    for(const c of sorted){if(c<=i)lo=c;if(c>=i){hi=c;break;}}
@@ -681,7 +681,7 @@ export function trackSolveToVideoMotion(solve,{start,end,times=null,maxKeys=11}=
  const type=classify(samples,solve.mode,rotationSpan);
  const fov=Math.min(110,Math.max(10,Math.round(solve.fov*100)/100));
  const round=v=>v.map(n=>Math.round(n*10000)/10000);
- let keys=['static'].includes(type)?[samples[0],{...samples[0],u:1}]:simplify(samples,maxKeys,.01);
+ let keys=['static'].includes(type)?[samples[0],{...samples[0],u:1}]:simplifyPath(samples,maxKeys,.01);
  keys=keys.map(k=>({u:k.u,p:round(k.p),t:round(k.t),fov}));
  const confidence=Math.round(Math.max(.05,Math.min(.95,(1-Math.min(1,solve.rmsPx/4))*
    Math.min(1,solve.inlierRatio*1.2)*Math.min(1,(solve.mode==='parallax'?solve.points.size:40)/60)*

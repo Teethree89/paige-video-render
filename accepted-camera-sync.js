@@ -110,26 +110,42 @@ export function setupAcceptedCameraSync({
   });
   mode.addEventListener('change',()=>{if(staged)discard({notify:false});
     tell('Mode changed. Preview again to inspect the new framing.');});
+  // One apply path for the Apply button and for externally staged proposals (the tracking wizard).
+  function commit(){
+    if(!staged)throw Error('Nothing is staged.');
+    if(!canEdit())throw Error('Finish the active AI job or proposal first.');
+    if(getActiveShot()?.id!==staged.shotId||
+       acceptedCameraSnapshot(getSequence(),staged.shotId)!==staged.snapshot)
+      throw Error('Chapter, camera keys, or geometry changed. Preview alignment again.');
+    // Clear the pending preview before onApply persists its new camera keys;
+    // saveLocal() refreshes the inspector and must not read this as a stale
+    // external mutation or discard the just-accepted result.
+    const proposal=staged;
+    staged=null;
+    onApply(proposal);
+    apply.disabled=true;cancel.hidden=true;
+    tell('Camera keys saved for this accepted chapter. The 3D model was not regenerated or moved. Undo is available.');
+  }
   apply.addEventListener('click',()=>{
     if(!staged)return;
-    if(!canEdit())return tell('Finish the active AI job or proposal first.');
-    try{
-      if(getActiveShot()?.id!==staged.shotId||
-         acceptedCameraSnapshot(getSequence(),staged.shotId)!==staged.snapshot)
-        throw Error('Chapter, camera keys, or geometry changed. Preview alignment again.');
-      // Clear the pending preview before onApply persists its new camera keys;
-      // saveLocal() refreshes the inspector and must not read this as a stale
-      // external mutation or discard the just-accepted result.
-      const proposal=staged;
-      staged=null;
-      onApply(proposal);
-      apply.disabled=true;cancel.hidden=true;
-      tell('Camera keys saved for this accepted chapter. The 3D model was not regenerated or moved. Undo is available.');
-    }catch(error){discard({notify:false});tell('Not applied: '+error.message);}
+    try{commit();}
+    catch(error){
+      if(/Finish the active AI job/.test(error.message))return tell(error.message);
+      discard({notify:false});tell('Not applied: '+error.message);
+    }
   });
   cancel.addEventListener('click',()=>discard());
   refresh();
-  return {refresh,previewReference:(view,at)=>stageView(view,at,'reference-view'),
+  /** Stage a ready-made proposal (anchored tracking) through the same preview / Apply path. */
+  function stageProposal(proposal,message){
+    if(!canEdit())throw Error('Finish the active AI job or proposal first.');
+    if(staged)discard({notify:false});
+    onPreview(proposal);staged=proposal;
+    apply.disabled=false;cancel.hidden=false;
+    tell(message||'Previewing tracked camera keys. Scrub to review, then Apply.');
+    return proposal;
+  }
+  return {refresh,previewReference:(view,at)=>stageView(view,at,'reference-view'),stageProposal,applyStaged:commit,
     reset:()=>discard({notify:false}),get hasPreview(){return !!staged;}};
 }
 

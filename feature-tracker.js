@@ -112,6 +112,53 @@ export function trackPoint(prev,next,x,y,{win=7,iterations=20,epsilon=.01,minEig
  return [nx,ny];
 }
 
+/**
+ * Snap a click to the strongest nearby corner (Shi-Tomasi) within `radius` pixels.
+ * Returns {x,y,snapped,score}; an untextured spot is returned unchanged.
+ */
+export function snapToCorner(gray,width,height,x,y,{radius=14}={}){
+ const R=Math.ceil(radius)+4,x0=Math.max(0,Math.floor(x)-R),y0=Math.max(0,Math.floor(y)-R);
+ const x1=Math.min(width,Math.floor(x)+R+1),y1=Math.min(height,Math.floor(y)+R+1),w=x1-x0,h=y1-y0;
+ if(w<12||h<12)return {x,y,snapped:false,score:0};
+ const patch=new Float32Array(w*h);
+ for(let j=0;j<h;j++)for(let i=0;i<w;i++)patch[j*w+i]=gray[(y0+j)*width+x0+i];
+ const smooth=blur(patch,w,h),{gx,gy}=gradients(smooth,w,h),score=new Float32Array(w*h),r=2;
+ let max=0;
+ for(let j=r+1;j<h-r-1;j++)for(let i=r+1;i<w-r-1;i++){
+   let a=0,b=0,c=0;
+   for(let dj=-r;dj<=r;dj++)for(let di=-r;di<=r;di++){const k=(j+dj)*w+i+di;a+=gx[k]*gx[k];b+=gx[k]*gy[k];c+=gy[k]*gy[k];}
+   const v=(a+c)/2-Math.sqrt(((a-c)/2)**2+b*b);score[j*w+i]=v;
+ }
+ // Prefer strong corners, but pull toward the click so a person's intent wins over a far, slightly stronger one.
+ let best=null;
+ for(let j=r+1;j<h-r-1;j++)for(let i=r+1;i<w-r-1;i++){
+   const d=Math.hypot(x0+i-x,y0+j-y);if(d>radius)continue;
+   const v=score[j*w+i];if(v>max)max=v;
+   const k=j*w+i;
+   if(v<score[k-1]||v<score[k+1]||v<score[k-w]||v<score[k+w]||v<score[k-w-1]||v<score[k-w+1]||v<score[k+w-1]||v<score[k+w+1])continue;
+   const weighted=v*(1-.6*(d/radius)**2);
+   if(!best||weighted>best.weighted)best={i,j,v,weighted};
+ }
+ if(!best||best.v<1.5)return {x,y,snapped:false,score:best?.v||0}; // flat (texture-less) spot
+ // Sub-pixel (like OpenCV cornerSubPix): the corner is the point closest to all nearby edge
+ // lines, which removes the strength score's slight bias toward the inside of the shape.
+ let px=best.i,py=best.j;
+ for(let iteration=0;iteration<8;iteration++){
+   let a=0,b=0,c=0,bx=0,by=0;
+   for(let qy=Math.max(1,Math.round(py)-5);qy<=Math.min(h-2,Math.round(py)+5);qy++)
+     for(let qx=Math.max(1,Math.round(px)-5);qx<=Math.min(w-2,Math.round(px)+5);qx++){
+       const wgt=Math.exp(-((qx-px)**2+(qy-py)**2)/(2*3*3)),k=qy*w+qx,ix=gx[k],iy=gy[k];
+       a+=wgt*ix*ix;b+=wgt*ix*iy;c+=wgt*iy*iy;
+       bx+=wgt*(ix*ix*qx+ix*iy*qy);by+=wgt*(ix*iy*qx+iy*iy*qy);
+     }
+   const det=a*c-b*b;if(Math.abs(det)<1e-6*(a+c+1e-9)**2)break;
+   const nx=(c*bx-b*by)/det,ny=(a*by-b*bx)/det;
+   if(!Number.isFinite(nx)||Math.hypot(nx-best.i,ny-best.j)>3)break; // never wander off the strong corner
+   const moved=Math.hypot(nx-px,ny-py);px=nx;py=ny;if(moved<.01)break;
+ }
+ return {x:x0+px,y:y0+py,snapped:true,score:best.v};
+}
+
 export const TRACKER_DEFAULTS=Object.freeze({maxFeatures:400,minDistance:10,quality:.01,levels:3,win:7,
  forwardBackwardPx:.8,redetectBelow:.7});
 
@@ -135,10 +182,15 @@ export function createFeatureTracker(options={}){
    return found.length;
  }
  return {
-   addFrame(gray,w,h){
+   /** `seeds` ([{id,x,y}], first frame only) become tracks that keep their id (the user's pinned points). */
+   addFrame(gray,w,h,{seeds=null}={}){
      if(frame>=0&&(w!==width||h!==height))throw Error('Tracked frames must keep one size');
      width=w;height=h;frame++;
      const pyramid=buildPyramid(gray,w,h,opts.levels);
+     if(seeds&&frame===0)for(const seed of seeds){
+       const track={id:String(seed.id),obs:[[0,seed.x,seed.y]]};
+       tracks.set(track.id,track);active.set(track.id,{track,at:[seed.x,seed.y]});
+     }
      let kept=0,lost=0;
      if(previous){
        for(const [id,item] of active){

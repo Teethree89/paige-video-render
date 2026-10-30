@@ -237,16 +237,22 @@ camera into project data. Use `tests/test_scene_object_edit.mjs` and the pinned
 Three.js integration test to guard the interaction.
 
 
-## Feature-track camera solver and guided chapters
+## Pinned-point camera tracking wizard and guided chapters
 
-`camera-track-solver.js` solves relative camera paths from 2D feature tracks
-locally (no provider call, seeded/deterministic) and emits the existing
-`videoCameraMotion` v1 estimate with `source:'feature-track'`; fitted keys are
-`generated:'video-track'`. It is still a reviewable estimate (relative scale,
-no-roll vertical): keep preview/Apply. Run `node scripts/camera_track_harness.mjs`
-and `tests/test_camera_track_solver.mjs` when changing it; do not loosen the
-scenario limits to make a change pass. The browser tracker (`feature-tracker.js`,
-`camera-track-pipeline.js`, `camera-track-worker.js`, `camera-track-ui.js`)
-reads only the local source in this browser; never upload frames or tracks.
-Keep the seek guard and the placeholder-only auto-staging. `chapter-workflow.js` derives chapter progress from timeline data only;
-keep `nameConfirmed`/`cameraConfirmed` optional so older timelines load.
+There is no automatic whole-chapter camera tracking. Motion tab → **Track camera…**
+opens a per-chapter wizard (`camera-track-wizard.js`): pin corners in the video
+(snapped by `snapToCorner`), pin the same spots on the 3D model, review a
+before/after wipe, track, preview, Apply. `camera-resection.js` (PnP) gives the
+camera at the reference frame, `camera-anchor.js` places the locally tracked
+relative path (`camera-track-solver.js`, seeded/deterministic, local) into the
+model and `buildAnchoredCameraProposal` replaces ONLY that chapter's keys
+(`generated:'video-track'`, frozen `sceneAnchor`, via the existing preview/Apply
+path). It is still a reviewable estimate (relative lens/scale, roll not stored):
+keep preview/Apply and the refusal rules; do not loosen scenario limits to pass
+a change. Run `node scripts/camera_track_harness.mjs`, the node tests listed in
+validate.yml and `tests/browser/camera-track-wizard.mjs`. The browser tracker
+(`feature-tracker.js`, `camera-track-pipeline.js`, `camera-track-worker.js`,
+`camera-track-ui.js`) reads only the local source in this browser; never upload
+frames, pins or tracks. Keep the seek guard. `chapter-workflow.js` derives chapter
+progress from timeline data only; keep `nameConfirmed`/`cameraConfirmed` optional
+so older timelines load.
