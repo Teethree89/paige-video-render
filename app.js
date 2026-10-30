@@ -319,14 +319,15 @@ function showGeneratedGeometry(shotId,scroll=false,{editMode=false}={}){
   if(editMode){
     // Edit mode keeps the view the user was just looking at (timeline camera at
     // the playhead, or their orbit pose) so keys and the source overlay stay lined up.
-    const target=controls.target.clone();
-    if(camera.position.distanceTo(target)<.01)
-      target.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10));
+    const target=controls.target.clone(),degenerate=camera.position.distanceTo(target)<.01;
+    if(degenerate)target.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10));
     const distance=camera.position.distanceTo(target);
     camera.near=Math.max(.01,Math.min(.35,distance*.01));
     camera.far=orbitFar=Math.max(500,distance+bounds.radius*5);
     camera.updateProjectionMatrix();
-    controls.target.copy(target);controls.update();
+    // No controls.update() unless the target changed: it would apply one more damping
+    // step and nudge a camera that is still coasting.
+    if(degenerate){controls.target.copy(target);controls.update();}
     chapterWorkflow?.refresh(true);
     return true;
   }
