@@ -131,7 +131,7 @@ try{
  assert.match(await page.locator('#referenceMediaStatus').textContent(),/missing/);
  await page.locator('#sourceRelinkFile').setInputFiles(resolve(root,'assets/reference.mp4'));
  await page.waitForFunction(()=>!document.getElementById('sourceOverlayEnabled').disabled);
- await page.waitForFunction(()=>document.getElementById('sourceRelinkStatus').textContent.includes('saved locally'));
+ await page.waitForFunction(()=>document.getElementById('sourceRelinkStatus').textContent.includes('saved in this browser until'));
  await scrub(.25);
  await page.reload();await ready();await page.locator('#inspectorSourceButton').click();
  await page.waitForFunction(()=>document.getElementById('referenceVideo').readyState>=2);

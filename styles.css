@@ -649,3 +649,68 @@ html,body{font-size:14px}
 #workspaceStartOpenBtn[hidden]{display:none!important}
 @media(max-width:520px){.workspace-start-dialog{padding:17px}.workspace-start-top h2{font-size:19px}.workspace-start-choices{grid-template-columns:1fr}.workspace-start-choice{min-height:0;padding:13px}}
 
+
+/* Guided chapter workflow: step guide, pending-blocking overlay, naming card. */
+.workflow-guide[hidden],.chapter-pending-overlay[hidden],.chapter-pending-chip[hidden],.chapter-name-card[hidden]{display:none!important}
+.workflow-guide{flex-shrink:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:8px 16px;background:#0d1724;border-bottom:1px solid #29384b;min-width:0}
+.workflow-steps{display:flex;gap:6px;margin:0;padding:0;list-style:none;flex:0 0 auto}
+.workflow-steps button{display:flex;align-items:center;gap:8px;padding:6px 10px 6px 7px;border-radius:5px;background:transparent;border:1px solid #26374a;color:#8ea1b6;text-align:left;white-space:nowrap}
+.workflow-step-num{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px solid #3b4f66;font-size:11px;font-weight:800;flex-shrink:0}
+.workflow-step-label{display:flex;flex-direction:column;font-size:12px;font-weight:700;line-height:1.2}
+.workflow-step-label small{font-size:10px;font-weight:500;color:#6f8297}
+.workflow-steps button[data-state="current"]{border-color:#59cfd3;background:#12313b;color:#e5fdff;box-shadow:0 0 0 1px rgba(89,207,211,.25)}
+.workflow-steps button[data-state="current"] .workflow-step-num{background:#76f3f5;border-color:#76f3f5;color:#06222a}
+.workflow-steps button[data-state="current"] small{color:#a9dde2}
+.workflow-steps button[data-state="done"]{color:#b9e9d4;border-color:#2b5446}
+.workflow-steps button[data-state="done"] .workflow-step-num{background:#1f4a3b;border-color:#3c8a6c;color:transparent;position:relative}
+.workflow-steps button[data-state="done"] .workflow-step-num::after{content:"✓";position:absolute;color:#b8f5d9}
+.workflow-guide-detail{display:flex;align-items:center;gap:10px;flex:1 1 auto;min-width:0;justify-content:flex-end}
+.workflow-guide-hint{flex:1 0 100%;margin:0;font-size:12px;line-height:1.35;color:#b2c3d4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.workflow-guide-progress{font-size:11px;color:#8fa4b8;white-space:nowrap}
+.workflow-guide-progress:empty{display:none}
+.workflow-guide-action{padding:8px 12px;border-radius:4px;background:#a7fcf5;color:#0b242c;font-weight:800;white-space:nowrap}
+.workflow-guide-collapse{padding:6px 9px;border-radius:4px;background:transparent;border:1px solid #33465b;color:#9db1c4;font-size:11px;white-space:nowrap}
+.workflow-guide.collapsed .workflow-step-label small,.workflow-guide.collapsed .workflow-guide-hint{display:none}
+.workflow-guide.collapsed{padding-block:5px}
+.workflow-guide.collapsed .workflow-steps button{padding-block:3px}
+@media(max-width:1350px){.workflow-step-label small{display:none}}
+@media(max-width:1100px){.workflow-guide-detail{flex-basis:100%;justify-content:flex-start}}
+@media(max-width:680px){.workflow-step-label{display:none}.workflow-steps button[data-state="current"] .workflow-step-label{display:flex}}
+
+.chapter-pending-overlay{position:absolute;inset:0;z-index:30;display:grid;place-items:center;padding:56px 16px;pointer-events:none;
+ background:repeating-linear-gradient(135deg,rgba(6,13,22,.62) 0 14px,rgba(14,26,38,.62) 14px 28px)}
+.chapter-pending-card{pointer-events:auto;width:min(440px,100%);background:rgba(13,23,35,.96);border:1px solid #3d6170;border-radius:10px;padding:18px 20px;box-shadow:0 20px 60px rgba(0,0,0,.55);color:#e7f3fa}
+.chapter-pending-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.chapter-pending-eyebrow{font-size:10px;letter-spacing:1.4px;font-weight:800;color:#f3b266}
+.chapter-pending-hide{background:transparent;border:1px solid #34495d;color:#9db1c4;border-radius:4px;padding:4px 8px;font-size:11px}
+.chapter-pending-card h2{margin:10px 0 12px;font-size:18px;line-height:1.3}
+.chapter-pending-checklist{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:6px}
+.chapter-pending-checklist li{display:grid;grid-template-columns:20px 1fr auto;align-items:center;gap:8px;padding:7px 9px;border-radius:5px;background:#101e2c;border:1px solid #233548;font-size:12px}
+.chapter-pending-checklist li small{color:#8ea1b6;font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chapter-pending-checklist .mark{color:#f3b266;font-weight:800;text-align:center}
+.chapter-pending-checklist li.done{border-color:#2b5446}.chapter-pending-checklist li.done .mark{color:#8df0bf}
+.chapter-pending-actions,.chapter-name-row{display:flex;gap:8px;flex-wrap:wrap}
+.chapter-pending-actions button,.chapter-name-row button{padding:9px 12px;border-radius:4px;font-weight:700}
+.chapter-pending-card .primary,.chapter-name-card .primary{background:#a7fcf5;color:#0b242c}
+.chapter-pending-card .secondary,.chapter-name-card .secondary{background:#182434;color:#d4e5f0;border:1px solid #41536a}
+.chapter-pending-chip{position:absolute;z-index:30;left:50%;top:56px;transform:translateX(-50%);padding:7px 12px;border-radius:999px;background:rgba(40,28,10,.92);border:1px solid #f3b266;color:#ffd9a6;font-size:11px;font-weight:700}
+.chapter-name-card{position:absolute;z-index:30;left:50%;bottom:58px;transform:translateX(-50%);width:min(560px,calc(100% - 32px));background:rgba(13,23,35,.96);border:1px solid #3c8a6c;border-radius:10px;padding:13px 15px;box-shadow:0 16px 50px rgba(0,0,0,.5);color:#e7f3fa;display:grid;gap:7px}
+.chapter-name-card .chapter-pending-eyebrow{color:#8df0bf}
+.chapter-name-card label{font-size:13px;font-weight:700}
+.chapter-name-row input{flex:1 1 200px;min-width:0;background:#081826;color:#ecfbff;border:1px solid #3d5a6a;border-radius:5px;padding:9px 10px}
+.chapter-name-status{margin:0;font-size:11px;color:#a9c1cf;min-height:0}
+.chapter-name-status:empty{display:none}
+
+.shot-item.chapter-pending{background:repeating-linear-gradient(135deg,#2a2114 0 6px,#1d1912 6px 12px);border-color:#a5773f;color:#ffd9a6}
+.shot-item.chapter-pending::before{content:"◌ ";}
+.shot-item.chapter-unnamed{border-style:dashed;border-color:#8df0bf}
+.shot-item.chapter-unnamed::before{content:"✎ ";}
+.shot-item.chapter-ready::before{content:"✓ ";color:#8df0bf}
+.chapter-item.chapter-pending{color:#ffd9a6}
+.chapter-item.chapter-pending::after{content:"pending";margin-left:auto;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#f3b266}
+.chapter-item.chapter-unnamed::after{content:"name";margin-left:auto;font-size:9px;letter-spacing:1px;text-transform:uppercase;color:#8df0bf}
+.workflow-spotlight{animation:workflowSpotlight 2.4s ease-out 1}
+@keyframes workflowSpotlight{0%,35%{box-shadow:0 0 0 2px #76f3f5,0 0 24px rgba(118,243,245,.45)}100%{box-shadow:0 0 0 0 transparent}}
+@media(prefers-reduced-motion:reduce){.workflow-spotlight{animation:none;outline:2px solid #76f3f5}}
+.camera-track-progress{width:100%;height:6px;margin:8px 0 2px;accent-color:#76f3f5}
+.camera-track-progress[hidden]{display:none}

@@ -3,6 +3,8 @@
 import {evaluateCamera} from './animation-curves.js';
 import {PRIMITIVE_TYPES} from './primitive-schema.js';
 export const MOTION_TYPES=Object.freeze(['static','push','pull','pan','tilt','truck','pedestal','orbit','mixed','unknown']);
+// Absent source = AI frame analysis. 'feature-track' = local camera-track solve.
+export const MOTION_SOURCES=Object.freeze(['feature-track']);
 const finite=(n,a,b)=>typeof n==='number'&&Number.isFinite(n)&&n>=a&&n<=b;
 const vec=v=>Array.isArray(v)&&v.length===3&&v.every(n=>finite(n,-30,30));
 const sub=(a,b)=>a.map((n,i)=>n-b[i]);
@@ -34,8 +36,9 @@ export function validateVideoMotion(value,shot=null){
  if(['static','unknown'].includes(value.type)&&keys.some(k=>
     length(sub(k.p,keys[0].p))>.001||length(sub(k.t,keys[0].t))>.001||Math.abs(k.fov-keys[0].fov)>.001))
    throw Error('Static or unknown motion must not invent movement');
+ if(value.source!==undefined&&!MOTION_SOURCES.includes(value.source))throw Error('Unknown video motion source');
  return {version:1,start:value.start,end:value.end,type:value.type,confidence:value.confidence,
-   uncertainty:value.uncertainty,keys};
+   uncertainty:value.uncertainty,keys,...(value.source?{source:value.source}:{})};
 }
 export function savedVideoMotion(shot){try{return validateVideoMotion(shot?.videoCameraMotion,shot);}catch{return null;}}
 export function validateCameraAlignment(value){
@@ -188,6 +191,7 @@ export function buildVideoCameraMotion(source,shotId,{newBounds,anchor,modelCame
     !Array.isArray(anchor)||anchor.length!==3||!anchor.every(n=>finite(n,-10000,10000)))
    throw Error('Generate valid geometry before fitting video motion.');
  const poses=motion.keys.map(k=>({...k,at:k.u,curve:{mode:'linear'}}));
+ const tracked=motion.source==='feature-track',motionSource=tracked?'feature-track':'video-analysis';
  const useView=modelCamera&&Array.isArray(modelCamera.position)&&modelCamera.position.length===3&&
    Array.isArray(modelCamera.target)&&modelCamera.target.length===3&&
    [...modelCamera.position,...modelCamera.target].every(Number.isFinite)&&
@@ -205,7 +209,7 @@ export function buildVideoCameraMotion(source,shotId,{newBounds,anchor,modelCame
    let id='video_motion_'+shotId+'_'+i;while(used.has(id))id+='_';used.add(id);
    const map=v=>add(center,rotate(mul(sub(v,origin),scale))).map(round);
    const key={id,at:round(shot.start+k.u*(tail-shot.start)),p:map(k.p),t:map(k.t),
-     fov:k.fov,cut:i===0,curve:{mode:'linear'},generated:'video-estimate'};
+     fov:k.fov,cut:i===0,curve:{mode:'linear'},generated:tracked?'video-track':'video-estimate'};
    if([...key.p,...key.t].some(n=>!finite(n,-10000,10000)))throw Error('Estimated camera exceeds scene limits');
    return key;
  });
@@ -213,8 +217,8 @@ export function buildVideoCameraMotion(source,shotId,{newBounds,anchor,modelCame
  output.camera=[...output.camera.filter(k=>!owns(k)),...keys].sort((a,b)=>a.at-b.at);
  const next=output.shots.find(s=>s.id===shotId);
  next.sceneAnchor=[...anchor];
- next.cameraSync={version:1,mode:'video-motion',source:'video-analysis',scale:round(scale)};
- return {sequence:output,report:{mode:'video-motion',source:'video-analysis',scale:round(scale),
+ next.cameraSync={version:1,mode:'video-motion',source:motionSource,scale:round(scale)};
+ return {sequence:output,report:{mode:'video-motion',source:motionSource,scale:round(scale),
    updatedKeys:keys.length,addedKeys:keys.length,type:motion.type,confidence:motion.confidence,
    estimatedOrientationUsed:!!useView}};
 }

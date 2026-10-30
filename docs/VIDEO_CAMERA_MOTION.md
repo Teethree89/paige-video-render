@@ -122,3 +122,127 @@ timelines without a cached source need one reattachment. Missing sources no
 longer display the example poster as if it were the imported video; overlay
 controls remain visible but disabled until reattachment. Clear workspace also
 removes the cached source and preserves the reusable object library.
+
+## Feature-track camera solver (offline harness, 2026-10-29)
+
+`camera-track-solver.js` is a deterministic, local alternative to asking a
+model for the camera path. Given 2D feature tracks (`[frame, x, y]` pixels per
+track id) it:
+
+1. scans for parallax (rotation-compensated residuals). If a pure rotation fits
+   every frame at some focal length, it solves **rotation only** (pan / tilt /
+   static) with seeded 2-point RANSAC + Kabsch;
+2. otherwise picks the best-parallax frame pair, estimates the essential matrix
+   (seeded 8-point RANSAC), triangulates, poses later frames by robust PnP,
+   triangulates new tracks as earlier ones die out, and refines everything with
+   sparse Huber bundle adjustment (Schur complement over points);
+3. estimates the vertical FOV when it is unknown (focal scan + bundle
+   adjustment of one shared focal length);
+4. converts the result with `trackSolveToVideoMotion` into the SAME validated
+   `shots[].videoCameraMotion` v1 estimate (Y up, subject at origin, first
+   camera on +Z, ≤11 keys), marked `source:'feature-track'`. The vertical axis
+   assumes the camera has no roll. Uncertainty text is a fixed template.
+
+`buildVideoCameraMotion` fits a tracked estimate to geometry exactly like an AI
+estimate, but writes `generated:'video-track'` keys and
+`cameraSync.source:'feature-track'`. The solve is relative: scale and facing
+still come from the generated geometry / reference alignment, and preview +
+Apply is still required.
+
+Test it without any video or provider:
+
+```bash
+node scripts/camera_track_harness.mjs          # table; exit 1 if any scenario misses its limits
+node scripts/camera_track_harness.mjs --json   # machine-readable
+node --test tests/test_camera_track_solver.mjs
+```
+
+`tests/camera-track-fixtures.mjs` projects a synthetic campus through known
+push, pull, truck, pedestal, orbit, pan, tilt, static and crane paths, plus
+noisy tracks with 8% outliers and an independently moving object, short
+(8-frame) staggered tracks, and unknown 42°/60° FOVs. Errors are gauge-free:
+relative rotation, camera centers after a similarity alignment on the
+triangulated points, and FOV. Not yet built: the optional click-to-anchor PnP
+against accepted geometry.
+
+## Track camera from video (browser, local / free)
+
+Motion tab → **Track camera from video**. For the current chapter it seeks the
+local source (the cached single video, or a Reference Builder video clip with
+its in/out mapping) at about 12 fps (24–150 frames), draws 480 px wide
+grayscale frames, and streams them to `camera-track-worker.js` (module Web
+Worker; in-page fallback). `feature-tracker.js` detects Shi-Tomasi corners and
+follows them with pyramidal Lucas–Kanade plus a forward–backward check,
+re-detecting as features are lost. `camera-track-pipeline.js` keeps ≤30
+evenly spaced keyframes, runs the solver and returns the validated estimate.
+Nothing is uploaded and no provider is called.
+
+The estimate is saved as `shots[].videoCameraMotion` (`source:'feature-track'`).
+With accepted geometry, the Sync panel switches to **Use analyzed video motion**;
+an untouched placeholder camera is staged as a preview automatically, authored
+keys need an explicit Preview. Apply still writes the keys. Before geometry
+exists, AI generation reuses the tracked estimate like an AI one. A source that
+cannot seek is refused (it would otherwise look like a static camera).
+Still images cannot be tracked: use **Keep camera as is**.
+
+Tests: `tests/test_feature_tracker.mjs` (LK accuracy, keyframes, and rendered
+synthetic videos end to end), `node scripts/camera_track_harness.mjs --video`,
+and `tests/browser/camera-track-video.mjs`, which decodes the committed
+`tests/fixtures/track-orbit.mp4` (regenerate with
+`node tests/browser/make-track-fixture.mjs`) in Chromium, then tracks, previews
+and applies it in the editor. Limits: dark, blurry, low-texture or heavily
+animated shots may fail or be low confidence; lens zoom is not modeled;
+the solve is relative (geometry fitting supplies scale and facing).
+
+## Guided chapter workflow
+
+`chapter-workflow.js` adds a four-step guide above the viewport: **1 Choose
+workflow** (Video → timeline or Reference Builder), **2 Base models & colors**,
+**3 Camera movement**, **4 Name & continue**. Status is derived from timeline
+data: a guided (draft) chapter is *pending blocking* until it has accepted
+geometry and a non-placeholder camera (AI estimate, track, authored/synced keys,
+or an explicit **Keep camera as is**, saved as `shot.cameraConfirmed`). Pending
+chapters get a hatched timeline clip and a viewport overlay; generated,
+camera-ready chapters ask for a name (`shot.nameConfirmed`, title = upper-case
+name) and offer **Save & next chapter**. Overlays hide during AI jobs,
+proposals, geometry review and Edit mode. Original authored timelines are not
+treated as pending.
+
+### Real footage check (`assets/reference.mp4`, 2026-10-30)
+
+`node scripts/track_video_file.mjs assets/reference.mp4` runs the tracker on each
+chapter of the bundled CG reference (needs ffmpeg). This is evidence the tracker
+behaves sensibly on real footage, **not** a ground-truth accuracy measurement
+(the hand-authored cameras are for a rebuilt scene, so they only confirm the
+motion type: e.g. the exterior dolly-in is reported as a push).
+
+| Chapter | Result | Notes |
+|---|---|---|
+| exterior, pcb, atoms | push | 28–30/30 keyframes, 0.7–1.1 px |
+| hall | push | 79/107 frames continuous; the rest held still |
+| hallreturn, laser | mixed | 30/30 keyframes, about 1 px |
+| fiber | mixed, 46% confidence | few features (303 points), 94/108 frames continuous |
+| optics | truck | 65/83 frames continuous; the rest held still |
+| finale | refused | fast transition for ~1.5 s, then a locked-off shot; the fit is 3.1 px |
+
+Robustness rules learned from it: a cut or fast transition (most tracks lost at
+once) splits the chapter; the longest continuous stretch is solved and the rest
+is **held still and said so** in the saved note; if that stretch covers under
+half the chapter the track is refused with advice to split. A result is also
+refused when under half the keyframes solve or the fit is worse than 2.5 px.
+An implausible estimated lens (outside 25–70°) falls back to an assumed 50° when
+it fits about as well. Treat tracked paths on CG or heavily graded footage as a
+starting point and review the preview.
+
+## Local media expiry (48 hours)
+
+`local-media-store.js` keeps original files in this browser's IndexedDB only:
+the single imported video (`paige-source-video-v1`, matched by
+`videoIntake.sourceId`) and every Reference Builder image or clip
+(`paige-reference-media-v1`, keyed by `mediaId`). Each file expires a fixed
+48 hours after it was saved, like a cookie: reading does not extend it,
+re-adding or relinking restarts it. Expired files are deleted on read, at
+startup and every 30 minutes; files already open keep working until reload.
+After a reload, Reference Builder restores whatever is still stored and lists
+the rest as RE-LINK. Files are never uploaded; export a portable media ZIP to
+keep them longer. Entries saved before this change get a fresh 48 hours.

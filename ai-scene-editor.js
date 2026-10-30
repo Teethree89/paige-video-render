@@ -248,7 +248,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
       if(syncApply){syncApply.disabled=false;syncApply.checked=true;}
       if(syncStatus)syncStatus.textContent=
         result.updatedKeys+' keyframes retargeted ('+result.addedKeys+' boundary keys added). '+
-        'Scale '+result.scale+'× based on '+(result.source==='video-analysis'?'video motion evidence':result.source==='previous-geometry'?'existing scene bounds':'existing camera motion')+
+        'Scale '+result.scale+'× based on '+(result.source==='feature-track'?'tracked video motion':result.source==='video-analysis'?'video motion evidence':result.source==='previous-geometry'?'existing scene bounds':'existing camera motion')+
         '. Preview staged only; accepting geometry will save it.';
       log('Camera sync preview prepared locally: '+result.updatedKeys+' keys, scale '+result.scale+'×. No AI provider request.');
     }catch(error){

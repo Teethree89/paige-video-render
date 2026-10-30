@@ -84,7 +84,11 @@ the existing largest-repeat-dropping repair loop, which could delete base parts.
 ## Editor help text
 
 Single-video imports cache one original File in local IndexedDB, matched only by
-`videoIntake.sourceId`. Restore a fresh blob URL after reload; never attach an
+`videoIntake.sourceId`. Reference Builder images/clips are cached the same way,
+keyed by `mediaId` (`local-media-store.js`). Every cached file expires a fixed
+48 hours after it was saved (reading never extends it; re-adding/relinking
+restarts it); expired entries are deleted on read, at startup and every 30
+minutes, and the UI must say so. Never upload them for persistence. Restore a fresh blob URL after reload; never attach an
 unrelated cached video or upload the original for persistence. Storage failure
 must leave the active source usable with a reattach notice. Clear workspace
 awaits pending cache writes and removes the cached source, preserving libraries.
@@ -229,3 +233,17 @@ Do not save the temporary BoxHelper, TransformControls, review grid or orbit
 camera into project data. Use `tests/test_scene_object_edit.mjs` and the pinned
 Three.js integration test to guard the interaction.
 
+
+## Feature-track camera solver and guided chapters
+
+`camera-track-solver.js` solves relative camera paths from 2D feature tracks
+locally (no provider call, seeded/deterministic) and emits the existing
+`videoCameraMotion` v1 estimate with `source:'feature-track'`; fitted keys are
+`generated:'video-track'`. It is still a reviewable estimate (relative scale,
+no-roll vertical): keep preview/Apply. Run `node scripts/camera_track_harness.mjs`
+and `tests/test_camera_track_solver.mjs` when changing it; do not loosen the
+scenario limits to make a change pass. The browser tracker (`feature-tracker.js`,
+`camera-track-pipeline.js`, `camera-track-worker.js`, `camera-track-ui.js`)
+reads only the local source in this browser; never upload frames or tracks.
+Keep the seek guard and the placeholder-only auto-staging. `chapter-workflow.js` derives chapter progress from timeline data only;
+keep `nameConfirmed`/`cameraConfirmed` optional so older timelines load.

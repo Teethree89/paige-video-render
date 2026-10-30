@@ -79,7 +79,7 @@ export function mountReferenceBuilderUI(root=document){
       </aside>
     </div>
     <footer class="reference-builder-footer">
-      <span>LOCAL MEDIA · REATTACH ORIGINAL FILES AFTER RELOADING</span>
+      <span>MEDIA SAVED IN THIS BROWSER FOR 48 HOURS · NEVER UPLOADED</span>
       <div><input id="rbBundlePicker" type="file" accept=".zip,application/zip" hidden>
         <button id="rbBundleOpen" type="button" class="ghost">Open project ZIP</button>
         <button id="rbBundleExport" type="button" class="ghost">Export with media ZIP</button>
