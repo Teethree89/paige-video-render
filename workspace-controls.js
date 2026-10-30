@@ -5,6 +5,12 @@ export function centeredScroll(fraction,contentWidth,viewportWidth){
   const max=Math.max(0,contentWidth-viewportWidth);
   return clamp(fraction*contentWidth-viewportWidth/2,0,max);
 }
+/** Playhead position (0..1) from its CSS `left` percentage, or null when unknown. */
+export function playheadFraction(left){
+  if(typeof left!=='string'||!left.trim().endsWith('%'))return null;
+  const value=parseFloat(left);
+  return Number.isFinite(value)?clamp(value/100,0,1):null;
+}
 export function setupWorkspaceControls(root=document){
   const el=id=>root.getElementById(id);
   const workbench=el('studioWorkbench'),timeline=el('studioTimeline');
@@ -25,7 +31,9 @@ export function setupWorkspaceControls(root=document){
   const zoomText=el('timelineZoomText');
   const showZoom=(zoom,focus)=>{
     const oldWidth=tracks.getBoundingClientRect().width||scroll.clientWidth||1;
-    const oldCenter=(scroll.scrollLeft+scroll.clientWidth/2)/oldWidth;
+    // Zooming always centers on the playhead (the current time), not on whatever is mid-view.
+    const head=playheadFraction(el('playhead')?.style.left);
+    const oldCenter=head??(scroll.scrollLeft+scroll.clientWidth/2)/oldWidth;
     state.zoom=clamp(Math.round(zoom*100)/100,1,12);
     tracks.style.width=String(state.zoom*100)+'%';
     if(zoomText)zoomText.textContent=Math.round(state.zoom*100)+'%';
@@ -51,11 +59,7 @@ export function setupWorkspaceControls(root=document){
   scroll.addEventListener('wheel',event=>{
     if(!event.ctrlKey&&!event.metaKey)return;
     event.preventDefault();
-    const box=scroll.getBoundingClientRect();
-    const fraction=(scroll.scrollLeft+event.clientX-box.left)/(tracks.getBoundingClientRect().width||1);
-    showZoom(state.zoom*(event.deltaY<0?1.2:1/1.2),fraction);
-    scroll.scrollLeft=clamp(fraction*tracks.getBoundingClientRect().width-(event.clientX-box.left),
-      0,Math.max(0,tracks.getBoundingClientRect().width-scroll.clientWidth));
+    showZoom(state.zoom*(event.deltaY<0?1.2:1/1.2)); // centered on the playhead, like the +/- buttons
   },{passive:false});
   const expand=el('timelineExpand');
   let previousHeight=state.timelineHeight,expanded=false;
