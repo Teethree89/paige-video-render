@@ -68,6 +68,8 @@ jobs:
         run: THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/camera-track-video.mjs
       - name: Camera tracking wizard from pinned points in Chromium
         run: THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/camera-track-wizard.mjs
+      - name: Timeline zoom centers on the playhead in Chromium
+        run: THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/timeline-zoom-center.mjs
       - name: Edit mode keeps the current view camera in Chromium
         run: THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/edit-mode-camera.mjs
       - name: Keep local media for 48 hours in Chromium IndexedDB
