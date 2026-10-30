@@ -109,3 +109,25 @@ test('proposal refuses chapters without a model and out-of-range cameras',()=>{
  assert.throws(()=>buildAnchoredCameraProposal(seq,'draft_001',{keys:[{...keys[0],p:[0,0,1e6]},keys[1]],anchor:[0,0,0]}),/supported scene range/);
  assert.throws(()=>buildAnchoredCameraProposal(seq,'draft_001',{keys,anchor:[NaN,0,0]}),/anchor is missing/);
 });
+
+import {applyReferenceCorrections} from '../camera-anchor.js';
+test('extra reference frames pull a drifting path onto absolute cameras',()=>{
+ const truth=t=>({center:[t*10,2,30],forward:[0,0,-1]});
+ // The tracked path drifts sideways 0.5 units per second after the base frame.
+ const frames=[0,1,2,3,4].map(t=>({time:t,center:[t*10+.5*t,2,30],forward:[.02*t,0,-1],R:[1,0,0,0,1,0,0,0,1],t:[0,0,0]}));
+ const refs=[{time:4,...truth(4)}];
+ const out=applyReferenceCorrections(frames,refs,0);
+ assert.deepEqual(out.frames[0].center,frames[0].center,'the base reference never moves');
+ const err=out.frames.map((f,i)=>Math.hypot(f.center[0]-truth(i).center[0],f.center[1]-truth(i).center[1],f.center[2]-truth(i).center[2]));
+ assert.ok(Math.max(...err)<1e-9,'drift removed everywhere: '+err);
+ assert.ok(Math.abs(out.corrections[0].offset-2)<1e-9);
+ assert.ok(out.corrections[0].degrees>3);
+ assert.ok(Math.abs(Math.hypot(...out.frames[4].forward)-1)<1e-9);
+});
+test('corrections interpolate between fixes and hold after the last one',()=>{
+ const frames=[0,1,2,3,4].map(t=>({time:t,center:[t,0,0],forward:[0,0,-1]}));
+ const out=applyReferenceCorrections(frames,[{time:2,center:[2,1,0],forward:[0,0,-1]}],0);
+ assert.deepEqual(out.frames.map(f=>+f.center[1].toFixed(3)),[0,.5,1,1,1]);
+ assert.equal(applyReferenceCorrections(frames,[],0).corrections.length,0);
+ assert.equal(applyReferenceCorrections(frames,[{time:0,center:[9,9,9],forward:[0,0,-1]}],0).frames[0].center[0],0,'a fix at the base time is ignored');
+});

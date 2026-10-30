@@ -132,6 +132,36 @@ try{
  assert.equal(await page.evaluate(()=>getComputedStyle(document.getElementById('trackWizard')).getPropertyValue('--wipe').trim()),'30%');
  assert.equal(await page.isVisible('#twVideoLayer[data-wipe="on"]'),true);
  if(process.env.UI_SCREENSHOT_DIR)await page.screenshot({path:process.env.UI_SCREENSHOT_DIR+'/wizard-3-compare.png'});
+ // The lens can be fixed by hand; clearing the box estimates it again.
+ await page.locator('#twLens').fill('55');await page.locator('#twLens').dispatchEvent('change');
+ await page.waitForFunction(()=>/lens 55°(?! \(estimated\))/.test(document.getElementById('twStats').textContent));
+ await page.locator('#twLens').fill('');await page.locator('#twLens').dispatchEvent('change');
+ await page.waitForFunction(()=>/lens \d+° \(estimated\)/.test(document.getElementById('twStats').textContent));
+
+ // ---- Extra reference frame: the same numbered points later in the chapter ----
+ await page.locator('#twAddFrame').click();
+ await page.waitForFunction(()=>window.__atomsTrackWizard.phase==='frame');
+ await page.waitForFunction(()=>window.__atomsTrackWizard._state().frame&&window.__atomsTrackWizard._state().editFrame,null,{timeout:20000});
+ await page.waitForTimeout(500);
+ const extraTime=await page.evaluate(()=>window.__atomsTrackWizard._state().editFrame.time);
+ const extraFrame=Math.min(35,Math.floor(extraTime*FPS+1e-9));
+ assert.ok(extraFrame>REF_FRAME+6,'the extra frame is well away from the first: '+extraFrame);
+ const extraPose=lookAtPose(...Object.values(wizardPath(extraFrame/35)));
+ const rect2=await page.locator('#twFrameBox').boundingBox();
+ assert.equal(await page.isDisabled('#twDone'),true,'Save frame needs 4 points');
+ for(const [X,name] of corners){
+   const p=projectPoint(extraPose,FOV,W,H,X);
+   assert.ok(p&&p.x>5&&p.y>5&&p.x<W-5&&p.y<H-5,'corner is in the extra frame: '+name);
+   await page.mouse.click(rect2.x+(p.x+3)/W*rect2.width,rect2.y+(p.y-2)/H*rect2.height);
+ }
+ assert.equal(await page.evaluate(()=>Object.keys(window.__atomsTrackWizard._state().editFrame.obs).length),8,'at most as many points as the first frame');
+ const extraWorst=await page.evaluate(()=>{const st=window.__atomsTrackWizard._state();return Object.entries(st.editFrame.obs).map(([id,o])=>({id,x:o.x,y:o.y}));});
+ extraWorst.forEach((o,i)=>{const p=projectPoint(extraPose,FOV,W,H,corners[i][0]);const err=Math.hypot(o.x*W-p.x,o.y*H-p.y);assert.ok(err<4,`extra point ${i+1} is ${err.toFixed(2)} px from its corner`);});
+ await page.locator('#twDone').click();
+ await page.waitForFunction(()=>window.__atomsTrackWizard.phase==='compare'&&/1 extra reference frame/.test(document.getElementById('twStats').textContent),null,{timeout:30000});
+ assert.equal(await page.locator('#twFrames li').count(),1);
+ // Removing it and adding again works; keep this one for tracking.
+ if(process.env.UI_SCREENSHOT_DIR)await page.screenshot({path:process.env.UI_SCREENSHOT_DIR+'/wizard-3b-extra.png'});
  await page.locator('#twDone').click();
 
  // ---- Steps 4-5: track (forward and backward from the reference frame), preview ----
@@ -141,6 +171,7 @@ try{
  assert.ok(preview.report.updatedKeys>=2);
  assert.ok(preview.report.anchorRmsPx<6,'pinned points reproject onto their tracks: '+preview.report.anchorRmsPx);
  assert.match(preview.stats,/replace this chapter's \d+ current key/);
+ assert.match(preview.stats,/1 extra reference frame corrected the path/);
  // The 12 fps video shows frame floor(12 t) at chapter time t, and frame i was rendered at path(i/35).
  const truth=t=>wizardPath(Math.min(35,Math.floor(t*FPS+1e-9))/35).position;
  const extent=len(wizardPath(1).position.map((v,i)=>v-wizardPath(0).position[i]));
@@ -169,6 +200,8 @@ try{
  assert.deepEqual(saved.camera.filter(k=>k.at>=3),initial.camera.filter(k=>k.at>=3),'chapter 2 camera untouched');
  assert.equal(saved.shots[0].cameraSync.mode,'anchored-track');
  assert.equal(saved.shots[0].trackingPins.points.length,8);
+ assert.equal(saved.shots[0].trackingPins.extraFrames.length,1);
+ assert.ok(saved.shots[0].trackingPins.extraFrames[0].points.length<=8);
  assert.deepEqual(saved.primitiveScenes,initial.primitiveScenes,'the model is untouched');
  await page.waitForSelector('#chapterNameCard:not([hidden])',{timeout:10000});
  // Undo restores the old keys.

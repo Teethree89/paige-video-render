@@ -186,6 +186,15 @@ Reference Builder clip, or a local file chosen in the panel) and a 3D model.
    unknown, a lens search; it flags ambiguous solutions). The 3D view is drawn
    from that camera and a left-to-right **before/after wipe** shows video over
    model (`wipeFov` keeps letterboxed framing aligned). Back returns to fix points.
+   The lens can be typed in (vertical degrees) when the estimate is doubtful: a few
+   points at similar depth cannot separate lens from camera distance, and a too-narrow
+   estimate puts the camera too far away.
+   **Add reference frame** pins the camera at further times: scrub to another frame and
+   click where the same numbered points are. Only points already matched on the model are
+   offered, so an extra frame never has more points than the first. Each extra frame is
+   resected with the first frame's lens (it must fit within 8 px, else it is not used) and
+   `applyReferenceCorrections` spreads the difference between the tracked path and that fix
+   linearly over time (position and facing; the first frame never moves). Up to 6 extra frames.
 4. **Track.** `trackAnchored` follows the pinned points (seeded, ids kept) forward
    and backward from the reference frame with the local tracker, and
    `solveCameraTracks` recovers relative motion. `camera-anchor.js` places it
