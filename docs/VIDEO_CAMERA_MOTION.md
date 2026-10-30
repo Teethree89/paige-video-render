@@ -207,6 +207,10 @@ Reference Builder clip, or a local file chosen in the panel) and a 3D model.
    `sceneAnchor`, stores `trackingPins`, and changes no model, text or other
    chapter. Undo restores the old keys.
 
+While the tracker is open the timeline is locked: an overlay blocks it, arrow keys, Space, Delete
+and Ctrl+Z are swallowed (form fields and Tab still work; Escape closes the tracker), and the
+playhead cannot leave the chapter. The preview has its own slider, and playing loops inside the chapter.
+
 Nothing is uploaded and no provider is called; frames are read from the local
 file only. Refusals: fewer than 3 pinned points followed in 3D, > 50% of frames
 unposed, or reprojection error above 2.5 px. Limits: the lens is estimated

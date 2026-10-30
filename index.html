@@ -120,7 +120,7 @@
           <div class="tw-card">
             <div class="tw-card-head"><div><span id="twStep" class="tw-eyebrow">STEP 1 OF 3 · VIDEO</span><h2 id="twTitle">Mark points in the video</h2></div><button id="twCancel" type="button" class="tw-close">Cancel</button></div>
             <p id="twHelp" class="tw-help"></p>
-            <div id="twTimeRow" class="tw-time-row"><label for="twTime">Reference frame</label><input id="twTime" type="range" min="0" max="1" step="0.0333" value="0"><output id="twTimeText">0:00.00</output></div>
+            <div id="twTimeRow" class="tw-time-row"><label for="twTime" id="twTimeLabel">Reference frame</label><input id="twTime" type="range" min="0" max="1" step="0.0333" value="0"><output id="twTimeText">0:00.00</output></div>
             <ol id="twPoints" class="tw-points" aria-label="Pinned points"></ol>
             <label class="tw-wipe-row" id="twWipeRow" hidden><span>Video</span><input id="twWipe" type="range" min="0" max="100" step="0.5" value="50" aria-label="Before and after wipe"><span>Model</span></label>
             <label class="tw-lens" id="twLensRow" hidden>Lens <input id="twLens" type="number" min="12" max="110" step="1" inputmode="decimal" placeholder="auto" aria-label="Vertical lens angle in degrees, empty to estimate"> °<small id="twLensNote"></small></label>
@@ -158,6 +158,7 @@
       </section>
       <div id="timelineResizeHandle" class="timeline-resizer" role="separator" aria-label="Resize timeline vertically" aria-orientation="horizontal" tabindex="0" title="Drag to resize timeline · double-click to reset"></div>
       <section class="timeline-section" id="studioTimeline">
+        <div id="timelineLock" class="timeline-lock" role="status" hidden><span>Timeline locked while the camera tracker is open</span></div>
         <div class="timeline-header"><div><span class="tiny-eyebrow">SEQUENCE TIMELINE</span><span class="timeline-subhead">Drag the playhead · select camera keys or captions to edit</span></div><div class="timeline-toolset" role="group" aria-label="Timeline view controls">
           <button id="timelineZoomOut" type="button" title="Zoom out timeline" aria-label="Zoom out timeline">−</button>
           <output id="timelineZoomText" aria-live="off">100%</output>

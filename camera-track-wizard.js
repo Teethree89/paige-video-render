@@ -57,7 +57,7 @@ export function setupTrackWizard(host){
    marks:$('twMarks'),svg:$('twOverlay'),videoLayer:$('twVideoLayer'),handle:$('twHandle'),time:$('twTime'),timeText:$('twTimeText'),
    list:$('twPoints'),status:$('twStatus'),back:$('twBack'),done:$('twDone'),cancel:$('twCancel'),clear:$('twClear'),skip:$('twSkip'),
    wipe:$('twWipe'),wipeRow:$('twWipeRow'),lens:$('twLens'),lensRow:$('twLensRow'),lensNote:$('twLensNote'),density:$('twDensity'),apply:$('twApply'),discard:$('twDiscard'),progress:$('twProgress'),stats:$('twStats'),
-   timeRow:$('twTimeRow'),densityRow:$('twDensityRow'),framesRow:$('twFramesRow'),frames:$('twFrames'),addFrame:$('twAddFrame')};
+   timeRow:$('twTimeRow'),timeLabel:$('twTimeLabel'),densityRow:$('twDensityRow'),framesRow:$('twFramesRow'),frames:$('twFrames'),addFrame:$('twAddFrame')};
  let st=null;
 
  const say=(text,kind='')=>{el.status.textContent=text;el.status.dataset.kind=kind;};
@@ -67,7 +67,8 @@ export function setupTrackWizard(host){
    host.setFocusLayout?.(phase!=='preview');
    const c=PHASE_COPY[phase];el.stepText.textContent=c.step;el.title.textContent=c.title;el.help.textContent=c.help;
    el.back.hidden=!['model','compare','preview','frame'].includes(phase);
-   el.clear.hidden=phase!=='video';el.skip.hidden=phase!=='model';el.timeRow.hidden=!['video','frame'].includes(phase);el.framesRow.hidden=!['video','compare'].includes(phase);
+   el.clear.hidden=phase!=='video';el.skip.hidden=phase!=='model';el.timeRow.hidden=!['video','frame','preview'].includes(phase);
+   enterTimeRow(phase);el.framesRow.hidden=!['video','compare'].includes(phase);
    el.wipeRow.hidden=phase!=='compare';el.lensRow.hidden=phase!=='compare';el.density.closest('.tw-density').hidden=phase!=='preview';
    el.apply.hidden=el.discard.hidden=phase!=='preview';el.progress.hidden=phase!=='tracking';
    el.done.hidden=!['video','model','compare','frame'].includes(phase);
@@ -77,8 +78,26 @@ export function setupTrackWizard(host){
    el.svg.hidden=phase!=='compare';el.handle.hidden=phase!=='compare';
    el.videoLayer.dataset.wipe=phase==='compare'?'on':'off';
    layout();renderMarks();renderList();updateButtons();renderFrames();
+   if(phase==='preview')el.time.disabled=false;
  };
 
+ // The same slider picks the reference frame while marking points and scrubs the new camera in the preview
+ // (the timeline itself is locked while the tracker is open).
+ let reviewTimer=null,reviewing=false;
+ function enterTimeRow(phase){
+   const preview=phase==='preview';
+   clearInterval(reviewTimer);reviewTimer=null;
+   el.timeLabel.textContent=preview?'Preview':'Reference frame';
+   if(preview){
+     el.time.min=String(st.shot.start);el.time.max=String(st.shot.end);el.time.disabled=false;
+     const sync=()=>{if(!st||reviewing)return;const t=host.getTime?.();if(Number.isFinite(t)){el.time.value=String(t);el.timeText.textContent=clock(t);}};
+     sync();reviewTimer=setInterval(sync,120);
+   }else if(st&&Number.isFinite(st.refTime)){
+     const t=st.editFrame?st.editFrame.time:st.refTime;el.time.value=String(t);el.timeText.textContent=clock(t);
+   }
+ }
+ el.time.addEventListener('pointerdown',()=>{reviewing=st?.phase==='preview';});
+ el.time.addEventListener('pointerup',()=>{reviewing=false;});
  // ---- frame display ----
  function layout(){
    if(!st?.frame)return;
@@ -242,6 +261,7 @@ export function setupTrackWizard(host){
  // ---- scrubbing the reference frame ----
  let scrubTimer=null;
  el.time.addEventListener('input',()=>{
+   if(st?.phase==='preview'){const t=Number(el.time.value);el.timeText.textContent=clock(t);host.seekTo?.(t);return;}
    if(!st||!['video','frame'].includes(st.phase)||(st.phase==='video'?st.pins.length:Object.keys(st.editFrame.obs).length))return;
    const t=Number(el.time.value);el.timeText.textContent=clock(t);
    clearTimeout(scrubTimer);scrubTimer=setTimeout(()=>loadFrameAt(t),120);
@@ -510,7 +530,7 @@ export function setupTrackWizard(host){
    if(!seq.primitiveScenes?.scenes?.some(s=>s.shotId===shot.id&&s.objects?.length)){host.notify?.('This chapter needs a 3D model first.');return;}
    const own=host.getSequence().camera.filter(k=>k.at>=shot.start-1e-4&&k.at<shot.end).sort((a,b)=>a.at-b.at)[0]?.fov;
    st={shot:{...shot},source,pins:[],active:0,nextPin:1,density:'normal',phase:'video',frame:null,track:null,proposal:null,frameFrom:'video',resection:null,lens:Number.isFinite(own)?clamp(Math.round(own*10)/10,12,110):null,extra:[],extraFits:[],editFrame:null};
-   root.hidden=false;
+   root.hidden=false;host.setLock?.({start:shot.start,end:shot.end});
    el.density.value='normal';
    say('Loading the video…');
    try{
@@ -531,7 +551,7 @@ export function setupTrackWizard(host){
    if(!keepProposal&&st.proposal)host.discardProposal();
    if(phase!=='preview'||!keepProposal)host.exitView();
    st.loader?.close();
-   host.setFocusLayout?.(false);
+   host.setFocusLayout?.(false);host.setLock?.(null);clearInterval(reviewTimer);reviewTimer=null;
    root.hidden=true;root.removeAttribute('data-phase');
    el.canvasHolder.replaceChildren();el.svg.replaceChildren();el.marks.replaceChildren();
    st=null;
@@ -544,7 +564,7 @@ export function setupTrackWizard(host){
  }
  window.addEventListener('resize',()=>{if(st)layout();});
  if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(st)layout();}).observe(root);
- return {open,close,refresh,get isOpen(){return !!st;},get phase(){return st?.phase||null;},
+ return {open,close,refresh,escape(){if(!st)return;if(st.phase==='tracking')st.abort?.abort();else close();},get lockedRange(){return st?{start:st.shot.start,end:st.shot.end}:null;},get isOpen(){return !!st;},get phase(){return st?.phase||null;},
    // Test hooks: drive the wizard without pointer events on the 3D canvas.
    _state:()=>st};
 }

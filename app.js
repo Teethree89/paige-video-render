@@ -127,6 +127,7 @@ function syncPrimitiveWorld(){
 }
 const referenceVideo=el('referenceVideo');referenceVideo.volume=0;
 for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=true;
+let trackLock=null; // {start,end} while the camera tracker is open: the playhead stays inside this chapter
 let sequence,originalSequence,ready=false,playhead=0,playing=false,lastFrame=performance.now(),speed=1,selection=null,orbitMode=false;
 let activeSingleVideoUrl=null,relinkOwnedVideoUrl=null;
 const singleVideoStore=createSingleVideoStore(),referenceMediaStore=createReferenceMediaStore();
@@ -868,6 +869,8 @@ async function boot(){
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
    getAnchor:id=>[...(primitiveAnchors()[id]||[0,0,0])],
    notify:text=>{cameraTracking?.tell(text);el('saveStatus').textContent='● '+text.slice(0,60).toUpperCase();},
+   setLock:range=>{trackLock=range?{start:range.start,end:range.end}:null;el('timelineLock').hidden=!range;document.body.classList.toggle('track-locked',!!range);},
+   seekTo:t=>{setPlaying(false);seek(t);},getTime:()=>playhead,
    enterModelView:shotId=>{setPlaying(false);sceneObjectEditor?.setActive(false);compareView=null;showGeneratedGeometry(shotId,false);},
    exitView:()=>{compareView=null;endGeometryReview();},
    setPicking:(on,handler)=>{picking=on?handler:null;pickStart=null;canvas.style.cursor=on?'crosshair':'';},
@@ -1022,7 +1025,7 @@ function applyCamera(){
  camera.near=planes.near;camera.far=planes.far;
  camera.updateProjectionMatrix();controls.target.set(...c.t);
 }
-function seek(t,opts={}){if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
+function seek(t,opts={}){if(trackLock)t=clamp(t,trackLock.start,Math.max(trackLock.start,trackLock.end-.001));if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
  (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();acceptedCameraSync?.refresh?.();}
 function renderWorld(){requestViewportRender();const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
  world.update(playhead,shot.id,custom);
@@ -1044,7 +1047,8 @@ function animate(now){let dt=Math.min(.09,(now-lastFrame)/1000);lastFrame=now;
  // The modal has its own viewport. Avoid rendering the covered full scene
  // at the same time (and doing two sets of lighting/post-processing work).
  if(arrayPrototypeEditor?.active){renderStats.noteIdle(now);requestAnimationFrame(animate);return;}
- if(playing){let next=playhead+dt*speed;if(next>=sequence.duration){next=sequence.duration;setPlaying(false);}seek(next,{fromFrame:true});if(!sequence.referenceSequence&&referenceVideo.readyState>=2&&Math.abs(referenceVideo.currentTime-playhead)>.15){try{referenceVideo.currentTime=playhead;}catch(e){}}}
+ if(playing){let next=playhead+dt*speed;if(trackLock&&next>=trackLock.end-.001)next=trackLock.start; // review loops inside the chapter
+if(next>=sequence.duration){next=sequence.duration;setPlaying(false);}seek(next,{fromFrame:true});if(!sequence.referenceSequence&&referenceVideo.readyState>=2&&Math.abs(referenceVideo.currentTime-playhead)>.15){try{referenceVideo.currentTime=playhead;}catch(e){}}}
  if(controls.enabled)controls.update();
  // Paused camera, scene and lighting are unchanged. Keep processing input
  // and orbit damping, but do not keep saturating the GPU with idle frames.
@@ -1209,6 +1213,17 @@ el('resetBtn').onclick=()=>{if(!ready||!sequence)return;if(aiSceneEditor?.isBusy
 el('loadBtn').onclick=()=>{if(!ready)return;if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.()){alert('Finish the current AI job or proposal before importing.');return;}el('loadFile').click();};el('loadFile').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;try{if(aiSceneEditor?.isBusy?.()||aiSceneEditor?.hasPending?.())throw Error('Finish the active AI job or proposal first');let data=JSON.parse(await file.text());if(!validSequence(data))throw Error('JSON must include valid duration, shots, camera and text arrays.');validatePrimitiveDocument(data.primitiveScenes,data.shots.map(s=>s.id));endGeometryReview();activeSingleVideoUrl=null;aiSceneEditor?.reset();sequence=data;timelineHistory?.reset(sequence);if(data.videoIntake){referenceVideo.pause();referenceVideo.removeAttribute('src');referenceVideo.querySelector('source')?.remove();referenceVideo.removeAttribute('poster');referenceVideo.load();el('showRef').checked=false;await restoreSingleVideo(data);}else if(!data.referenceSequence){referenceVideo.pause();referenceVideo.src='assets/reference.mp4';referenceVideo.load();el('showRef').checked=true;}referenceBuilder?.loadFromSequence(data);syncPrimitiveWorld();setPlaying(false);selection=null;orbitMode=false;controls.enabled=false;refreshAll();seek(0);refreshSourceVideoOverlay();saveLocal();}catch(err){alert('Could not import timeline: '+err.message);}e.target.value='';};
 el('showRef').onchange=e=>{if(el('sourceOverlayEnabled').checked)return;if(sequence.referenceSequence){syncReferenceMedia(playhead);return;}referenceVideo.style.display=e.target.checked?'block':'none';if(!e.target.checked)referenceVideo.pause();else if(playing)referenceVideo.play().catch(()=>{});};
 referenceVideo.addEventListener('loadedmetadata',()=>{if(sequence?.referenceSequence)syncReferenceMedia(playhead);else try{referenceVideo.currentTime=playhead;}catch(e){}});
+// While the camera tracker is open only the tracker's own controls take keys: no arrows, Space, Delete or
+// Ctrl+Z reaching the timeline. Form fields elsewhere stay editable; Escape closes the tracker.
+window.addEventListener('keydown',e=>{
+ if(!trackLock||e.key==='Tab')return;
+ const t=e.target;
+ if(t?.closest?.('#trackWizard'))return;
+ if(e.key==='Escape'){e.stopImmediatePropagation();trackWizard?.escape();return;}
+ if(t instanceof HTMLInputElement||t instanceof HTMLTextAreaElement||t instanceof HTMLSelectElement||t?.isContentEditable)return;
+ e.stopImmediatePropagation();
+ if(e.code==='Space'||e.code.startsWith('Arrow')||e.code==='Delete'||e.code==='Backspace'||((e.ctrlKey||e.metaKey)&&['z','y','c','v'].includes(e.key.toLowerCase())))e.preventDefault();
+},true);
 window.addEventListener('keydown',e=>{if(el('workspaceStartDialog')?.open)return;const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
  if(ready&&sceneObjectEditor?.active){
    if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyW'||e.code==='KeyG')){e.preventDefault();sceneObjectEditor.setMode('translate');return;}
