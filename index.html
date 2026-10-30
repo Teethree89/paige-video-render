@@ -46,6 +46,8 @@
           <button type="button" data-object-action="edit" role="menuitem">✎ Edit group / array components…</button>
           <button type="button" data-object-action="duplicate" role="menuitem">⧉ Duplicate object</button>
           <button type="button" data-object-action="group" role="menuitem">▣ Group selected objects</button>
+          <button type="button" data-object-action="ungroup" role="menuitem">▢ Ungroup (Ctrl/Cmd+Shift+G)</button>
+          <button type="button" data-object-action="copy" role="menuitem">⎘ Copy (paste in any chapter)</button>
         </div>
         <div id="sceneSelectionRectangle" class="scene-selection-rectangle" hidden></div>
         <div id="sceneCreateMenu" class="scene-create-menu" role="group" aria-label="Create scene object" hidden>
@@ -63,6 +65,9 @@
             <button id="sceneEditDuplicate" type="button" title="Duplicate selected shape, repeated array, or light (Ctrl/Cmd+D)" disabled>⧉ Duplicate</button>
             <button id="sceneEditRectangle" type="button" title="Rectangle select visible objects (drag over viewport)">▧ Select area</button>
             <button id="sceneEditGroup" class="secondary" type="button" title="Combine selected objects into one editable group (Ctrl/Cmd+G)" disabled>▣ Group</button>
+            <button id="sceneEditUngroup" class="secondary" type="button" title="Split the selected group into separate objects (Ctrl/Cmd+Shift+G)" disabled>▢ Ungroup</button>
+            <button id="sceneEditCopy" class="secondary" type="button" title="Copy selection; paste into any chapter (Ctrl/Cmd+C)" disabled>⎘ Copy</button>
+            <button id="sceneEditPaste" class="secondary" type="button" title="Paste copied items into this chapter (Ctrl/Cmd+V)" disabled>⎗ Paste</button>
             <button id="sceneEditDelete" class="scene-edit-delete" type="button" disabled>Delete</button>
           </div>
           <div id="sceneEditFields" class="scene-edit-fields" aria-label="Selected object's editable properties" hidden></div>

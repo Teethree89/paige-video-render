@@ -55,7 +55,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onGroup,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{},onToolChange=()=>{}
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onGroup,onUngroup,onCopy,onPaste,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{},onToolChange=()=>{}
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -63,7 +63,7 @@ export function setupSceneObjectEditing({
   const selectionPanel=setupSceneSelectionPanel();
   const move=el('sceneEditMove'),rotate=el('sceneEditRotate');
   const duplicate=el('sceneEditDuplicate'),erase=el('sceneEditDelete'),name=el('sceneEditName'),hint=el('sceneEditStatus');
-  const groupButton=el('sceneEditGroup'),rectangleButton=el('sceneEditRectangle'),rectOverlay=el('sceneSelectionRectangle');
+  const groupButton=el('sceneEditGroup'),ungroupButton=el('sceneEditUngroup'),copyButton=el('sceneEditCopy'),pasteButton=el('sceneEditPaste'),rectangleButton=el('sceneEditRectangle'),rectOverlay=el('sceneSelectionRectangle');
   const selectedIds=new Set(),extraOutlines=new Map();
   let rectangleMode=false,selectionRect=null;
   const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
@@ -215,6 +215,11 @@ export function setupSceneObjectEditing({
     if(erase)erase.disabled=!active||!selectedId;
     if(duplicate)duplicate.disabled=!active||!selectedId;
     if(groupButton)groupButton.disabled=!active||selectedIds.size<2;
+    const hasGroup=active&&[...selectedIds].some(id=>getDocument()?.scenes?.find(
+      s=>s.shotId===selectedShot)?.objects?.find(o=>o.id===id)?.arrayParts);
+    if(ungroupButton)ungroupButton.disabled=!hasGroup;
+    if(copyButton)copyButton.disabled=!active||!selectedIds.size;
+    if(pasteButton)pasteButton.disabled=!active;
     rectangleButton?.classList.toggle('active',rectangleMode);
     rectangleButton?.setAttribute('aria-pressed',String(rectangleMode));
     if(rotate)rotate.disabled=!!selectedId?.startsWith('light::')||
@@ -297,6 +302,39 @@ export function setupSceneObjectEditing({
     }catch(error){message('Group rejected: '+error.message);refresh();return false;}
   }
   groupButton?.addEventListener('click',groupSelected);
+  function ungroupSelected(){
+    if(!active||!selectedIds.size||!onUngroup)return false;
+    try{
+      const ids=onUngroup(currentShot(),[...selectedIds]);
+      if(!ids?.length)throw Error('Nothing was ungrouped');
+      selectedIds.clear();ids.forEach(id=>selectedIds.add(id));
+      if(!select(ids.at(-1),true,true))throw Error('Ungrouped parts were not selectable');
+      message('Ungrouped into '+ids.length+' separate selected item(s).');
+      return true;
+    }catch(error){message('Ungroup rejected: '+error.message);refresh();return false;}
+  }
+  function copySelected(){
+    if(!active||!selectedIds.size||!onCopy)return false;
+    try{
+      const count=onCopy(currentShot(),[...selectedIds]);
+      message('Copied '+count+' item(s). Switch chapters and paste with Ctrl/Cmd+V.');
+      updateButtons();return true;
+    }catch(error){message('Copy rejected: '+error.message);return false;}
+  }
+  function pasteSelected(){
+    if(!active||!onPaste)return false;
+    try{
+      const ids=onPaste(currentShot());
+      if(!ids?.length)throw Error('Nothing pasted');
+      selectedIds.clear();ids.forEach(id=>selectedIds.add(id));
+      if(!select(ids.at(-1),true,true))throw Error('Pasted items were not selectable');
+      message('Pasted '+ids.length+' item(s) into this chapter.');
+      return true;
+    }catch(error){message('Paste rejected: '+error.message);refresh();return false;}
+  }
+  ungroupButton?.addEventListener('click',ungroupSelected);
+  copyButton?.addEventListener('click',copySelected);
+  pasteButton?.addEventListener('click',pasteSelected);
   function setMode(value){
     if(!['translate','rotate'].includes(value))return;
     if(value==='rotate'&&(selectedId?.startsWith('light::')||
@@ -620,7 +658,11 @@ export function setupSceneObjectEditing({
     if(event.key.toLowerCase()==='a'){
       event.preventDefault();selectMany(visibleSelections());
     }else if(event.key.toLowerCase()==='g'){
-      event.preventDefault();groupSelected();
+      event.preventDefault();event.shiftKey?ungroupSelected():groupSelected();
+    }else if(event.key.toLowerCase()==='c'&&selectedIds.size){
+      event.preventDefault();copySelected();
+    }else if(event.key.toLowerCase()==='v'){
+      event.preventDefault();pasteSelected();
     }else if(event.key.toLowerCase()==='d'&&selectedId){
       event.preventDefault();duplicateSelected();
     }
@@ -645,7 +687,7 @@ export function setupSceneObjectEditing({
     get selectedId(){return selectedId;},
     get selectedIds(){return [...selectedIds];},
     isSelected(id){return selectedIds.has(id);},
-    groupSelected,
+    groupSelected,ungroupSelected,copySelected,pasteSelected,
     setActive,refresh,select,setMode,setGizmoEnabled,
     get operation(){return operation;},get gizmoEnabled(){return gizmoOn;},duplicateSelected,deleteSelected,updateHighlight,focusSelectionIfOffscreen,clearArrayHighlights,
     dispose(){setActive(false,{skipExit:true});clearRotationProxy();selectionPanel.restore();
