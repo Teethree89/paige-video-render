@@ -72,6 +72,15 @@ try{
  await page.locator('#cameraTrackStart').click();
  await page.waitForSelector('#trackWizard:not([hidden]) #twFrameBox canvas');
  assert.equal(await page.isDisabled('#twDone'),true,'Done needs at least 4 points');
+ // The timeline is locked while the tracker is open: overlay, no keyboard seeking or playing.
+ assert.equal(await page.evaluate(()=>!document.getElementById('timelineLock').hidden&&document.body.classList.contains('track-locked')),true,'timeline is locked');
+ const timecode=()=>page.evaluate(()=>document.querySelector('.timecode').firstChild.textContent.trim());
+ const before=await timecode();
+ await page.evaluate(()=>document.activeElement?.blur?.());
+ for(const key of ['ArrowRight','ArrowRight','ArrowRight','Space','ArrowLeft','Delete','Control+z'])await page.keyboard.press(key);
+ assert.equal(await timecode(),before,'arrow keys do not move the playhead');
+ assert.equal(await page.textContent('#playBtn'),'▶','Space does not start playback');
+ assert.equal(await page.evaluate(()=>window.__atomsTrackWizard.isOpen),true);
  await page.evaluate(t=>{const r=document.getElementById('twTime');r.value=String(t);r.dispatchEvent(new Event('input'));},REF_TIME);
  await page.waitForFunction(t=>Math.abs((window.__atomsTrackWizard._state()?.refTime??-1)-t)<1e-3,REF_TIME,{timeout:20000});
  await page.waitForTimeout(400);
@@ -175,6 +184,15 @@ try{
    return {report:r,keys:s.proposal.sequence.camera.filter(k=>k.at<3),other:s.proposal.sequence.camera.filter(k=>k.at>=3),stats:document.getElementById('twStats').textContent};});
  assert.ok(preview.report.updatedKeys>=2);
  assert.ok(preview.report.anchorRmsPx<6,'pinned points reproject onto their tracks: '+preview.report.anchorRmsPx);
+ // Preview: the tracker's own slider scrubs the new camera, only inside this chapter; the timeline stays locked.
+ assert.equal(await page.isVisible('#twTime'),true);
+ assert.equal(await page.isVisible('#timelineLock'),true,'the timeline shows its lock overlay in the preview');
+ assert.equal(await page.textContent('#twTimeLabel'),'Preview');
+ await page.evaluate(()=>{const r=document.getElementById('twTime');r.value='1.5';r.dispatchEvent(new Event('input'));});
+ await page.waitForFunction(()=>document.querySelector('.timecode').firstChild.textContent.trim().startsWith('00:01.5'),null,{timeout:5000});
+ await page.evaluate(()=>document.activeElement?.blur?.());
+ for(let i=0;i<120;i++)await page.keyboard.press('ArrowRight');
+ assert.ok(/^00:01\./.test(await page.evaluate(()=>document.querySelector('.timecode').firstChild.textContent.trim())),'keys still cannot scrub in the preview');
  assert.match(preview.stats,/replace this chapter's \d+ current key/);
  assert.match(preview.stats,/1 extra reference frame corrected the path/);
  // The 12 fps video shows frame floor(12 t) at chapter time t, and frame i was rendered at path(i/35).
@@ -198,7 +216,11 @@ try{
  // ---- Apply: replaces ONLY chapter 1's keys ----
  await page.locator('#twApply').click();
  await page.waitForSelector('#trackWizard',{state:'hidden'});
- const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')));
+ assert.equal(await page.isVisible('#timelineLock'),false,'the timeline unlocks when the tracker closes');
+ await page.evaluate(()=>document.activeElement?.blur?.());
+ const t0=await page.evaluate(()=>document.querySelector('.timecode').firstChild.textContent.trim());
+ await page.keyboard.press('ArrowRight');
+ assert.notEqual(await page.evaluate(()=>document.querySelector('.timecode').firstChild.textContent.trim()),t0,'arrow keys work again'); const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')));
  const mine=saved.camera.filter(k=>k.at<3);
  assert.ok(mine.length>=2&&mine.every(k=>k.generated==='video-track'),'chapter 1 now has tracked keys only');
  assert.ok(initial.camera.filter(k=>k.at<3).every(old=>!mine.some(k=>k.id===old.id)),'the old chapter keys are gone');

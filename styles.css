@@ -833,3 +833,9 @@ html,body{font-size:14px}
 .track-wizard[data-phase="preview"] .tw-actions button{padding:6px 11px}
 .track-wizard[data-phase="preview"] .tw-stats{flex:1 1 100%;order:5}
 .track-wizard[data-phase="preview"] .tw-status{flex:1 1 100%;order:6;font-size:11px}
+
+/* Camera tracker open: the timeline cannot be edited or scrubbed (the wizard moves the playhead itself). */
+.timeline-section{position:relative}
+.timeline-lock{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(6,12,20,.66);color:#cfe6f2;font-size:12px;letter-spacing:.08em;cursor:not-allowed;text-transform:uppercase}
+.timeline-lock[hidden]{display:none}
+body.track-locked .transport button:not(#playBtn),body.track-locked .transport select{pointer-events:none;opacity:.4}

@@ -2,7 +2,7 @@
 // pinning steps, the anchored tracking run (forward and backward from the
 // reference frame) in a Web Worker, and the Motion-tab panel that opens the
 // wizard. Frames never leave this browser; nothing is uploaded.
-import {trackingFrameTimes,mergeAnchoredPasses,MIN_TRACK_FRAMES} from './camera-track-pipeline.js';
+import {trackingFrameTimes,mergeAnchoredPasses,uncoveredRanges,MIN_TRACK_FRAMES} from './camera-track-pipeline.js';
 import {savedVideoMotion} from './video-camera-motion.js';
 import {toGray} from './feature-tracker.js';
 
@@ -101,39 +101,60 @@ export async function openSession(options,{anchored=false}={}){
 /**
  * Track one chapter from the user's pinned points. Frames go forward and backward
  * from the reference frame (each pass in its own worker session); the pinned
- * points' 3D positions place the path in the model.
+ * points' 3D positions place the path in the model. A cut ends a pass, so an
+ * extra reference frame in a stretch the first one could not reach starts its own
+ * segment from its own camera fix (`extras`).
  * @param {{source:{url:string,toSourceTime:Function},chapter:{start:number,end:number},refTime:number,
- *   pins:{id:string,x:number,y:number,X:number[]}[],refPose:object,fov:number,signal?:AbortSignal,onProgress?:Function}} input
+ *   pins:{id:string,x:number,y:number,X:number[]}[],refPose:object,fov:number,
+ *   extras?:{time:number,pins:{id:string,x:number,y:number,X:number[]}[],refPose:object}[],
+ *   signal?:AbortSignal,onProgress?:Function}} input
  *   Pin x/y are normalized (0..1) in the frame.
  */
-export async function trackAnchored({source,chapter,refTime,pins,refPose,fov,signal,onProgress=()=>{}}){
+export async function trackAnchored({source,chapter,refTime,pins,refPose,fov,extras=[],signal,onProgress=()=>{}}){
  const all=trackingFrameTimes(chapter.start,chapter.end),spacing=(chapter.end-chapter.start)/Math.max(1,all.length-1);
- const forward=[refTime,...all.filter(t=>t>refTime+spacing/2)];
- const backward=[refTime,...all.filter(t=>t<refTime-spacing/2).reverse()];
- const passes=[['forward',forward],['backward',backward]].filter(([,t])=>t.length>=MIN_TRACK_FRAMES);
- if(!passes.length)throw Error('The reference frame is too close to the edges of this chapter to track. Pick a frame nearer the middle.');
- const total=passes.reduce((n,[,t])=>n+t.length,0),done={count:0},results={},problems=[];
- for(const [direction,times] of passes){
-   let session=null;
-   try{
-     await sampleGrayFrames(source.url,times.map(source.toSourceTime),{signal,onFrame:async(gray,i,dims)=>{
-       if(!session)session=await openSession({width:dims.width,height:dims.height,refPose,fov,
-         seeds:pins.map(p=>({id:p.id,x:p.x*dims.width,y:p.y*dims.height,X:p.X}))},{anchored:true});
-       const stats=await session.addFrame(gray,times[i],i);
-       onProgress({phase:'tracking',frame:++done.count,frames:total,active:stats.active,direction});
-     }});
-     if(signal?.aborted)throw Object.assign(Error('Tracking cancelled'),{cancelled:true});
-     onProgress({phase:'solving',frames:total,direction});
-     results[direction]=await session.finish();
-   }catch(error){
-     if(error.cancelled)throw error;
-     problems.push({direction,message:error.message,summary:error.summary||null});
-   }finally{session?.close();}
+ const problems=[],done={count:0};
+ const plan=time=>{
+   const forward=[time,...all.filter(t=>t>time+spacing/2)],backward=[time,...all.filter(t=>t<time-spacing/2).reverse()];
+   return [['forward',forward],['backward',backward]].filter(([,t])=>t.length>=MIN_TRACK_FRAMES);
+ };
+ const total=plan(refTime).reduce((n,[,t])=>n+t.length,0)+extras.reduce((n,e)=>n+plan(e.time).reduce((m,[,t])=>m+t.length,0),0);
+ if(!plan(refTime).length)throw Error('The reference frame is too close to the edges of this chapter to track. Pick a frame nearer the middle.');
+ async function runFrom(time,seedPins,pose,label){
+   const results={};
+   for(const [direction,times] of plan(time)){
+     let session=null;
+     try{
+       await sampleGrayFrames(source.url,times.map(source.toSourceTime),{signal,onFrame:async(gray,i,dims)=>{
+         if(!session)session=await openSession({width:dims.width,height:dims.height,refPose:pose,fov,
+           seeds:seedPins.map(p=>({id:p.id,x:p.x*dims.width,y:p.y*dims.height,X:p.X}))},{anchored:true});
+         const stats=await session.addFrame(gray,times[i],i);
+         onProgress({phase:'tracking',frame:++done.count,frames:total,active:stats.active,direction});
+       }});
+       if(signal?.aborted)throw Object.assign(Error('Tracking cancelled'),{cancelled:true});
+       onProgress({phase:'solving',frames:total,direction});
+       results[direction]=await session.finish();
+     }catch(error){
+       if(error.cancelled)throw error;
+       problems.push({direction:label?`${direction}, ${label}`:direction,message:error.message,summary:error.summary||null});
+     }finally{session?.close();}
+   }
+   return results;
  }
- const main=results.forward||results.backward;
- if(!main){const first=problems[0];throw Object.assign(Error(first.message),{summary:first.summary,problems});}
- const frames=mergeAnchoredPasses(results.forward||results.backward,results.forward?results.backward:null);
- return {frames,problems,passes:Object.fromEntries(Object.entries(results).map(([k,v])=>[k,v.summary])),
+ const first=await runFrom(refTime,pins,refPose,'');
+ const main=first.forward||first.backward;
+ if(!main){const f=problems[0];throw Object.assign(Error(f.message),{summary:f.summary,problems});}
+ const segments=[{baseTime:refTime,frames:mergeAnchoredPasses(first.forward||first.backward,first.forward?first.backward:null),scale:main.anchored.scale}];
+ const passes={main:Object.fromEntries(Object.entries(first).map(([k,v])=>[k,v.summary]))};
+ // Extra reference frames outside what is tracked so far (after a cut) each start their own segment.
+ for(const extra of [...extras].sort((a,b)=>a.time-b.time)){
+   if(!uncoveredRanges(chapter,segments).some(g=>extra.time>=g.from-spacing&&extra.time<=g.to+spacing))continue;
+   const got=await runFrom(extra.time,extra.pins,extra.refPose,`from ${extra.time.toFixed(1)}s`);
+   const m=got.forward||got.backward;if(!m)continue;
+   segments.push({baseTime:extra.time,frames:mergeAnchoredPasses(got.forward||got.backward,got.forward?got.backward:null),scale:m.anchored.scale});
+   passes['extra'+segments.length]=Object.fromEntries(Object.entries(got).map(([k,v])=>[k,v.summary]));
+ }
+ return {segments,frames:segments[0].frames,problems,passes,gaps:uncoveredRanges(chapter,segments),
+   cutAt:Object.values(passes.main).map(p=>p.brokeAt).find(Number.isFinite)??null,
    scale:main.anchored.scale,anchorRmsPx:main.anchored.anchorRmsPx,seedsUsed:main.anchored.seedsUsed,
    rollDeg:main.anchored.rollDeg,mode:main.anchored.mode};
 }

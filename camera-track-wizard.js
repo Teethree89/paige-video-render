@@ -9,7 +9,7 @@
 // Everything runs in this browser. The host (app.js) owns the 3D view.
 import {snapToCorner} from './feature-tracker.js';
 import {resectCamera,projectPoint,MIN_PIN_POINTS} from './camera-resection.js';
-import {pathToKeys,buildAnchoredCameraProposal,applyReferenceCorrections,DENSITY} from './camera-anchor.js';
+import {segmentsToKeys,buildAnchoredCameraProposal,DENSITY} from './camera-anchor.js';
 import {createFrameLoader,trackAnchored,describeTrackSummary} from './camera-track-ui.js';
 
 export const MAX_PINS=24;
@@ -57,7 +57,7 @@ export function setupTrackWizard(host){
    marks:$('twMarks'),svg:$('twOverlay'),videoLayer:$('twVideoLayer'),handle:$('twHandle'),time:$('twTime'),timeText:$('twTimeText'),
    list:$('twPoints'),status:$('twStatus'),back:$('twBack'),done:$('twDone'),cancel:$('twCancel'),clear:$('twClear'),skip:$('twSkip'),
    wipe:$('twWipe'),wipeRow:$('twWipeRow'),lens:$('twLens'),lensRow:$('twLensRow'),lensNote:$('twLensNote'),density:$('twDensity'),apply:$('twApply'),discard:$('twDiscard'),progress:$('twProgress'),stats:$('twStats'),
-   timeRow:$('twTimeRow'),densityRow:$('twDensityRow'),framesRow:$('twFramesRow'),frames:$('twFrames'),addFrame:$('twAddFrame')};
+   timeRow:$('twTimeRow'),timeLabel:$('twTimeLabel'),densityRow:$('twDensityRow'),framesRow:$('twFramesRow'),frames:$('twFrames'),addFrame:$('twAddFrame')};
  let st=null;
 
  const say=(text,kind='')=>{el.status.textContent=text;el.status.dataset.kind=kind;};
@@ -67,7 +67,8 @@ export function setupTrackWizard(host){
    host.setFocusLayout?.(phase!=='preview');
    const c=PHASE_COPY[phase];el.stepText.textContent=c.step;el.title.textContent=c.title;el.help.textContent=c.help;
    el.back.hidden=!['model','compare','preview','frame'].includes(phase);
-   el.clear.hidden=phase!=='video';el.skip.hidden=phase!=='model';el.timeRow.hidden=!['video','frame'].includes(phase);el.framesRow.hidden=!['video','compare'].includes(phase);
+   el.clear.hidden=phase!=='video';el.skip.hidden=phase!=='model';el.timeRow.hidden=!['video','frame','preview'].includes(phase);
+   enterTimeRow(phase);el.framesRow.hidden=!['video','compare'].includes(phase);
    el.wipeRow.hidden=phase!=='compare';el.lensRow.hidden=phase!=='compare';el.density.closest('.tw-density').hidden=phase!=='preview';
    el.apply.hidden=el.discard.hidden=phase!=='preview';el.progress.hidden=phase!=='tracking';
    el.done.hidden=!['video','model','compare','frame'].includes(phase);
@@ -77,8 +78,26 @@ export function setupTrackWizard(host){
    el.svg.hidden=phase!=='compare';el.handle.hidden=phase!=='compare';
    el.videoLayer.dataset.wipe=phase==='compare'?'on':'off';
    layout();renderMarks();renderList();updateButtons();renderFrames();
+   if(phase==='preview')el.time.disabled=false;
  };
 
+ // The same slider picks the reference frame while marking points and scrubs the new camera in the preview
+ // (the timeline itself is locked while the tracker is open).
+ let reviewTimer=null,reviewing=false;
+ function enterTimeRow(phase){
+   const preview=phase==='preview';
+   clearInterval(reviewTimer);reviewTimer=null;
+   el.timeLabel.textContent=preview?'Preview':'Reference frame';
+   if(preview){
+     el.time.min=String(st.shot.start);el.time.max=String(st.shot.end);el.time.disabled=false;
+     const sync=()=>{if(!st||reviewing)return;const t=host.getTime?.();if(Number.isFinite(t)){el.time.value=String(t);el.timeText.textContent=clock(t);}};
+     sync();reviewTimer=setInterval(sync,120);
+   }else if(st&&Number.isFinite(st.refTime)){
+     const t=st.editFrame?st.editFrame.time:st.refTime;el.time.value=String(t);el.timeText.textContent=clock(t);
+   }
+ }
+ el.time.addEventListener('pointerdown',()=>{reviewing=st?.phase==='preview';});
+ el.time.addEventListener('pointerup',()=>{reviewing=false;});
  // ---- frame display ----
  function layout(){
    if(!st?.frame)return;
@@ -242,6 +261,7 @@ export function setupTrackWizard(host){
  // ---- scrubbing the reference frame ----
  let scrubTimer=null;
  el.time.addEventListener('input',()=>{
+   if(st?.phase==='preview'){const t=Number(el.time.value);el.timeText.textContent=clock(t);host.seekTo?.(t);return;}
    if(!st||!['video','frame'].includes(st.phase)||(st.phase==='video'?st.pins.length:Object.keys(st.editFrame.obs).length))return;
    const t=Number(el.time.value);el.timeText.textContent=clock(t);
    clearTimeout(scrubTimer);scrubTimer=setTimeout(()=>loadFrameAt(t),120);
@@ -368,7 +388,7 @@ export function setupTrackWizard(host){
    el.stats.textContent=`${quality} match · average ${res.rmsPx.toFixed(1)} px · worst point ${worstNumber} (${worst.toFixed(1)} px) · lens ${res.fov.toFixed(0)}°${res.fovEstimated?' (estimated)':''}`+
      (st.extraFits.length?` · ${st.extraFits.filter(f=>f.usable).length} extra reference frame${st.extraFits.filter(f=>f.usable).length===1?'':'s'} will correct drift`:'');
    say(res.ambiguous?'These points fit more than one camera position. Add more points, spread out in depth, for a reliable match.':
-     quality==='poor'?'The points disagree. Go back and check that each video point is matched to the same spot on the model.':
+     quality==='poor'?'The points disagree with the model. Go back and check that each video point is matched to the same spot, and that this is the video the timeline was made from.':
      'Drag the slider to compare. If it lines up, press Track motion.',res.ambiguous||quality==='poor'?'warn':'');
  }
 
@@ -378,15 +398,15 @@ export function setupTrackWizard(host){
    const centroid=[0,1,2].map(k=>pins.reduce((s,p)=>s+p.X[k],0)/pins.length);
    const target=Math.max(1,Math.hypot(...centroid.map((c,k)=>c-res.center[k])));
    const refs=(st.extraFits||[]).filter(f=>f.usable).map(f=>({time:f.time,center:f.res.center,forward:f.res.forward}));
-   const fixed=applyReferenceCorrections(st.track.frames,refs,st.refTime);
-   const keys=pathToKeys(fixed.frames,{fov:res.fov,targetDistance:target,density:st.density});
+   const fixed=segmentsToKeys(st.track.segments,{fov:res.fov,targetDistance:target,density:st.density,refs});
+   const keys=fixed.keys;
    const savedPins={version:1,refTime:st.refTime,fov:Math.round(res.fov*100)/100,
      points:pins.map(p=>({x:Math.round(p.x*1e5)/1e5,y:Math.round(p.y*1e5)/1e5,X:p.X.map(v=>Math.round(v*1000)/1000)}))};
    if(refs.length)savedPins.extraFrames=(st.extra||[]).filter((e,i)=>st.extraFits[i]?.usable).map(e=>({time:Math.round(e.time*1000)/1000,
      points:pins.map((p,k)=>e.obs[p.id]?{point:k,x:Math.round(e.obs[p.id].x*1e5)/1e5,y:Math.round(e.obs[p.id].y*1e5)/1e5}:null).filter(Boolean)}));
    const proposal=buildAnchoredCameraProposal(seq,shot.id,{keys,anchor:host.getAnchor(shot.id),pins:savedPins,
      summary:{scale:st.track.scale,anchorRmsPx:st.track.anchorRmsPx==null?null:Math.round(st.track.anchorRmsPx*100)/100,
-       pins:pins.length,rollDeg:Math.round(st.track.rollDeg*10)/10,referenceFrames:refs.length+1,
+       pins:pins.length,rollDeg:Math.round(st.track.rollDeg*10)/10,referenceFrames:refs.length+1,segments:fixed.segments,
        correctionDeg:fixed.corrections.length?Math.round(Math.max(...fixed.corrections.map(c=>c.degrees))*10)/10:0}});
    host.previewProposal(proposal);
    st.proposal=proposal;
@@ -395,8 +415,15 @@ export function setupTrackWizard(host){
      (st.track.anchorRmsPx!=null?` · pinned points reproject within ${st.track.anchorRmsPx.toFixed(1)} px`:'')+
      (st.track.rollDeg>4?` · note: the video camera is rolled ${st.track.rollDeg.toFixed(0)}°, which keys cannot store`:'')+
      (fixed.corrections.length?` · ${refs.length} extra reference frame${refs.length===1?'':'s'} corrected the path by up to ${Math.max(...fixed.corrections.map(c=>c.degrees)).toFixed(1)}°`:'')+
-     (st.track.problems.length?` · ${st.track.problems.map(p=>p.direction+': '+p.message).join('; ')} (camera held there)`:'');
+     (fixed.segments>1?` · ${fixed.segments} tracked stretches joined by a cut`:'')+
+     (st.track.gaps.length?` · NOT TRACKED ${st.track.gaps.map(g=>`${clock(g.from)}–${clock(g.to)}`).join(', ')}${st.track.cutAt!=null?` (the picture cuts at ${clock(st.track.cutAt)}; add a reference frame after the cut to continue)`:''}: camera held there`:'')+
+     (st.track.problems.length?` · ${st.track.problems.map(p=>p.direction+': '+p.message).join('; ')}`:'');
    say('Scrub or play the timeline to review the new camera. Apply to save it, or go back to adjust the points.');
+ }
+ /** Extra reference frames that can each start a tracked stretch: their own camera fix and the points seen there. */
+ function extraSegments(){
+   return (st.extra||[]).map((e,i)=>({e,fit:st.extraFits?.[i]})).filter(({fit})=>fit?.usable).map(({e,fit})=>({time:e.time,refPose:fit.res.pose,
+     pins:matchedPins(st.pins).filter(p=>e.obs[p.id]).map(p=>({id:p.id,x:e.obs[p.id].x,y:e.obs[p.id].y,X:p.X}))}));
  }
  async function startTracking(){
    const res=st.resection,pins=matchedPins(st.pins);
@@ -406,6 +433,7 @@ export function setupTrackWizard(host){
    try{
      st.track=await trackAnchored({source:st.source,chapter:{start:st.shot.start,end:st.shot.end},refTime:st.refTime,
        pins:pins.map(p=>({id:p.id,x:p.x,y:p.y,X:p.X})),refPose:res.pose,fov:res.fov,signal:st.abort.signal,
+       extras:extraSegments(),
        onProgress:p=>{
          if(p.phase==='tracking'){el.progress.max=p.frames;el.progress.value=p.frame;say(`Tracking frame ${p.frame}/${p.frames} (${p.direction}) · ${p.active} points`);}
          else{el.progress.removeAttribute('value');say('Solving the camera path…');}
@@ -510,7 +538,7 @@ export function setupTrackWizard(host){
    if(!seq.primitiveScenes?.scenes?.some(s=>s.shotId===shot.id&&s.objects?.length)){host.notify?.('This chapter needs a 3D model first.');return;}
    const own=host.getSequence().camera.filter(k=>k.at>=shot.start-1e-4&&k.at<shot.end).sort((a,b)=>a.at-b.at)[0]?.fov;
    st={shot:{...shot},source,pins:[],active:0,nextPin:1,density:'normal',phase:'video',frame:null,track:null,proposal:null,frameFrom:'video',resection:null,lens:Number.isFinite(own)?clamp(Math.round(own*10)/10,12,110):null,extra:[],extraFits:[],editFrame:null};
-   root.hidden=false;
+   root.hidden=false;host.setLock?.({start:shot.start,end:shot.end});
    el.density.value='normal';
    say('Loading the video…');
    try{
@@ -531,7 +559,7 @@ export function setupTrackWizard(host){
    if(!keepProposal&&st.proposal)host.discardProposal();
    if(phase!=='preview'||!keepProposal)host.exitView();
    st.loader?.close();
-   host.setFocusLayout?.(false);
+   host.setFocusLayout?.(false);host.setLock?.(null);clearInterval(reviewTimer);reviewTimer=null;
    root.hidden=true;root.removeAttribute('data-phase');
    el.canvasHolder.replaceChildren();el.svg.replaceChildren();el.marks.replaceChildren();
    st=null;
@@ -544,7 +572,7 @@ export function setupTrackWizard(host){
  }
  window.addEventListener('resize',()=>{if(st)layout();});
  if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(st)layout();}).observe(root);
- return {open,close,refresh,get isOpen(){return !!st;},get phase(){return st?.phase||null;},
+ return {open,close,refresh,escape(){if(!st)return;if(st.phase==='tracking')st.abort?.abort();else close();},get lockedRange(){return st?{start:st.shot.start,end:st.shot.end}:null;},get isOpen(){return !!st;},get phase(){return st?.phase||null;},
    // Test hooks: drive the wizard without pointer events on the 3D canvas.
    _state:()=>st};
 }
