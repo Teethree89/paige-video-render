@@ -256,3 +256,7 @@ validate.yml and `tests/browser/camera-track-wizard.mjs`. The browser tracker
 frames, pins or tracks. Keep the seek guard. `chapter-workflow.js` derives chapter
 progress from timeline data only; keep `nameConfirmed`/`cameraConfirmed` optional
 so older timelines load.
+
+## Viewport tools
+
+`viewport-tools.js` drives the strip at the bottom-left of the viewport: **Orbit** (O), **Move** (W), **Rotate** (E) and **Point** (P). Only one is active, so navigating never moves or marks anything by accident. Orbit hides and disables the transform gizmo; Move/Rotate need Edit mode; Point exists only while the camera tracker is open and gates both model picking and video-frame point placement/dragging (the wizard asks `host.getTool()`). While the tracker is open Move/Rotate are unavailable.

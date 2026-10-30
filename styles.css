@@ -847,3 +847,17 @@ html,body{font-size:14px}
 .timeline-lock{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(6,12,20,.66);color:#cfe6f2;font-size:12px;letter-spacing:.08em;cursor:not-allowed;text-transform:uppercase}
 .timeline-lock[hidden]{display:none}
 body.track-locked .transport button:not(#playBtn),body.track-locked .transport select{pointer-events:none;opacity:.4}
+
+.viewport-tools{position:absolute;left:14px;bottom:14px;z-index:60;display:inline-flex;gap:2px;padding:3px;border:1px solid #3d6575;border-radius:7px;background:rgba(8,20,30,.88)}
+.viewport-tools button{border:0;background:transparent;color:#90b0c1;border-radius:4px;padding:6px 10px;font-size:11px;font-weight:700}
+.viewport-tools button:hover:not(:disabled){color:#e7f3fa}
+.viewport-tools button.active{background:#80e8e0;color:#07252a}
+.viewport-tools button:disabled{opacity:.4;cursor:not-allowed}
+body[data-viewport-tool="orbit"] #viewport canvas{cursor:grab!important}
+body[data-viewport-tool="point"] #viewport canvas{cursor:crosshair!important}
+body[data-viewport-tool="orbit"] .track-wizard[data-phase="video"] .tw-frame-box,body[data-viewport-tool="orbit"] .track-wizard[data-phase="frame"] .tw-frame-box{cursor:default}
+@media(max-width:680px){.viewport-tools{left:9px;bottom:9px}.viewport-tools button{padding:6px 7px}}
+.geometry-review-bar{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:41;display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(6,12,20,.88);border:1px solid rgba(120,190,230,.35);border-radius:8px;color:#e7f3fa;font-size:12px;max-width:calc(100% - 32px)}
+.geometry-review-bar[hidden]{display:none!important}
+.geometry-review-bar .grb-label{letter-spacing:.06em;text-transform:uppercase;font-size:11px;opacity:.85}
+.geometry-review-bar button:disabled{opacity:.45;cursor:not-allowed}

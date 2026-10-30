@@ -20,6 +20,7 @@ import {createPrimitiveWorld} from './primitive-world.js';
 import {setupPrimitiveEditor} from './primitive-editor.js';
 import {setupSceneObjectEditing} from './scene-object-edit.js';
 import {groupSceneSelection} from './scene-group-selection.js';
+import {ungroupSceneSelection,copySceneSelection,pasteSceneClipboard} from './scene-ungroup-clipboard.js';
 import {setupArrayPrototypeEditor} from './array-prototype-editor.js';
 import {setupRadialCreate} from './radial-create.js';
 import {setupSceneEffectsPanel} from './scene-effects-panel.js';
@@ -36,6 +37,7 @@ import {setupChapterWorkflow} from './chapter-workflow.js';
 import {setupCameraTracking} from './camera-track-ui.js';
 import {setupTrackWizard} from './camera-track-wizard.js';
 import {faceQuad} from './rect-pins.js';
+import {setupViewportTools,TOOL_KEYS} from './viewport-tools.js';
 import {wipeFov} from './camera-resection.js';
 import {EMPTY_WORKSPACE_KEY,createEmptyWorkspace,clearWorkspaceStorage,clearServerWorkspace,markWorkspaceSaved,isEmptyWorkspace,shouldShowWorkspaceWelcome,dismissWorkspaceWelcome} from './workspace-reset.js';
 
@@ -112,6 +114,7 @@ previewQuality.addEventListener('change',()=>{
 });
 const cameraBoundsCache=new Map();
 let sceneEffectsPanel=null,lastEffectsShot=null,lastShadowEnabled=true;
+let viewportTools=null,pickTool=()=>{};
 let chapterWorkflow=null,cameraTracking=null,trackWizard=null,compareView=null,reapplyCompare=null;
 let primitiveEditor=null,aiSceneEditor=null,modelTools=null,lastPrimitiveShotId=null,reviewShotId=null,sceneObjectEditor=null,arrayPrototypeEditor=null,referenceBuilder=null,timelineHistory=null,timelineEditing=null,animationGraph=null,cameraSyncSession=null,cameraSyncPreview=null,acceptedCameraSync=null,acceptedCameraPreview=null;
 function primitiveAnchors(){return shotAnchorMap(sequence,cameraAt);}
@@ -128,6 +131,7 @@ function syncPrimitiveWorld(){
 }
 const referenceVideo=el('referenceVideo');referenceVideo.volume=0;
 for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=true;
+let previewLock=false; // true when trackLock was set by a pending geometry preview, not the camera tracker
 let trackLock=null; // {start,end} while the camera tracker is open: the playhead stays inside this chapter
 let sequence,originalSequence,ready=false,playhead=0,playing=false,lastFrame=performance.now(),speed=1,selection=null,orbitMode=false;
 let activeSingleVideoUrl=null,relinkOwnedVideoUrl=null;
@@ -399,9 +403,31 @@ async function boot(){
    onSelectionChange:id=>sceneObjectEditor?.select(id,false),
     onEditAssembly:(shotId,id)=>arrayPrototypeEditor?.open(shotId,id)||false
  });
+ viewportTools=setupViewportTools({root:el('viewportTools'),onSelect:tool=>pickTool(tool)});
+ window.__atomsViewportTools=viewportTools;
+ /** Keep the tool strip in step with what the editor and the tracker allow right now. */
+ function syncTools(){
+   const editing=!!sceneObjectEditor?.active,tracking=!!trackLock&&!previewLock;
+   viewportTools.setAvailable(tracking?['point']:['move','rotate']);
+   if(tracking)return;
+   if(editing)viewportTools.set(sceneObjectEditor.gizmoEnabled?(sceneObjectEditor.operation==='rotate'?'rotate':'move'):'orbit');
+   else viewportTools.set('orbit');
+ }
+ pickTool=function(tool){
+   if(!ready||!viewportTools.isAvailable(tool))return;
+   if(tool==='move'||tool==='rotate'){
+     if(!sceneObjectEditor?.active&&!sceneObjectEditor?.setActive(true)){syncTools();return;}
+     sceneObjectEditor.setMode(tool==='move'?'translate':'rotate');
+   }else if(tool==='orbit'){
+     if(sceneObjectEditor?.active)sceneObjectEditor.setGizmoEnabled(false);
+     else if(!trackLock&&!orbitMode&&!el('inspectBtn').disabled)el('inspectBtn').click();
+   }
+   viewportTools.set(tool);
+ };
+ let sceneClipboard=null;
  sceneObjectEditor=setupSceneObjectEditing({
    scene,camera,canvas,orbitControls:controls,world:primitiveWorld,
-   onVisualChange:requestViewportRender,
+   onVisualChange:requestViewportRender,onToolChange:syncTools,
    getActiveShot:()=>shotAt(playhead),
    getDocument:()=>sequence.primitiveScenes,
    getInitialObjectId:()=>primitiveEditor?.getSelectedId?.()||(primitiveEditor?.getSelectedLightId?.()?'light::'+primitiveEditor.getSelectedLightId():null),
@@ -433,6 +459,24 @@ async function boot(){
        sequence.shots.map(s=>s.id),shotId,ids);
      commitEditedScenes(grouped.document);
      return grouped.selectedId;
+   },
+   onUngroup:(shotId,ids)=>{
+     const result=ungroupSceneSelection(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,ids);
+     commitEditedScenes(result.document);
+     return result.selectedIds;
+   },
+   // The clipboard is plain data held here, so it survives chapter switches.
+   onCopy:(shotId,ids)=>{
+     sceneClipboard=copySceneSelection(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,ids);
+     return sceneClipboard.objects.length+sceneClipboard.lights.length;
+   },
+   onPaste:shotId=>{
+     const result=pasteSceneClipboard(sequence.primitiveScenes,
+       sequence.shots.map(s=>s.id),shotId,sceneClipboard);
+     commitEditedScenes(result.document);
+     return result.selectedIds;
    },
    onMakeArray:(shotId,objectId,count,spacing)=>{
      commitEditedScenes(setSceneObjectRepeat(sequence.primitiveScenes,
@@ -481,6 +525,7 @@ async function boot(){
    referenceBuilder?.sourceForShot(shot.id),shot,at,detail);
  referenceSampler.available=id=>referenceBuilder?.hasSourceForShot(id)===true;
  aiSceneEditor=setupAiSceneEditor({
+   onPendingChange:(shotId,{busy}={})=>updateGeometryReview(shotId,busy),
    getSequence:()=>sequence,
    getActiveShot:()=>shotAt(playhead),
    getReferenceVideo:()=>referenceVideo,
@@ -646,6 +691,8 @@ async function boot(){
       if(action==='array')sceneObjectEditor.openMakeArray(id);
       else if(action==='duplicate')sceneObjectEditor.duplicateSelected();
       else if(action==='group')sceneObjectEditor.groupSelected();
+      else if(action==='ungroup')sceneObjectEditor.ungroupSelected();
+      else if(action==='copy')sceneObjectEditor.copySelected();
       else if(action==='edit'){
         if(!sceneObjectEditor.openGroupEditor(id))
           el('sceneEditStatus').textContent=
@@ -859,9 +906,9 @@ async function boot(){
    return {corners,screen};
  }
  let pickStart=null;
- canvas.addEventListener('pointerdown',e=>{if(picking&&e.button===0)pickStart={x:e.clientX,y:e.clientY};});
+ canvas.addEventListener('pointerdown',e=>{if(picking&&viewportTools.tool==='point'&&e.button===0)pickStart={x:e.clientX,y:e.clientY};});
  canvas.addEventListener('pointerup',e=>{
-   if(!picking||!pickStart||e.button!==0)return;
+   if(!picking||viewportTools.tool!=='point'||!pickStart||e.button!==0)return;
    const moved=Math.hypot(e.clientX-pickStart.x,e.clientY-pickStart.y);pickStart=null;
    if(moved<=5)picking(pickModelPoint(e.clientX,e.clientY)); // a drag is an orbit, not a pick
  });
@@ -883,11 +930,12 @@ async function boot(){
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
    getAnchor:id=>[...(primitiveAnchors()[id]||[0,0,0])],
    notify:text=>{cameraTracking?.tell(text);el('saveStatus').textContent='● '+text.slice(0,60).toUpperCase();},
-   setLock:range=>{trackLock=range?{start:range.start,end:range.end}:null;el('timelineLock').hidden=!range;document.body.classList.toggle('track-locked',!!range);},
+   setLock:range=>{previewLock=false;trackLock=range?{start:range.start,end:range.end}:null;syncTools();if(range)pickTool('point');else viewportTools.set('orbit');el('timelineLock').hidden=!range;document.body.classList.toggle('track-locked',!!range);},
    seekTo:t=>{setPlaying(false);seek(t);},getTime:()=>playhead,
    enterModelView:shotId=>{setPlaying(false);sceneObjectEditor?.setActive(false);compareView=null;showGeneratedGeometry(shotId,false);},
    exitView:()=>{compareView=null;endGeometryReview();},
-   setPicking:(on,handler)=>{picking=on?handler:null;pickStart=null;canvas.style.cursor=on?'crosshair':'';},
+   setPicking:(on,handler)=>{picking=on?handler:null;pickStart=null;if(on&&trackLock)pickTool('point');},
+   getTool:()=>viewportTools.tool,
    setMarkers:list=>{clearPins();for(const m of list){const sprite=pinSprite(m.n);sprite.position.set(...m.X);pinGroup.add(sprite);}requestViewportRender();},
    showCompareView:({pose,fov,videoAspect})=>{
      setPlaying(false);sceneObjectEditor?.setActive(false);
@@ -1039,6 +1087,22 @@ function applyCamera(){
  camera.near=planes.near;camera.far=planes.far;
  camera.updateProjectionMatrix();controls.target.set(...c.t);
 }
+// While a generated proposal is pending, Accept/Discard live in the viewport and the playhead stays inside
+// the proposed chapter (same timeline lock the camera tracker uses).
+function updateGeometryReview(shotId,busy=false){
+ const bar=el('geometryReviewBar');
+ if(!bar)return;
+ bar.hidden=!shotId;
+ el('geometryReviewAccept').disabled=el('geometryReviewDiscard').disabled=!!busy;
+ if(shotId&&!trackLock){
+  const shot=sequence?.shots.find(s=>s.id===shotId);
+  if(shot){previewLock=true;trackLock={start:shot.start,end:shot.end};el('timelineLock').hidden=false;el('timelineLockText').textContent='Timeline locked while a geometry preview is pending';document.body.classList.add('track-locked');}
+ }else if(!shotId&&previewLock){
+  previewLock=false;trackLock=null;el('timelineLock').hidden=true;el('timelineLockText').textContent='Timeline locked while the camera tracker is open';document.body.classList.remove('track-locked');
+ }
+}
+el('geometryReviewAccept').onclick=()=>el('aiSceneAccept').click();
+el('geometryReviewDiscard').onclick=()=>el('aiSceneDiscard').click();
 function seek(t,opts={}){if(trackLock)t=clamp(t,trackLock.start,Math.max(trackLock.start,trackLock.end-.001));if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
  (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();acceptedCameraSync?.refresh?.();}
 function renderWorld(){requestViewportRender();const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
@@ -1232,16 +1296,18 @@ referenceVideo.addEventListener('loadedmetadata',()=>{if(sequence?.referenceSequ
 window.addEventListener('keydown',e=>{
  if(!trackLock||e.key==='Tab')return;
  const t=e.target;
- if(t?.closest?.('#trackWizard'))return;
- if(e.key==='Escape'){e.stopImmediatePropagation();trackWizard?.escape();return;}
+ if(t?.closest?.('#trackWizard,#geometryReviewBar'))return;
+ if(e.key==='Escape'){e.stopImmediatePropagation();if(!previewLock)trackWizard?.escape();return;}
+ if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyO'||e.code==='KeyP')&&!(t instanceof HTMLInputElement||t instanceof HTMLTextAreaElement||t instanceof HTMLSelectElement||t?.isContentEditable))return; // tool shortcuts stay live
  if(t instanceof HTMLInputElement||t instanceof HTMLTextAreaElement||t instanceof HTMLSelectElement||t?.isContentEditable)return;
  e.stopImmediatePropagation();
  if(e.code==='Space'||e.code.startsWith('Arrow')||e.code==='Delete'||e.code==='Backspace'||((e.ctrlKey||e.metaKey)&&['z','y','c','v'].includes(e.key.toLowerCase())))e.preventDefault();
 },true);
 window.addEventListener('keydown',e=>{if(el('workspaceStartDialog')?.open)return;const target=e.target;if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||target.isContentEditable)return;
+ if(ready&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&viewportTools&&TOOL_KEYS[e.code]&&(sceneObjectEditor?.active||TOOL_KEYS[e.code]==='orbit'||TOOL_KEYS[e.code]==='point')&&viewportTools.isAvailable(TOOL_KEYS[e.code])){
+   e.preventDefault();pickTool(TOOL_KEYS[e.code]);return;
+ }
  if(ready&&sceneObjectEditor?.active){
-   if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyW'||e.code==='KeyG')){e.preventDefault();sceneObjectEditor.setMode('translate');return;}
-   if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyE'||e.code==='KeyR')){e.preventDefault();sceneObjectEditor.setMode('rotate');return;}
    if(e.code==='Escape'){e.preventDefault();sceneObjectEditor.select(null);return;}
    if(e.code==='Delete'||e.code==='Backspace'){
      e.preventDefault();sceneObjectEditor.deleteSelected();return;

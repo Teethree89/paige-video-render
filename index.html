@@ -40,12 +40,15 @@
       </nav>
       <section class="viewport" id="viewport">
         <canvas id="scene"></canvas>
+        <div id="geometryReviewBar" class="geometry-review-bar" role="group" aria-label="Review proposed geometry" hidden><span class="grb-label">Proposed geometry · nothing saved yet</span><button id="geometryReviewAccept" type="button" class="grb-accept">✓ Accept geometry</button><button id="geometryReviewDiscard" type="button" class="grb-discard">✕ Discard</button></div>
         <div id="sourceViewportOverlay" class="source-viewport-overlay" hidden aria-hidden="true"></div>
         <div id="sceneObjectContextMenu" class="scene-object-context-menu" role="menu" aria-label="Selected object actions" hidden>
           <button type="button" data-object-action="array" role="menuitem">▦ Make / edit array…</button>
           <button type="button" data-object-action="edit" role="menuitem">✎ Edit group / array components…</button>
           <button type="button" data-object-action="duplicate" role="menuitem">⧉ Duplicate object</button>
           <button type="button" data-object-action="group" role="menuitem">▣ Group selected objects</button>
+          <button type="button" data-object-action="ungroup" role="menuitem">▢ Ungroup (Ctrl/Cmd+Shift+G)</button>
+          <button type="button" data-object-action="copy" role="menuitem">⎘ Copy (paste in any chapter)</button>
         </div>
         <div id="sceneSelectionRectangle" class="scene-selection-rectangle" hidden></div>
         <div id="sceneCreateMenu" class="scene-create-menu" role="group" aria-label="Create scene object" hidden>
@@ -63,12 +66,21 @@
             <button id="sceneEditDuplicate" type="button" title="Duplicate selected shape, repeated array, or light (Ctrl/Cmd+D)" disabled>⧉ Duplicate</button>
             <button id="sceneEditRectangle" type="button" title="Rectangle select visible objects (drag over viewport)">▧ Select area</button>
             <button id="sceneEditGroup" class="secondary" type="button" title="Combine selected objects into one editable group (Ctrl/Cmd+G)" disabled>▣ Group</button>
+            <button id="sceneEditUngroup" class="secondary" type="button" title="Split the selected group into separate objects (Ctrl/Cmd+Shift+G)" disabled>▢ Ungroup</button>
+            <button id="sceneEditCopy" class="secondary" type="button" title="Copy selection; paste into any chapter (Ctrl/Cmd+C)" disabled>⎘ Copy</button>
+            <button id="sceneEditPaste" class="secondary" type="button" title="Paste copied items into this chapter (Ctrl/Cmd+V)" disabled>⎗ Paste</button>
             <button id="sceneEditDelete" class="scene-edit-delete" type="button" disabled>Delete</button>
           </div>
           <div id="sceneEditFields" class="scene-edit-fields" aria-label="Selected object's editable properties" hidden></div>
           <p id="sceneEditStatus" role="status">Click an editable shape or light to select it.</p>
           <p class="scene-edit-note">Drag gizmo axes · Drag empty space to orbit · Scroll to zoom</p>
         </section>
+        <div id="viewportTools" class="viewport-tools" role="toolbar" aria-label="Viewport tool" data-tool="orbit">
+          <button type="button" data-tool="orbit" class="active" aria-pressed="true" title="Orbit: look around without moving anything (O)">⟲ Orbit</button>
+          <button type="button" data-tool="move" aria-pressed="false" disabled title="Move the selected object (W)">↔ Move</button>
+          <button type="button" data-tool="rotate" aria-pressed="false" disabled title="Rotate the selected object (E)">⟳ Rotate</button>
+          <button type="button" data-tool="point" aria-pressed="false" disabled title="Point set: place matching points while camera tracking (P)">◎ Point</button>
+        </div>
         <div class="stage-top"><span class="pill"><span class="pulse-dot"></span> 3D PREVIEW</span><span id="shotTitle">01 / ESTABLISHING THE INFRASTRUCTURE</span></div>
         <label class="preview-quality" title="Viewport display quality; exported video and scene data keep their original quality.">Preview detail
           <select id="previewQuality"><option value="fast">Fast</option><option value="balanced" selected>Balanced</option><option value="full">Full</option></select>
@@ -160,7 +172,7 @@
       </section>
       <div id="timelineResizeHandle" class="timeline-resizer" role="separator" aria-label="Resize timeline vertically" aria-orientation="horizontal" tabindex="0" title="Drag to resize timeline · double-click to reset"></div>
       <section class="timeline-section" id="studioTimeline">
-        <div id="timelineLock" class="timeline-lock" role="status" hidden><span>Timeline locked while the camera tracker is open</span></div>
+        <div id="timelineLock" class="timeline-lock" role="status" hidden><span id="timelineLockText">Timeline locked while the camera tracker is open</span></div>
         <div class="timeline-header"><div><span class="tiny-eyebrow">SEQUENCE TIMELINE</span><span class="timeline-subhead">Drag the playhead · select camera keys or captions to edit</span></div><div class="timeline-toolset" role="group" aria-label="Timeline view controls">
           <button id="timelineZoomOut" type="button" title="Zoom out timeline" aria-label="Zoom out timeline">−</button>
           <output id="timelineZoomText" aria-live="off">100%</output>
