@@ -227,7 +227,10 @@ primitive meshes, selects an entire repeated-group object by its
 Three.js TransformControls uses the pinned 0.166.1 build: its controls object
 is added to the scene (newer Three releases use `getHelper()`).
 
-W (or G) selects XYZ move; E (or R) selects local XYZ rotate. Gizmo drags
+Entering Edit keeps the current view camera (the timeline camera at the playhead,
+or the user's orbit pose) so camera keys and the source overlay stay lined up;
+only the AI geometry preview may reframe the camera
+(`tests/browser/edit-mode-camera.mjs`). W (or G) selects XYZ move; E (or R) selects local XYZ rotate. Gizmo drags
 update the *view* first and commit through `editPrimitiveTransform` on mouse
 release, including strict schema validation. Delete removes only the selected
 object via `deletePrimitiveObject`. The primitive inspector dropdown and

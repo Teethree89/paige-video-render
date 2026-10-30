@@ -328,6 +328,20 @@ function showGeneratedGeometry(shotId,scroll=false,{editMode=false}={}){
   reviewGrid.position.set(center.x,-.18,center.z);
   reviewGrid.scale.setScalar(stageSize/40);
   reviewStage.visible=true;
+  if(editMode){
+    // Edit mode keeps the view the user was just looking at (timeline camera at
+    // the playhead, or their orbit pose) so keys and the source overlay stay lined up.
+    const target=controls.target.clone();
+    if(camera.position.distanceTo(target)<.01)
+      target.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10));
+    const distance=camera.position.distanceTo(target);
+    camera.near=Math.max(.01,Math.min(.35,distance*.01));
+    camera.far=orbitFar=Math.max(500,distance+bounds.radius*5);
+    camera.updateProjectionMatrix();
+    controls.target.copy(target);controls.update();
+    chapterWorkflow?.refresh(true);
+    return true;
+  }
   // Start from the model's estimate of the reference camera when it plausibly
   // frames the geometry, so the preview lines up with the video frame. It is
   // only a starting view: camera keys are never written from it.
@@ -382,6 +396,8 @@ async function boot(){
  refreshSourceVideoOverlay();
  for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn','clearWorkspaceBtn','sceneModeView','sceneModeEdit'])el(id).disabled=false;
  window.__atomsEditorStarted=true;animate(performance.now());
+ // Read-only view of the live camera for browser tests.
+ window.__atomsCameraPose=()=>({p:camera.position.toArray(),t:controls.target.toArray(),fov:camera.fov});
  modelTools=setupModelTools(world,{onSceneChanged:()=>renderWorld()});
  primitiveEditor=setupPrimitiveEditor({
    getSequence:()=>sequence,
