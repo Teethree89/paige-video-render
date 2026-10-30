@@ -34,6 +34,7 @@ jobs:
           node --check scripts/camera_track_harness.mjs
           node --check scripts/track_video_file.mjs
           node --check tests/browser/make-track-fixture.mjs
+          node --check tests/browser/edit-mode-camera.mjs
       # Compile the actual module graph and validate Wrangler configuration.
       # No Cloudflare credentials, upload, deployment or provider call.
       - name: Bundle Worker with Wrangler (no deployment)
@@ -64,6 +65,8 @@ jobs:
       # applies the tracked camera in the editor. Local only, no provider call.
       - name: Track camera from a local video in Chromium
         run: THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/camera-track-video.mjs
+      - name: Edit mode keeps the current view camera in Chromium
+        run: THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/edit-mode-camera.mjs
       - name: Keep local media for 48 hours in Chromium IndexedDB
         run: THREE_NODE_MODULES="$RUNNER_TEMP/three/node_modules" PLAYWRIGHT_MODULE="$RUNNER_TEMP/browser/node_modules/playwright/index.mjs" node tests/browser/local-media-expiry.mjs
       - name: Validate timeline and model assets
