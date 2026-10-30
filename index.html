@@ -154,6 +154,10 @@
         <section id="cameraTrackPanel" class="camera-sync-panel camera-track-panel" hidden aria-label="Track camera motion from the chapter's source video">
           <div class="section-label">TRACK CAMERA FROM VIDEO · LOCAL / FREE</div>
           <p class="field-help">Follows hundreds of image points through this chapter and solves the camera path on this device. Nothing is uploaded or sent to AI. The result is a reviewable estimate: preview it under Sync accepted model camera and Apply before any keys change.</p>
+          <label id="cameraTrackFileWrap" class="field" hidden>Video file to track (for projects without an attached video)
+            <input id="cameraTrackFile" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm">
+          </label>
+          <p id="cameraTrackFileStatus" class="field-help" role="status" hidden></p>
           <div class="primitive-buttons"><button id="cameraTrackStart" class="secondary" type="button">Track camera from video</button><button id="cameraTrackCancel" class="ghost" type="button" hidden>Cancel</button></div>
           <progress id="cameraTrackProgress" class="camera-track-progress" hidden></progress>
           <p id="cameraTrackStatus" class="field-help" role="status" aria-live="polite">Not tracked yet.</p>

@@ -100,38 +100,52 @@ export function describeTrackSummary(summary){
 }
 
 /**
+ * Any project can be tracked: when the project has no attached video (an imported
+ * JSON, a hand-built timeline) the user picks a local video file whose 0:00
+ * matches the timeline's 0:00. That file is used in this tab only.
  * @param {{getSequence:Function,getShot:Function,getSource:(shot:object)=>({url:string,toSourceTime:Function}|{reason:string}|null),
- *   canEdit:Function,onSaved:(shotId:string,motion:object,summary:object)=>string|void,onBusy?:Function}} options
+ *   canUseFile?:Function,canEdit:Function,onSaved:(shotId:string,motion:object,summary:object)=>string|void,onBusy?:Function}} options
  */
-export function setupCameraTracking({getSequence,getShot,getSource,canEdit=()=>true,onSaved,onBusy=()=>{}}){
+export function setupCameraTracking({getSequence,getShot,getSource,canUseFile=()=>true,canEdit=()=>true,onSaved,onBusy=()=>{}}){
  const $=id=>document.getElementById(id);
  const root=$('cameraTrackPanel'),start=$('cameraTrackStart'),cancel=$('cameraTrackCancel'),
-   progress=$('cameraTrackProgress'),status=$('cameraTrackStatus');
+   progress=$('cameraTrackProgress'),status=$('cameraTrackStatus'),
+   fileWrap=$('cameraTrackFileWrap'),fileInput=$('cameraTrackFile'),fileStatus=$('cameraTrackFileStatus');
  if(!root||!start)return null;
- let controller=null,lastKey=null;
+ let controller=null,lastKey=null,chosen=null;
+ const clock=t=>Math.floor(t/60)+':'+String(Math.floor(t%60)).padStart(2,'0');
+ /** The project's own source, else the file picked here (never for Reference Builder scenes). */
+ function resolveSource(shot){
+   const own=getSource(shot);
+   if(own?.url||!chosen||!canUseFile())return own;
+   if(shot.end>chosen.duration+.2)
+     return {reason:`The chosen video (${chosen.name}, ${clock(chosen.duration)}) ends before this chapter does (${clock(shot.end)}). Its 0:00 must match the timeline's 0:00.`};
+   return {url:chosen.url,toSourceTime:t=>t};
+ }
  const tell=text=>{status.textContent=text;};
  let applied='';
  /** Cheap: only touches the DOM when the chapter, source or edit state changed. */
  function refresh(){
    const sequence=getSequence(),shot=getShot();
    if(!sequence||!shot){if(applied!=='none'){applied='none';root.hidden=true;}return;}
-   const source=getSource(shot),usable=!!source?.url,editable=canEdit();
+   const source=resolveSource(shot),usable=!!source?.url,editable=canEdit(),filePicker=canUseFile();
    const saved=savedVideoMotion(shot),key=shot.id+'|'+usable+'|'+(saved?.source||saved?.type||'');
-   const state=[key,!source&&!shot.draft,!!controller,editable,source?.reason||''].join('|');
+   const state=[key,!!controller,editable,filePicker,chosen?.url||'',source?.reason||''].join('|');
    if(state===applied)return;
    applied=state;
-   root.hidden=!source&&!shot.draft;
+   root.hidden=false;
+   if(fileWrap)fileWrap.hidden=!filePicker;
    start.disabled=!!controller||!usable||!editable;
-   start.title=usable?'Track feature points through this chapter on this device':(source?.reason||'Attach the source video first.');
+   start.title=usable?'Track feature points through this chapter on this device':(source?.reason||'Choose the source video first.');
    if(controller||lastKey===key)return;
    lastKey=key;
-   tell(!usable?(source?.reason||'Attach this chapter\'s source video to track its camera.'):
+   tell(!usable?(source?.reason||(filePicker?'Choose the video this timeline came from (below) to track its camera.':'Attach this chapter\'s source video to track its camera.')):
      saved?.source==='feature-track'?`Tracked: ${saved.type} · ${Math.round(saved.confidence*100)}% confidence. Preview it under Sync accepted model camera.`:
      saved?'This chapter has an AI motion estimate. Tracking replaces it with a measured one.':
      'Not tracked yet. Runs locally; nothing is uploaded.');
  }
  async function run(){
-   const shot=getShot(),source=shot&&getSource(shot);
+   const shot=getShot(),source=shot&&resolveSource(shot);
    if(!shot||!source?.url||controller||!canEdit())return;
    const chapter={id:shot.id,start:shot.start,end:shot.end};
    controller=new AbortController();onBusy(true);
@@ -158,6 +172,31 @@ export function setupCameraTracking({getSequence,getShot,getSource,canEdit=()=>t
      controller=null;onBusy(false);cancel.hidden=true;progress.hidden=true;refresh();
    }
  }
+ fileInput?.addEventListener('change',async()=>{
+   const file=fileInput.files?.[0];fileInput.value='';
+   if(!file)return;
+   fileStatus.hidden=false;fileStatus.textContent='Checking video…';
+   if(!file.type.startsWith('video/')&&!/\.(mp4|mov|webm)$/i.test(file.name)){
+     fileStatus.textContent='Choose an MP4, MOV or WebM video.';return;}
+   const url=URL.createObjectURL(file),probe=document.createElement('video');
+   try{
+     await new Promise((resolve,reject)=>{
+       const timer=setTimeout(()=>reject(Error('Video metadata timed out.')),15000);
+       probe.onloadedmetadata=()=>{clearTimeout(timer);resolve();};
+       probe.onerror=()=>{clearTimeout(timer);reject(Error('The browser could not open this video.'));};
+       probe.preload='metadata';probe.src=url;probe.load();
+     });
+     if(!Number.isFinite(probe.duration)||probe.duration<.5)throw Error('This video has no usable duration.');
+     const old=chosen?.url;
+     chosen={url,name:file.name,duration:probe.duration};
+     if(old)URL.revokeObjectURL(old);
+     const total=getSequence()?.duration;
+     fileStatus.textContent=`Using ${file.name} (${clock(probe.duration)}) for tracking in this tab only; it is not saved or uploaded. Its 0:00 must match the timeline's 0:00.`+
+       (Number.isFinite(total)&&Math.abs(probe.duration-total)>1?` Note: the timeline is ${clock(total)} long.`:'');
+     lastKey=null;refresh();
+   }catch(error){URL.revokeObjectURL(url);fileStatus.textContent='Could not use this video: '+error.message;}
+   finally{probe.removeAttribute('src');probe.load();}
+ });
  start.addEventListener('click',run);
  cancel.addEventListener('click',()=>controller?.abort());
  refresh();
