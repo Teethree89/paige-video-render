@@ -104,7 +104,53 @@ try{
  await missing.locator('#inspectorMotionButton').click();
  await missing.waitForSelector('#cameraTrackPanel:not([hidden])',{timeout:30000});
  assert.equal(await missing.isDisabled('#cameraTrackStart'),true);
- assert.match(await missing.textContent('#cameraTrackStatus'),/Reattach the source video/);
+ assert.match(await missing.textContent('#cameraTrackStatus'),/source video is not attached/);
+ // An imported JSON with no video info at all: the panel is still there and works with a chosen file.
+ const plain={title:'Imported JSON',duration:3,fps:30,
+   shots:[{id:'shot_a',start:0,end:3,name:'Hand built',title:'HAND BUILT',tone:'teal'}],
+   camera:[{id:'c1',at:0,p:[0,5,22],t:[0,3,0],fov:55,cut:true},{id:'c2',at:2.9,p:[0,5,18],t:[0,3,0],fov:55}],text:[]};
+ const importer=await browser.newPage({viewport:{width:1365,height:900}});
+ importer.on('pageerror',e=>errors.push(e.message));
+ await importer.addInitScript(s=>{if(!sessionStorage.getItem('seeded')){localStorage.setItem('atoms-ai-sequence-v1',s);sessionStorage.setItem('seeded','1');}},JSON.stringify(plain));
+ await importer.goto(base+'/');
+ await importer.waitForFunction(()=>window.__atomsEditorStarted===true);
+ await importer.locator('#inspectorMotionButton').click();
+ await importer.waitForSelector('#cameraTrackPanel:not([hidden])',{timeout:30000});
+ assert.equal(await importer.isDisabled('#cameraTrackStart'),true);
+ assert.match(await importer.textContent('#cameraTrackStatus'),/Choose the video this timeline came from/);
+ await importer.locator('#cameraTrackFile').setInputFiles(resolve(root,'tests/fixtures/track-orbit.mp4'));
+ await importer.waitForFunction(()=>!document.getElementById('cameraTrackStart').disabled,null,{timeout:30000});
+ assert.match(await importer.textContent('#cameraTrackFileStatus'),/for tracking in this tab only; it is not saved or uploaded/);
+ await importer.locator('#cameraTrackStart').click();
+ await importer.waitForFunction(()=>/^Tracked /.test(document.getElementById('cameraTrackStatus').textContent),null,{timeout:180000});
+ assert.match(await importer.textContent('#cameraTrackStatus'),/^Tracked orbit/);
+ assert.equal(await importer.evaluate(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).shots[0].videoCameraMotion.source),'feature-track');
+ // The Source tab can attach a video to the same kind of project (no 'not a single-video import' dead end).
+ await importer.evaluate(s=>{localStorage.setItem('atoms-ai-sequence-v1',s);},JSON.stringify(plain));
+ await importer.reload();
+ await importer.waitForFunction(()=>window.__atomsEditorStarted===true);
+ await importer.locator('#inspectorSourceButton').click();
+ assert.equal(await importer.isVisible('#sourceRelinkFile'),true);
+ await importer.locator('#sourceRelinkFile').setInputFiles(resolve(root,'tests/fixtures/track-orbit.mp4'));
+ await importer.waitForFunction(()=>/saved in this browser until/.test(document.getElementById('sourceRelinkStatus').textContent),null,{timeout:30000});
+ assert.equal(await importer.evaluate(()=>{const v=JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).videoIntake;return v&&v.sourceName;}),'track-orbit.mp4');
+ await importer.waitForFunction(()=>!document.getElementById('sourceOverlayEnabled').disabled);
+ await importer.locator('#inspectorMotionButton').click();
+ await importer.waitForFunction(()=>!document.getElementById('cameraTrackStart').disabled,null,{timeout:30000});
+ assert.match(await importer.textContent('#cameraTrackStatus'),/Not tracked yet|Tracked/);
+ await importer.reload();
+ await importer.waitForFunction(()=>window.__atomsEditorStarted===true);
+ await importer.locator('#inspectorSourceButton').click();
+ await importer.waitForFunction(()=>!document.getElementById('sourceOverlayEnabled').disabled,null,{timeout:30000});
+ // A video shorter than the chapter is refused with a clear reason.
+ const longPlain={...plain,duration:6,shots:[{...plain.shots[0],end:6}],camera:[plain.camera[0],{...plain.camera[1],at:5.9}]};
+ await importer.evaluate(s=>{localStorage.setItem('atoms-ai-sequence-v1',s);},JSON.stringify(longPlain));
+ await importer.reload();
+ await importer.waitForFunction(()=>window.__atomsEditorStarted===true);
+ await importer.locator('#inspectorMotionButton').click();
+ await importer.locator('#cameraTrackFile').setInputFiles(resolve(root,'tests/fixtures/track-orbit.mp4'));
+ await importer.waitForFunction(()=>/ends before this chapter does/.test(document.getElementById('cameraTrackStatus').textContent),null,{timeout:30000});
+ assert.equal(await importer.isDisabled('#cameraTrackStart'),true);
  assert.deepEqual(errors,[]);
  console.log('PASS: browser tracked',result.motion.type,JSON.stringify(result.summary));
 }finally{await browser?.close();server.close();}

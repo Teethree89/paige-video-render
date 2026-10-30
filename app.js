@@ -141,10 +141,12 @@ function refreshSourceVideoOverlay(){
   const singleVideo=!!(sequence?.videoIntake&&!sequence.referenceSequence);
   el('sourceOverlayControls').hidden=!singleVideo;
   el('sourceOverlayUnavailable').hidden=allowed;
-  el('sourceRelinkWrap').hidden=!singleVideo;
+  // Any project except Reference Builder can attach (or replace) its single source video.
+  el('sourceRelinkWrap').hidden=!sequence||!!sequence.referenceSequence;
   el('sourceOverlayUnavailable').textContent=singleVideo?
     'The original source video is not attached. Reattach it below to use full-size overlay without reanalyzing your timeline.':
-    'To enable full-size source overlay, import a single video using Video → timeline.';
+    sequence?.referenceSequence?'Reference Builder projects keep their media per scene; attach it in Reference Builder (Relink files).':
+    'No source video is attached to this project. Attach one below to use the full-size overlay and camera tracking.';
   toggle.disabled=!allowed;
   if(!allowed)toggle.checked=false;
   if(singleVideo){
@@ -225,10 +227,14 @@ el('sourceRelinkFile').addEventListener('change',async event=>{
   if(!file)return;
   const targetSequence=sequence;
   status.hidden=false;status.textContent='Checking source video duration…';
-  let url=null;
+  let url=null,adopting=false;
   const probe=document.createElement('video');
   try{
-    if(!targetSequence?.videoIntake||targetSequence.referenceSequence)throw Error('This timeline is not a single-video import.');
+    if(!targetSequence)throw Error('There is no open project.');
+    if(targetSequence.referenceSequence)
+      throw Error('This is a Reference Builder project: attach each scene\'s media in Reference Builder (Relink files).');
+    // A project with no video record (an imported JSON, a hand-built timeline) adopts this file as its source.
+    adopting=!targetSequence.videoIntake;
     if(!file.type.startsWith('video/')&&!/\.(mp4|mov|webm)$/i.test(file.name))throw Error('Choose an MP4, MOV or WebM video.');
     url=URL.createObjectURL(file);
     await new Promise((resolve,reject)=>{
@@ -242,8 +248,11 @@ el('sourceRelinkFile').addEventListener('change',async event=>{
       probe.preload='metadata';probe.src=url;probe.load();
     });
     const duration=probe.duration;
-    if(!Number.isFinite(duration)||Math.abs(duration-targetSequence.duration)>.5)
-      throw Error('Video duration does not match this timeline (expected '+targetSequence.duration.toFixed(2)+' seconds).');
+    if(!Number.isFinite(duration))throw Error('This video has no usable duration.');
+    // The same video must match the timeline; a video newly attached to a project may be longer.
+    if(adopting?duration<targetSequence.duration-.5:Math.abs(duration-targetSequence.duration)>.5)
+      throw Error(adopting?'This video is shorter than the timeline ('+duration.toFixed(2)+' s vs '+targetSequence.duration.toFixed(2)+' s). Its 0:00 must match the timeline\'s 0:00.':
+        'Video duration does not match this timeline (expected '+targetSequence.duration.toFixed(2)+' seconds).');
     if(sequence!==targetSequence)throw Error('The timeline changed while the video was loading. Try again.');
     const previousOwned=relinkOwnedVideoUrl;
     relinkOwnedVideoUrl=url;
@@ -251,8 +260,11 @@ el('sourceRelinkFile').addEventListener('change',async event=>{
       referenceVideo.playbackRate=speed;
       if(playing)referenceVideo.play().catch(()=>{});
     },{once:true});
+    if(adopting)targetSequence.videoIntake={version:1,mode:'attached-source',referenceVideo:file.name,
+      note:'Source video attached by the user to an existing timeline. Its 0:00 must match the timeline\'s 0:00. Camera estimates are reviewable suggestions.'};
     attachSingleVideo(url);url=null;
     await cacheSingleVideo(file,targetSequence);
+    if(adopting)refreshAll();
     if(previousOwned)URL.revokeObjectURL(previousOwned);
   }catch(error){status.textContent='Could not reattach source: '+error.message;}
   finally{
@@ -304,6 +316,21 @@ function showGeneratedGeometry(shotId,scroll=false,{editMode=false}={}){
   reviewGrid.position.set(center.x,-.18,center.z);
   reviewGrid.scale.setScalar(stageSize/40);
   reviewStage.visible=true;
+  if(editMode){
+    // Edit mode keeps the view the user was just looking at (timeline camera at
+    // the playhead, or their orbit pose) so keys and the source overlay stay lined up.
+    const target=controls.target.clone(),degenerate=camera.position.distanceTo(target)<.01;
+    if(degenerate)target.copy(camera.position).add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(10));
+    const distance=camera.position.distanceTo(target);
+    camera.near=Math.max(.01,Math.min(.35,distance*.01));
+    camera.far=orbitFar=Math.max(500,distance+bounds.radius*5);
+    camera.updateProjectionMatrix();
+    // No controls.update() unless the target changed: it would apply one more damping
+    // step and nudge a camera that is still coasting.
+    if(degenerate){controls.target.copy(target);controls.update();}
+    chapterWorkflow?.refresh(true);
+    return true;
+  }
   // Start from the model's estimate of the reference camera when it plausibly
   // frames the geometry, so the preview lines up with the video frame. It is
   // only a starting view: camera keys are never written from it.
@@ -358,6 +385,8 @@ async function boot(){
  refreshSourceVideoOverlay();
  for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn','clearWorkspaceBtn','sceneModeView','sceneModeEdit'])el(id).disabled=false;
  window.__atomsEditorStarted=true;animate(performance.now());
+ // Read-only view of the live camera for browser tests.
+ window.__atomsCameraPose=()=>({p:camera.position.toArray(),t:controls.target.toArray(),fov:camera.fov});
  modelTools=setupModelTools(world,{onSceneChanged:()=>renderWorld()});
  primitiveEditor=setupPrimitiveEditor({
    getSequence:()=>sequence,
@@ -758,6 +787,7 @@ async function boot(){
  cameraTracking=setupCameraTracking({
    getSequence:()=>sequence,getShot:()=>sequence?shotAt(playhead):null,
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
+   canUseFile:()=>!sequence?.referenceSequence,
    // Local sources only: the cached single video or a Reference Builder clip.
    getSource:shot=>{
      if(sequence.referenceSequence){
@@ -767,7 +797,7 @@ async function boot(){
        return {url:source.url,toSourceTime:t=>clamp(source.sourceIn+t-shot.start,source.sourceIn,source.sourceOut-.001)};
      }
      if(sequence.videoIntake){
-       if(!activeSingleVideoUrl)return {reason:'Reattach the source video (Source tab) to track its camera.'};
+       if(!activeSingleVideoUrl)return {reason:'The source video is not attached. Reattach it in the Source tab, or choose a video file below.'};
        return {url:activeSingleVideoUrl,toSourceTime:t=>t};
      }
      return null;
