@@ -204,7 +204,7 @@ export async function sampleVideo(reference,shot,playhead,detailProfile='standar
 }
 export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,getReferenceFrames=null,getPlayheadTime,onPreview,onDiscard,onAccept,onInspect,onCameraSync=null,onCameraSyncReset=null,onMotionAnalysis=null,getAcceptedScene=null,onReferenceAlignment=null,
   getEditCount=()=>0,getLegacyCount=()=>0,listEditLibrary=()=>[],restoreEditLibrary=()=>{},deleteEditLibrary=()=>{},
-  onExportTimeline=()=>{},generationSounds=createGenerationSounds()}) {
+  onExportTimeline=()=>{},onPendingChange=()=>{},generationSounds=createGenerationSounds()}) {
   const loginArea=el('aiSceneLogin'),controls=el('aiSceneControls');
   const password=el('aiScenePassphrase'),loginButton=el('aiSceneSignIn');
   const create=el('aiSceneGenerate'),scope=el('aiSceneScope'),modelSelect=el('aiSceneModel'),inspect=el('aiSceneInspect'),accept=el('aiSceneAccept');
@@ -645,6 +645,7 @@ export function setupAiSceneEditor({getSequence,getActiveShot,getReferenceVideo,
     accept.hidden=!pending; discard.hidden=!pending;
     if(cleanupButton){cleanupButton.hidden=!pending;cleanupButton.disabled=busy||!pending;}
     accept.disabled=busy;discard.disabled=busy;
+    onPendingChange(pending?pendingShot:null,{busy});
     refreshLibrary();
   };
   const sessionEnded=()=>{
