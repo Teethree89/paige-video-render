@@ -32,6 +32,7 @@ jobs:
           node --check worker/scene-worker.mjs
           node --check scripts/inspect_argon_prompts.mjs
           node --check scripts/camera_track_harness.mjs
+          node --check scripts/track_video_file.mjs
           node --check tests/browser/make-track-fixture.mjs
       # Compile the actual module graph and validate Wrangler configuration.
       # No Cloudflare credentials, upload, deployment or provider call.

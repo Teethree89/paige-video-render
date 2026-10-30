@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {buildPyramid,detectCorners,trackPoint,createFeatureTracker,selectKeyframes,toGray} from '../feature-tracker.js';
 import {createTrackSession,trackingFrameTimes,MIN_TRACK_FRAMES} from '../camera-track-pipeline.js';
-import {VIDEO_SCENARIOS,renderSyntheticVideo,evaluateTrackedVideo} from './camera-track-fixtures.mjs';
+import {VIDEO_SCENARIOS,renderSyntheticVideo,evaluateTrackedVideo,syntheticPoints} from './camera-track-fixtures.mjs';
 import {validateVideoMotion} from '../video-camera-motion.js';
 
 // Smooth random texture, sampled at a sub-pixel offset.
@@ -81,3 +81,36 @@ for(const scenario of VIDEO_SCENARIOS){
    assert.deepEqual(validateVideoMotion(motion,{start:0,end:4}),motion);
  });
 }
+
+// A cut or fast transition: replace the first frames with an unrelated scene.
+const withInterruption=(video,from,to,other)=>{
+ const frames=video.frames.slice();for(let i=from;i<to;i++)frames[i]=other.frames[i];return {...video,frames};
+};
+const orbit=VIDEO_SCENARIOS.find(s=>s.type==='orbit');
+const trackClip=(video,start=0,end=4)=>{
+ const session=createTrackSession({width:video.width,height:video.height,start,end,maxKeyframes:24});
+ video.frames.forEach((g,i)=>session.addFrame(g,start+i/(video.frames.length-1)*(end-start)));
+ return session.finish();
+};
+
+test('an unrelated transition at the start is held, not solved or stretched',()=>{
+ const clean=renderSyntheticVideo({path:orbit.path}),other=renderSyntheticVideo({path:orbit.path,seed:77,points:syntheticPoints(300,5)});
+ const {motion,summary}=trackClip(withInterruption(clean,0,8,other));
+ assert.equal(motion.type,'orbit');
+ assert.ok(summary.segment.from>=7&&summary.segment.frames<summary.segment.total,JSON.stringify(summary.segment));
+ assert.equal(motion.keys[0].u,0);assert.equal(motion.keys.at(-1).u,1);
+ assert.deepEqual(motion.keys[0].p,motion.keys[1].p,'the camera holds still over the transition');
+ assert.ok(motion.keys[1].u>.1,'motion starts after the held part');
+ assert.match(motion.uncertainty,/held still for the first [\d.]+ s \(cut or transition\)/);
+});
+
+test('a cut in the middle of a chapter is refused with advice to split it',()=>{
+ const clean=renderSyntheticVideo({path:orbit.path}),other=renderSyntheticVideo({path:orbit.path,seed:78,points:syntheticPoints(300,6)});
+ assert.throws(()=>trackClip(withInterruption(clean,10,26,other)),err=>/too abruptly/.test(err.message)&&err.summary.segment.frames<err.summary.segment.total);
+});
+
+test('a plausible-lens default replaces an implausible estimated lens when it fits as well',()=>{
+ const video=renderSyntheticVideo({path:VIDEO_SCENARIOS.find(s=>s.type==='push').path,fov:50});
+ const {summary}=trackClip(video);
+ assert.ok(summary.fov>=25&&summary.fov<=70,'lens stays in a plausible range: '+summary.fov);
+});

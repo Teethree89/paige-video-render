@@ -92,10 +92,11 @@ export async function trackChapterCamera(shot,source,{signal,onProgress=()=>{},f
 
 export function describeTrackSummary(summary){
  if(!summary)return '';
- return `${summary.frames} frames, ${summary.tracks} tracks, ${summary.posed}/${summary.keyframes} keyframes solved`+
+ const seg=summary.segment,trimmed=seg&&seg.frames<seg.total?`${seg.frames} of ${seg.total} frames continuous (the rest held still), `:'';
+ return `${trimmed}${summary.frames} frames, ${summary.tracks} tracks, ${summary.posed??0}/${summary.keyframes??0} keyframes solved`+
    (summary.mode==='parallax'?`, ${summary.points} 3D points`:', rotation only')+
    (summary.rmsPx!==null?`, ${summary.rmsPx.toFixed(2)} px error`:'')+
-   (summary.fov!==null?`, ${summary.fovEstimated?'estimated ':''}${summary.fov.toFixed(1)}° lens`:'');
+   (summary.fov!=null?`, ${summary.fovEstimated?'estimated ':summary.fovAssumed?'assumed ':''}${summary.fov.toFixed(1)}° lens`:'');
 }
 
 /**
