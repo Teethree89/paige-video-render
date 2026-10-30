@@ -130,6 +130,7 @@ function syncPrimitiveWorld(){
 }
 const referenceVideo=el('referenceVideo');referenceVideo.volume=0;
 for(const id of ['playBtn','backBtn','nextBtn','addCameraBtn','addTextBtn','inspectBtn','loadBtn','exportBtn','resetBtn'])el(id).disabled=true;
+let previewLock=false; // true when trackLock was set by a pending geometry preview, not the camera tracker
 let trackLock=null; // {start,end} while the camera tracker is open: the playhead stays inside this chapter
 let sequence,originalSequence,ready=false,playhead=0,playing=false,lastFrame=performance.now(),speed=1,selection=null,orbitMode=false;
 let activeSingleVideoUrl=null,relinkOwnedVideoUrl=null;
@@ -405,7 +406,7 @@ async function boot(){
  window.__atomsViewportTools=viewportTools;
  /** Keep the tool strip in step with what the editor and the tracker allow right now. */
  function syncTools(){
-   const editing=!!sceneObjectEditor?.active,tracking=!!trackLock;
+   const editing=!!sceneObjectEditor?.active,tracking=!!trackLock&&!previewLock;
    viewportTools.setAvailable(tracking?['point']:['move','rotate']);
    if(tracking)return;
    if(editing)viewportTools.set(sceneObjectEditor.gizmoEnabled?(sceneObjectEditor.operation==='rotate'?'rotate':'move'):'orbit');
@@ -523,6 +524,7 @@ async function boot(){
    referenceBuilder?.sourceForShot(shot.id),shot,at,detail);
  referenceSampler.available=id=>referenceBuilder?.hasSourceForShot(id)===true;
  aiSceneEditor=setupAiSceneEditor({
+   onPendingChange:(shotId,{busy}={})=>updateGeometryReview(shotId,busy),
    getSequence:()=>sequence,
    getActiveShot:()=>shotAt(playhead),
    getReferenceVideo:()=>referenceVideo,
@@ -914,7 +916,7 @@ async function boot(){
    canEdit:()=>ready&&!aiSceneEditor?.hasPending?.()&&!aiSceneEditor?.isBusy?.(),
    getAnchor:id=>[...(primitiveAnchors()[id]||[0,0,0])],
    notify:text=>{cameraTracking?.tell(text);el('saveStatus').textContent='● '+text.slice(0,60).toUpperCase();},
-   setLock:range=>{trackLock=range?{start:range.start,end:range.end}:null;syncTools();if(range)pickTool('point');else viewportTools.set('orbit');el('timelineLock').hidden=!range;document.body.classList.toggle('track-locked',!!range);},
+   setLock:range=>{previewLock=false;trackLock=range?{start:range.start,end:range.end}:null;syncTools();if(range)pickTool('point');else viewportTools.set('orbit');el('timelineLock').hidden=!range;document.body.classList.toggle('track-locked',!!range);},
    seekTo:t=>{setPlaying(false);seek(t);},getTime:()=>playhead,
    enterModelView:shotId=>{setPlaying(false);sceneObjectEditor?.setActive(false);compareView=null;showGeneratedGeometry(shotId,false);},
    exitView:()=>{compareView=null;endGeometryReview();},
@@ -1071,6 +1073,22 @@ function applyCamera(){
  camera.near=planes.near;camera.far=planes.far;
  camera.updateProjectionMatrix();controls.target.set(...c.t);
 }
+// While a generated proposal is pending, Accept/Discard live in the viewport and the playhead stays inside
+// the proposed chapter (same timeline lock the camera tracker uses).
+function updateGeometryReview(shotId,busy=false){
+ const bar=el('geometryReviewBar');
+ if(!bar)return;
+ bar.hidden=!shotId;
+ el('geometryReviewAccept').disabled=el('geometryReviewDiscard').disabled=!!busy;
+ if(shotId&&!trackLock){
+  const shot=sequence?.shots.find(s=>s.id===shotId);
+  if(shot){previewLock=true;trackLock={start:shot.start,end:shot.end};el('timelineLock').hidden=false;el('timelineLockText').textContent='Timeline locked while a geometry preview is pending';document.body.classList.add('track-locked');}
+ }else if(!shotId&&previewLock){
+  previewLock=false;trackLock=null;el('timelineLock').hidden=true;el('timelineLockText').textContent='Timeline locked while the camera tracker is open';document.body.classList.remove('track-locked');
+ }
+}
+el('geometryReviewAccept').onclick=()=>el('aiSceneAccept').click();
+el('geometryReviewDiscard').onclick=()=>el('aiSceneDiscard').click();
 function seek(t,opts={}){if(trackLock)t=clamp(t,trackLock.start,Math.max(trackLock.start,trackLock.end-.001));if((reviewShotId&&shotAt(t)?.id!==reviewShotId)||
  (sceneObjectEditor?.active&&shotAt(t)?.id!==shotAt(playhead)?.id))endGeometryReview();playhead=clamp(t,0,sequence.duration);if(!opts.fromFrame){lastFrame=performance.now();if(!playing&&!sequence.referenceSequence){try{referenceVideo.currentTime=playhead;}catch(e){}}}if(sequence.referenceSequence)syncReferenceMedia(playhead);if(orbitMode&&!playing){}else applyCamera();refreshPlayhead();renderOverlays();renderShotName();renderWorld();acceptedCameraSync?.refresh?.();}
 function renderWorld(){requestViewportRender();const shot=shotAt(playhead);const custom=primitiveWorld.hasObjects(shot.id);
@@ -1264,8 +1282,8 @@ referenceVideo.addEventListener('loadedmetadata',()=>{if(sequence?.referenceSequ
 window.addEventListener('keydown',e=>{
  if(!trackLock||e.key==='Tab')return;
  const t=e.target;
- if(t?.closest?.('#trackWizard'))return;
- if(e.key==='Escape'){e.stopImmediatePropagation();trackWizard?.escape();return;}
+ if(t?.closest?.('#trackWizard,#geometryReviewBar'))return;
+ if(e.key==='Escape'){e.stopImmediatePropagation();if(!previewLock)trackWizard?.escape();return;}
  if(!e.ctrlKey&&!e.metaKey&&!e.altKey&&(e.code==='KeyO'||e.code==='KeyP')&&!(t instanceof HTMLInputElement||t instanceof HTMLTextAreaElement||t instanceof HTMLSelectElement||t?.isContentEditable))return; // tool shortcuts stay live
  if(t instanceof HTMLInputElement||t instanceof HTMLTextAreaElement||t instanceof HTMLSelectElement||t?.isContentEditable)return;
  e.stopImmediatePropagation();
