@@ -42,14 +42,20 @@ try{
  if(await page.locator('#workspaceStartDialog').isVisible())await page.locator('#workspaceStartClose').click();
  await page.waitForTimeout(500);
  const pose=()=>page.evaluate(()=>window.__atomsCameraPose());
+ // Orbit damping keeps coasting for frames after a drag, and CI frames are slow, so
+ // compare the camera before and after a click inside one synchronous evaluate.
+ const clickAndCompare=id=>page.evaluate(buttonId=>{
+   const before=window.__atomsCameraPose();document.getElementById(buttonId).click();
+   return {before,after:window.__atomsCameraPose()};},id);
  const close=(a,b,msg)=>{for(let i=0;i<3;i++)assert.ok(Math.abs(a.p[i]-b.p[i])<1e-3&&Math.abs(a.t[i]-b.t[i])<1e-3,msg+' '+JSON.stringify([a,b]));assert.ok(Math.abs(a.fov-b.fov)<1e-3,msg+' fov');};
  // 1. View mode at the playhead, then Edit: same camera.
  const view=await pose();
  assert.ok(Math.abs(view.fov-37)<.01&&view.p[0]>35,'the timeline camera is showing: '+JSON.stringify(view));
- await page.locator('#sceneModeEdit').click();
+ const entered=await clickAndCompare('sceneModeEdit');
+ close(entered.after,entered.before,'Edit keeps the View camera');
+ assert.ok(Math.abs(entered.before.fov-37)<.01&&entered.before.p[0]>35,'it was the timeline camera: '+JSON.stringify(entered.before));
  await page.waitForSelector('#sceneEditTools:not([hidden])');
  await page.waitForTimeout(300);
- close(await pose(),view,'Edit keeps the View camera');
  // 2. Adding a camera key in Edit mode records that exact pose.
  const keysBefore=await page.evaluate(()=>JSON.parse(localStorage.getItem('atoms-ai-sequence-v1')).camera.map(k=>k.id));
  await page.locator('#addCameraBtn').click();
@@ -61,15 +67,13 @@ try{
  await page.locator('#sceneModeView').click();
  await page.waitForTimeout(300);
  await page.locator('#inspectBtn').click();
- await page.mouse.move(140,260);await page.mouse.down();await page.mouse.move(300,230,{steps:8});await page.mouse.up();await page.waitForTimeout(300);
- // Orbit damping keeps coasting for a moment after release: wait until the camera is still.
- let orbited=await pose();
- for(let i=0;i<40;i++){await page.waitForTimeout(100);const next=await pose();
-   if(next.p.every((v,k)=>Math.abs(v-orbited.p[k])<1e-6))break;orbited=next;}
- assert.ok(Math.abs(orbited.p[0]-view.p[0])>.05,'orbiting moved the camera');
- await page.locator('#sceneModeEdit').click();
- await page.waitForTimeout(300);
- close(await pose(),orbited,'Edit keeps the orbit pose');
+ const beforeOrbit=await pose();
+ await page.mouse.move(140,260);await page.mouse.down();await page.mouse.move(300,230,{steps:8});await page.mouse.up();
+ const afterDrag=await pose();
+ assert.ok(Math.abs(afterDrag.p[0]-beforeOrbit.p[0])>.05,'orbiting moved the camera');
+ const orbitEntered=await clickAndCompare('sceneModeEdit');
+ close(orbitEntered.after,orbitEntered.before,'Edit keeps the orbit pose');
+ assert.ok(Math.abs(orbitEntered.before.p[0]-view.p[0])>.05,'it was an orbited pose, not the timeline camera');
  assert.deepEqual(errors,[]);
  console.log('PASS: Edit mode keeps the current view camera');
 }finally{await browser?.close();server.close();}
