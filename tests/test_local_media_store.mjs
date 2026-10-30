@@ -2,49 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createLocalMediaStore,MEDIA_TTL_MS,formatExpiry} from '../local-media-store.js';
 import {createSingleVideoStore,createReferenceMediaStore} from '../single-video-source.js';
+import {fakeIndexedDB} from './fake-indexeddb.mjs';
 
-// Minimal asynchronous IndexedDB stand-in: open/upgrade, one object store per
-// database, put/get/delete/clear and cursors, with transaction completion.
-function fakeIndexedDB(){
- const databases=new Map();
- const later=fn=>setTimeout(fn,0);
- return {databases,open(name){
-   const request={};
-   later(()=>{
-     const fresh=!databases.has(name);
-     if(fresh)databases.set(name,new Map());
-     const stores=databases.get(name);
-     const db={createObjectStore:store=>{stores.set(store,new Map());},close(){},
-       transaction(storeName){
-         let pending=0,done=false;const tx={};
-         const settle=()=>later(()=>{if(!pending&&!done){done=true;tx.oncomplete?.();}});
-         const req=fn=>{const r={};pending++;later(()=>{r.result=fn();r.onsuccess?.();pending--;settle();});return r;};
-         const data=stores.get(storeName);
-         tx.objectStore=()=>({
-           put:(value,key)=>req(()=>{data.set(key,value);return key;}),
-           get:key=>req(()=>data.get(key)),
-           delete:key=>req(()=>{data.delete(key);}),
-           clear:()=>req(()=>{data.clear();}),
-           openCursor(){
-             const keys=[...data.keys()],r={};let i=0;pending++;
-             const step=()=>later(()=>{
-               if(i>=keys.length){r.result=null;r.onsuccess?.();pending--;settle();return;}
-               const key=keys[i++];
-               r.result={key,value:data.get(key),delete:()=>data.delete(key),continue:step};
-               r.onsuccess?.();
-             });
-             step();return r;
-           }
-         });
-         settle();return tx;
-       }};
-     request.result=db;
-     if(fresh)request.onupgradeneeded?.();
-     request.onsuccess?.();
-   });
-   return request;
- }};
-}
 const clock=start=>{let t=start;return {now:()=>t,advance:ms=>{t+=ms;}};};
 const file=(text,name)=>Object.assign(new Blob([text],{type:'video/mp4'}),{name});
 
@@ -107,4 +66,33 @@ test('missing IndexedDB fails softly',async()=>{
  assert.equal(await store.purgeExpired(),0);
  assert.match(formatExpiry(Date.UTC(2026,9,31,20,20),'en-US'),/\d:20/);
  assert.equal(formatExpiry(NaN),'');
+});
+
+test('kept files never expire, list and metadata updates leave the file alone',async()=>{
+ const time=clock(0),store=createLocalMediaStore({dbName:'t',storeName:'m',factory:fakeIndexedDB(),now:time.now});
+ await store.put('a',{file:file('aaa','a.mp4'),kind:'video'});
+ await store.put('b',{file:file('bb','b.png'),kind:'image'});
+ assert.equal(await store.setKept('a',true),null);
+ assert.equal(await store.update('a',{thumbnail:'data:image/jpeg;base64,x',duration:3,file:'ignored',expiresAt:1}),true);
+ time.advance(10*MEDIA_TTL_MS);
+ const list=await store.list();
+ assert.deepEqual(list.map(e=>[e.key,e.keep,e.expiresAt,e.thumbnail,e.duration,e.size]),[['a',true,null,'data:image/jpeg;base64,x',3,3]]);
+ assert.equal(await list[0].file.text(),'aaa');
+ await store.put('a',{file:file('new','a.mp4')});
+ assert.equal((await store.get('a')).keep,true,'relinking a kept file keeps it');
+ const back=await store.setKept('a',false);
+ assert.equal(back,time.now()+MEDIA_TTL_MS,'un-keeping starts a fresh 48 hours');
+ await assert.rejects(store.setKept('missing',true),/no longer saved/);
+});
+
+test('several imported videos are kept side by side; clear keeps the kept ones',async()=>{
+ const indexedDB=fakeIndexedDB(),videos=createSingleVideoStore(indexedDB),refs=createReferenceMediaStore(indexedDB);
+ await videos.save('one',file('1','one.mp4'));await videos.save('two',file('2','two.mp4'));
+ assert.equal((await videos.read('one')).name,'one.mp4');assert.equal((await videos.read('two')).name,'two.mp4');
+ await videos.store.setKept('one',true);
+ await refs.put('m1',{file:file('i','i.png')});await refs.put('m2',{file:file('j','j.png')});await refs.setKept('m2',true);
+ assert.equal(await videos.clearUnkept(),1);assert.equal(await refs.clearUnkept(),1);
+ assert.deepEqual((await videos.store.list()).map(e=>e.key),['one']);
+ assert.deepEqual((await refs.list()).map(e=>e.key),['m2']);
+ await assert.rejects(videos.save('active',file('x','x.mp4')),/Invalid source video/);
 });

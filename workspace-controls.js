@@ -115,6 +115,7 @@ export function setupWorkspaceControls(root=document){
   move('textPanel','motion');
   const sourceCard=root.querySelector('.reference-card');
   if(sourceCard)tabs.find(tab=>tab.key==='source')?.target?.appendChild(sourceCard);
+  move('clipLibrary','source');
   move('aiScenePanel','generation');
   // Remove the dividers left behind by moving controls into their own workspaces.
   const projectPanel=el('projectPanel');
