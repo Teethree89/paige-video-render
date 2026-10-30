@@ -123,6 +123,11 @@
             <div id="twTimeRow" class="tw-time-row"><label for="twTime">Reference frame</label><input id="twTime" type="range" min="0" max="1" step="0.0333" value="0"><output id="twTimeText">0:00.00</output></div>
             <ol id="twPoints" class="tw-points" aria-label="Pinned points"></ol>
             <label class="tw-wipe-row" id="twWipeRow" hidden><span>Video</span><input id="twWipe" type="range" min="0" max="100" step="0.5" value="50" aria-label="Before and after wipe"><span>Model</span></label>
+            <label class="tw-lens" id="twLensRow" hidden>Lens <input id="twLens" type="number" min="12" max="110" step="1" inputmode="decimal" placeholder="auto" aria-label="Vertical lens angle in degrees, empty to estimate"> °<small id="twLensNote"></small></label>
+            <div class="tw-frames" id="twFramesRow" hidden>
+              <ul id="twFrames" aria-label="Extra reference frames"></ul>
+              <button id="twAddFrame" type="button" class="secondary">Add reference frame</button>
+            </div>
             <label class="tw-density" hidden>Key density <select id="twDensity"><option value="few">Few keys</option><option value="normal" selected>Normal</option><option value="many">Many keys</option></select></label>
             <progress id="twProgress" class="tw-progress" hidden></progress>
             <p id="twStats" class="tw-stats"></p>

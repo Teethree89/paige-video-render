@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {containRect,matchedPins,MAX_PINS,RECOMMENDED_PINS,PHASE_COPY} from '../camera-track-wizard.js';
+import {containRect,matchedPins,MAX_PINS,MAX_EXTRA_FRAMES,RECOMMENDED_PINS,PHASE_COPY} from '../camera-track-wizard.js';
 
 test('containRect letterboxes a frame inside its box',()=>{
  const wide=containRect(400,400,16/9);
@@ -23,5 +23,6 @@ test('matchedPins keeps only points that have a model position',()=>{
 
 test('wizard limits and step copy',()=>{
  assert.ok(MAX_PINS>=RECOMMENDED_PINS&&RECOMMENDED_PINS>=4);
- for(const phase of ['video','model','compare','tracking','preview'])assert.ok(PHASE_COPY[phase],phase);
+ assert.ok(MAX_EXTRA_FRAMES>=1);
+ for(const phase of ['video','model','compare','frame','tracking','preview'])assert.ok(PHASE_COPY[phase],phase);
 });

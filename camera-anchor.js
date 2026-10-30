@@ -69,6 +69,50 @@ export function anchorPath({solve,seeds,refPose,fov,width,height,seedObs=null}){
  return {ok:true,frames,scale:s,scaleSpread,seedsUsed,anchorRmsPx,rollDeg:rollDegrees({R:frames[0].R}),mode:solve.mode};
 }
 
+const norm=v=>{const l=len(v)||1;return [v[0]/l,v[1]/l,v[2]/l];};
+const angleDeg=(a,b)=>Math.acos(Math.max(-1,Math.min(1,a[0]*b[0]+a[1]*b[1]+a[2]*b[2])))*180/Math.PI;
+/** Position and facing of the tracked path at `time` (linear between neighbouring frames, held at the ends). */
+function pathAt(list,time){
+ if(time<=list[0].time)return list[0];
+ const last=list[list.length-1];if(time>=last.time)return last;
+ let i=1;while(list[i].time<time)i++;
+ const a=list[i-1],b=list[i],w=(time-a.time)/Math.max(1e-9,b.time-a.time);
+ return {center:add(mul(a.center,1-w),mul(b.center,w)),forward:norm(add(mul(a.forward,1-w),mul(b.forward,w)))};
+}
+
+/**
+ * Pull a tracked path onto cameras that were solved independently at other
+ * reference frames. Tracking drifts with time; every extra reference frame is an
+ * absolute fix, so the difference between the path and that fix (position and
+ * facing) is spread linearly between fixes. The first reference frame (`baseTime`)
+ * is the anchor and never moves. Keys only store position and facing, so roll is
+ * not corrected.
+ * @param {{time:number,center:number[],forward:number[],R?:number[],t?:number[]}[]} frames anchored frames with chapter times
+ * @param {{time:number,center:number[],forward:number[]}[]} refs absolute cameras at other reference frames
+ * @returns {{frames:object[],corrections:{time:number,offset:number,degrees:number}[]}}
+ */
+export function applyReferenceCorrections(frames,refs,baseTime){
+ const list=frames.filter(f=>Number.isFinite(f.time)).sort((a,b)=>a.time-b.time);
+ if(!list.length||!refs?.length)return {frames,corrections:[]};
+ const knots=[{t:baseTime,dc:[0,0,0],df:[0,0,0]}],corrections=[];
+ for(const ref of [...refs].sort((a,b)=>a.time-b.time)){
+   if(!Number.isFinite(ref.time)||Math.abs(ref.time-baseTime)<1e-3)continue;
+   const here=pathAt(list,ref.time),f=norm(ref.forward);
+   knots.push({t:ref.time,dc:sub(ref.center,here.center),df:sub(f,here.forward)});
+   corrections.push({time:ref.time,offset:len(sub(ref.center,here.center)),degrees:angleDeg(f,norm(here.forward))});
+ }
+ knots.sort((a,b)=>a.t-b.t);
+ const out=list.map(fr=>{
+   let k=0;while(k<knots.length-1&&knots[k+1].t<=fr.time)k++;
+   const a=knots[k],b=knots[k+1];
+   const w=b?Math.min(1,Math.max(0,(fr.time-a.t)/Math.max(1e-9,b.t-a.t))):0;
+   const dc=b?add(mul(a.dc,1-w),mul(b.dc,w)):a.dc,df=b?add(mul(a.df,1-w),mul(b.df,w)):a.df;
+   const center=add(fr.center,dc),forward=norm(add(fr.forward,df));
+   return {...fr,center,forward,t:fr.R?mul(mv(fr.R,center),-1):fr.t,corrected:true};
+ });
+ return {frames:out,corrections};
+}
+
 /** Turn anchored frames into camera keys (world coordinates). Each frame's `time` (else `times[frame]`) is its chapter time. */
 export function pathToKeys(frames,{times=null,fov,targetDistance,density='normal'}){
  const d=DENSITY[density]||DENSITY.normal;
