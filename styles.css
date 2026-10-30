@@ -767,6 +767,7 @@ html,body{font-size:14px}
 .tw-lens{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#b2c3d4;font-size:12px}
 .tw-lens input{width:64px}
 .tw-lens small{flex-basis:100%;color:#8ea3b8}
+.tw-lens small[data-kind="warn"]{color:#ffbf70}
 .tw-wipe-row[hidden],.tw-density[hidden],.tw-time-row[hidden],.tw-lens[hidden]{display:none!important}
 .tw-density{display:flex;gap:8px;align-items:center;color:#b2c3d4}
 .tw-density select{background:#081826;color:#ecfbff;border:1px solid #3d5a6a;border-radius:5px;padding:5px 8px}

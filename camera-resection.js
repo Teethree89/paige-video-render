@@ -11,6 +11,9 @@ const len=v=>Math.hypot(v[0],v[1],v[2]);
 const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 const median=v=>{const s=[...v].sort((a,b)=>a-b),m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;};
 export const MIN_PIN_POINTS=4;
+// A lens estimated from a few points trades off against camera distance: a very narrow lens puts the
+// camera far away. Keep the automatic search inside the range real footage uses.
+export const MIN_ESTIMATE_FOV=25,MAX_ESTIMATE_FOV=95;
 
 const toMatches=(points,width,height)=>points.map(p=>({X:p.X,o:{dx:p.x-width/2,dy:p.y-height/2}}));
 function errorsFor(pose,matches,focal){
@@ -74,7 +77,7 @@ export function resectCamera(points,{width,height,fov=null,huberPx=2}={}){
  let fovEstimated=false;
  if(!Number.isFinite(fov)){
    // Golden-section search on the lens around the best coarse candidate.
-   let lo=Math.max(12,best.fov-14),hi=Math.min(110,best.fov+14),pose=best.pose;
+   let lo=Math.max(MIN_ESTIMATE_FOV,best.fov-14),hi=Math.min(MAX_ESTIMATE_FOV,best.fov+14),pose=best.pose;
    const at=f=>{const focal=focalFromFov(f,height),p=refinePose(pose,matches,focal,huberPx,30);return {f,p,e:rms(errorsFor(p,matches,focal))};};
    let a=at(lo+(hi-lo)*.382),b=at(lo+(hi-lo)*.618);
    for(let i=0;i<14;i++){

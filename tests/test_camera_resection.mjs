@@ -93,3 +93,8 @@ test('roll against world up is reported (keys cannot store roll)',()=>{
  const rolled={R:[c*R[0]+s*R[3],c*R[1]+s*R[4],c*R[2]+s*R[5],-s*R[0]+c*R[3],-s*R[1]+c*R[4],-s*R[2]+c*R[5],R[6],R[7],R[8]],t:upright.t};
  assert.ok(Math.abs(rollDegrees(rolled)-12)<1e-6);
 });
+
+import {MIN_ESTIMATE_FOV,MAX_ESTIMATE_FOV} from '../camera-resection.js';
+test('the automatic lens search stays inside the usual lens range',()=>{
+ assert.ok(MIN_ESTIMATE_FOV>=20&&MAX_ESTIMATE_FOV<=100);
+});

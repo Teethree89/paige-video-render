@@ -307,6 +307,11 @@ export function setupTrackWizard(host){
  el.frameBox.addEventListener('pointermove',e=>{if(wiping&&st?.phase==='compare'){const r=frameCss();setWipe((e.clientX-r.left)/r.width*100);}});
  el.frameBox.addEventListener('pointerup',()=>{wiping=false;});
 
+ /** Vertical FOV of the chapter's first camera key (what it uses today), or null. */
+ function chapterFov(){
+   const key=host.getSequence()?.camera?.filter(k=>k.at>=st.shot.start-1e-4&&k.at<st.shot.end).sort((a,b)=>a.at-b.at)[0];
+   return Number.isFinite(key?.fov)?key.fov:null;
+ }
  /** Camera at each extra reference frame, with the lens fixed to the first frame's. */
  function fitExtraFrames(){
    const {width:W,height:H}=st.frame,res=st.resection;
@@ -344,8 +349,12 @@ export function setupTrackWizard(host){
    host.showCompareView({pose:res.pose,fov:res.fov,videoAspect:W/H});
    const keepWipe=st.phase==='compare';
    setPhase('compare');if(!keepWipe)setWipe(50);renderCompare();
-   el.lensNote.textContent=st.lens==null?'Estimated from your points. A few points at similar depth cannot tell lens from distance: type the lens angle if you know it.':
-     'Fixed. Clear the box to estimate it again.';
+   const own=chapterFov();
+   const far=st.lens==null&&own&&(res.fov<own*.75||res.fov>own*1.33);
+   el.lensNote.textContent=st.lens!=null?'Fixed. Clear the box to estimate it again.':
+     far?`Estimated ${res.fov.toFixed(0)}°, but this chapter's camera uses ${own.toFixed(0)}°. A much narrower lens puts the camera far from the model: type the real lens angle (${own.toFixed(0)}° keeps the current one).`:
+     'Estimated from your points. A few points at similar depth cannot tell lens from distance: type the lens angle if you know it.';
+   el.lensNote.dataset.kind=far?'warn':'';
    st.extraFits=fitExtraFrames();renderFrames();
    const worst=Math.max(...res.errors),worstIndex=res.errors.indexOf(worst),worstNumber=st.pins.indexOf(pins[worstIndex])+1;
    const quality=res.rmsPx<3?'good':res.rmsPx<8?'fair':'poor';
