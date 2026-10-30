@@ -106,6 +106,6 @@ test('the editor wires the guide, pending overlay and naming card',()=>{
    assert.match(html,new RegExp(`id="${id}"`),id);
  for(const step of ['source','geometry','camera','name'])assert.match(html,new RegExp(`data-step="${step}"`));
  const app=readFileSync(new URL('../app.js',import.meta.url),'utf8');
- assert.match(app,/import \{setupChapterWorkflow\} from '\.\/chapter-workflow\.js'/);
+ assert.match(app,/import \{setupChapterWorkflow\b[^}]*\} from '\.\/chapter-workflow\.js'/);
  assert.match(app,/chapterWorkflow=setupChapterWorkflow\(/);
 });

@@ -88,10 +88,18 @@ Single-video imports cache one original File in local IndexedDB, matched only by
 keyed by `mediaId` (`local-media-store.js`). Every cached file expires a fixed
 48 hours after it was saved (reading never extends it; re-adding/relinking
 restarts it); expired entries are deleted on read, at startup and every 30
-minutes, and the UI must say so. Never upload them for persistence. Restore a fresh blob URL after reload; never attach an
+minutes, and the UI must say so. Never upload them for persistence.
+The Source-tab clip library (`clip-library.js`) lists both stores with
+thumbnails; **Keep** (`keep:true`, `expiresAt:null`) never expires and
+survives Clear workspace (which uses `clearUnkept`). `clip-history.js` saves a
+version of a chapter (validated scene, camera keys, motion; never media or
+provider text) when 3D geometry is accepted, camera keys are applied or a
+camera is tracked; up to 25 per clip, removed with their clip. Restore is an
+undoable local edit and refuses resized chapters. The original file is never
+modified. Restore a fresh blob URL after reload; never attach an
 unrelated cached video or upload the original for persistence. Storage failure
 must leave the active source usable with a reattach notice. Clear workspace
-awaits pending cache writes and removes the cached source, preserving libraries.
+awaits pending cache writes and removes cached sources not ticked Keep, preserving libraries.
 Keep missing-source status truthful: no bundled poster or enabled overlay until
 the original is available. AI diagnostics stay in the bottom closed accordion;
 live generation status and elapsed time remain outside it.
@@ -219,7 +227,10 @@ primitive meshes, selects an entire repeated-group object by its
 Three.js TransformControls uses the pinned 0.166.1 build: its controls object
 is added to the scene (newer Three releases use `getHelper()`).
 
-W (or G) selects XYZ move; E (or R) selects local XYZ rotate. Gizmo drags
+Entering Edit keeps the current view camera (the timeline camera at the playhead,
+or the user's orbit pose) so camera keys and the source overlay stay lined up;
+only the AI geometry preview may reframe the camera
+(`tests/browser/edit-mode-camera.mjs`). W (or G) selects XYZ move; E (or R) selects local XYZ rotate. Gizmo drags
 update the *view* first and commit through `editPrimitiveTransform` on mouse
 release, including strict schema validation. Delete removes only the selected
 object via `deletePrimitiveObject`. The primitive inspector dropdown and

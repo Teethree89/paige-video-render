@@ -13,7 +13,8 @@ const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.json
 const server=createServer(async(req,res)=>{
  try{
   const url=new URL(req.url,'http://local');
-  if(url.pathname==='/scene-proxy.php'){res.setHeader('Content-Type','application/json');res.end('{"ok":true,"authenticated":false,"csrf":"x"}');return;}
+  if(url.pathname==='/scene-proxy.php'){res.setHeader('Content-Type','application/json');
+    res.end(req.method==='GET'?'{"ok":true,"authenticated":true,"csrf":"x"}':'{"ok":true,"cleared":true}');return;}
   if(url.pathname==='/blank'){res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>media</title>');return;}
   const path=url.pathname.startsWith('/three/')?resolve(three,url.pathname.slice(7)):
     resolve(root,'.'+(url.pathname==='/'?'/index.html':url.pathname));
@@ -69,6 +70,21 @@ try{
  // Reload again: still restored from the browser, still expiring at the original time.
  await page.reload();await ready(page);
  await page.waitForFunction(()=>/MEDIA RESTORED/.test(document.getElementById('saveStatus').textContent),null,{timeout:30000});
+ // Clip library: one live clip with a thumbnail; Keep survives Clear workspace.
+ await page.locator('#inspectorSourceButton').click();
+ await page.waitForSelector('#clipLibraryList .clip-item .clip-thumb img',{timeout:30000});
+ assert.equal(await page.locator('#clipLibraryList .clip-item').count(),1,'the expired image is not listed');
+ assert.match(await page.textContent('#clipLibraryList .clip-expiry'),/^Removed /);
+ await page.locator('#clipLibraryList .clip-keep input').check();
+ await page.waitForFunction(()=>document.querySelector('#clipLibraryList .clip-expiry')?.textContent==='Kept indefinitely');
+ await page.locator('#inspectorObjectsButton').click();
+ await page.locator('#clearWorkspaceBtn').click();
+ await Promise.all([page.waitForNavigation(),page.locator('#workspaceClearDialog button[value="clear"]').click()]);
+ await ready(page);
+ if(await page.locator('#workspaceStartDialog').isVisible())await page.locator('#workspaceStartClose').click();
+ await page.locator('#inspectorSourceButton').click();
+ await page.waitForFunction(()=>document.querySelector('#clipLibraryList .clip-expiry')?.textContent==='Kept indefinitely',null,{timeout:30000});
+ assert.match(await page.textContent('#clipLibraryList .clip-item strong'),/orbit\.mp4/);
  await context.close();
 
  // 2. Single video saved 49 hours ago: not restored, honest missing status.
