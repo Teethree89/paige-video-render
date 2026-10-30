@@ -20,7 +20,7 @@ export function setupRadialCreate({viewport,canCreate,onCreate,getCreateOrigin,
    if(groupAction)groupAction.hidden=getSelectionCount()<2;
    const rect=viewport.getBoundingClientRect();
    objectMenu.style.left=Math.max(8,Math.min(x-rect.left,rect.width-218))+'px';
-   objectMenu.style.top=Math.max(8,Math.min(y-rect.top,rect.height-126))+'px';
+   objectMenu.style.top=Math.max(8,Math.min(y-rect.top,rect.height-190))+'px';
    objectMenu.hidden=false;
  }
  objectMenu?.querySelectorAll('[data-object-action]').forEach(button=>{
