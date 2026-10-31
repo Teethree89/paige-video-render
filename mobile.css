@@ -1,0 +1,140 @@
+/* Phone layouts. Portrait: studio fills the first screen, inspector scrolls below, one-row controls, fine scrub strip.
+   Landscape: square preview left, inspector tools right, minimal one-layer timeline along the bottom.
+   Desktop and tablets are untouched. Controls here are created by mobile-controls.js. */
+.mobile-only{display:none}
+.scrub-strip{display:none;align-items:stretch;gap:6px;padding:4px 8px 6px;touch-action:none}
+.scrub-strip button{width:42px;font-size:13px;border:1px solid var(--edge);border-radius:var(--radius);background:var(--panel2);color:var(--copy)}
+.scrub-pad{flex:1;display:flex;align-items:center;justify-content:center;gap:10px;height:36px;border:1px dashed var(--edge);border-radius:var(--radius);color:var(--dim);font-size:11px;letter-spacing:.5px;touch-action:none;user-select:none;cursor:ew-resize}
+.scrub-pad.active{border-style:solid;border-color:var(--cyan);color:var(--cyan)}
+.mobile-menu[hidden]{display:none!important}
+
+@media (max-width:700px) and (orientation:portrait){
+ html,body{overflow-x:hidden}
+ .mobile-only{display:flex}
+ .topbar{height:48px;min-height:48px;padding:0 10px;gap:8px;flex-wrap:nowrap;position:relative}
+ .brand-mark{font-size:12px;letter-spacing:1.5px}.brand-mark .symbol{font-size:20px;margin-right:2px}
+ .header-actions{gap:6px;flex-wrap:nowrap;margin-left:auto;min-width:0}
+ .header-actions>button:not(.theme-toggle):not(.mobile-menu-btn),.header-actions>.reference-builder-open{display:none}
+ .topbar button{padding:0 10px;height:34px;font-size:12px}
+ .theme-toggle,.mobile-menu-btn{width:34px;padding:0!important;justify-content:center}
+ #exportBtn{padding:0 10px}
+ .timeline-export-menu{position:fixed;left:8px;right:8px;top:54px;width:auto;max-width:none}
+ .mobile-menu{position:fixed;z-index:200;left:8px;right:8px;top:54px;display:grid;gap:6px;padding:10px;border:1px solid var(--edge);border-radius:12px;background:var(--panel);box-shadow:0 16px 40px rgba(8,16,28,.3)}
+ .mobile-menu button{height:40px;justify-content:flex-start;padding:0 14px}
+
+ .workbench{display:block;height:auto;min-height:0}
+ .main-col{height:calc(100dvh - 48px);min-height:0}
+ .workflow-guide{padding:6px 8px}
+ .workflow-steps{gap:6px}.workflow-guide-detail{flex-wrap:nowrap;gap:6px}
+ .workflow-guide-progress,.workflow-guide-hint{display:none}
+ .workflow-guide-action{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+ .viewport{flex:0 0 auto;height:36dvh;min-height:190px}
+ .stage-top{left:9px;right:9px;top:9px}
+ #shotTitle,.stage-footer-right,.render-diagnostics,.geometry-review-bar .grb-label{display:none}
+ .preview-quality{top:9px;bottom:auto;right:9px;left:auto;transform:none;padding:3px 6px;font-size:10px}
+ .stage-footer{left:10px;right:10px;bottom:50px}
+ .geometry-review-bar{bottom:50px;left:9px;right:9px;transform:none;justify-content:center}
+
+ .transport{height:auto;min-height:0;display:grid;grid-template-columns:1fr;gap:6px;padding:6px 8px}
+ .transport-left{gap:4px;justify-content:space-between}
+ .transport-left .timecode{margin-left:auto;font-size:12px}
+ .play-button{width:38px;height:38px}
+ .transport-right{display:flex;flex-wrap:nowrap;gap:5px;justify-content:space-between;min-width:0}
+ .transport-right>*{min-width:0}
+ .transport-right label[for=speed]{display:none}
+ .transport-right button,.transport-right select{padding:6px 7px;font-size:11px;white-space:nowrap}
+ .transport-right #addCameraBtn,.transport-right #addTextBtn,.transport-right #inspectBtn{display:inline-flex;font-size:0;padding:6px 8px}
+ #addCameraBtn::before{content:"+ Key"}#addTextBtn::before{content:"+ Text"}#inspectBtn::before{content:"Orbit"}
+ #addCameraBtn::before,#addTextBtn::before,#inspectBtn::before{font-size:11px}
+ .scene-mode-switch button{padding:6px 8px}
+
+ .timeline-resizer{display:none}
+ .timeline-section{flex:1 1 auto;height:auto!important;min-height:150px;max-height:none}
+ .timeline-header{min-height:34px;padding:4px 8px;flex-wrap:nowrap;gap:6px}
+ .timeline-header .timeline-subhead,#timelineExpand,#timelineDuration,.timeline-bottom{display:none}
+ .timeline-toolset{flex-wrap:nowrap}
+ .timeline-edit-tools{flex-wrap:nowrap;overflow:hidden;padding:4px 8px;gap:3px}
+ .timeline-edit-tools button{flex:1 1 0;min-width:0;padding:5px 2px;font-size:9.5px;overflow:hidden;text-overflow:ellipsis}
+ #timelineEditStatus,#timelineChapterEarlier,#timelineChapterLater,#timelineRipple,#timelineSnap{display:none}
+ .timeline-edit-tools button{font-size:11px}
+ .timeline-layout{grid-template-columns:58px minmax(0,1fr)}
+ .track-label,.ruler-label{padding-left:6px;font-size:9px;letter-spacing:.4px}
+ .track-label small{display:none}
+ .track-label,.track{height:36px}
+ .scrub-strip{display:flex}
+
+ .inspector{min-height:0;border-left:0;border-top:1px solid var(--edge);padding-bottom:24px}
+ .inspector-jump{display:grid;grid-template-columns:repeat(3,1fr)}
+}
+
+/* Fine scrub: a drag moves the playhead a fraction of a frame per pixel, with single-frame step buttons. */
+
+@media (max-height:520px) and (orientation:landscape){
+ html,body{overflow:hidden}
+ .mobile-only{display:flex}
+ .topbar{height:34px;min-height:34px;padding:0 8px;gap:8px;flex-wrap:nowrap;position:relative}
+ .brand-mark{font-size:11px;letter-spacing:1.2px}.brand-mark .symbol{font-size:17px;vertical-align:-2px;margin-right:2px}
+ .top-title{display:none}
+ .header-actions{gap:5px;flex-wrap:nowrap;margin-left:auto}
+ .header-actions>button:not(.theme-toggle):not(.mobile-menu-btn),.header-actions>.reference-builder-open{display:none}
+ .topbar button{height:26px;padding:0 9px;font-size:11px}
+ .theme-toggle,.mobile-menu-btn{width:26px;padding:0!important;justify-content:center;font-size:13px}
+ .autosave{display:none}
+ .timeline-export-menu{position:fixed;right:8px;top:38px}
+ .mobile-menu{position:fixed;z-index:200;right:8px;top:38px;width:min(260px,70vw);display:grid;gap:5px;padding:8px;border:1px solid var(--edge);border-radius:10px;background:var(--panel);box-shadow:0 16px 40px rgba(8,16,28,.3)}
+ .mobile-menu button{height:32px;justify-content:flex-start;padding:0 12px}
+
+ .workbench{display:grid;height:calc(100dvh - 34px);min-height:0;grid-template-columns:min(calc(100dvh - 34px - 122px),48vw) minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto auto}
+ .main-col{display:contents}
+ .workflow-guide,.inspector-resizer,.timeline-resizer,.timeline-bottom,.timeline-header .timeline-subhead,.timeline-edit-tools,.timeline-lock{display:none}
+ .viewport{grid-column:1;grid-row:1;width:100%;height:100%;aspect-ratio:1/1;min-height:0}
+ .stage-top{left:7px;right:7px;top:7px}
+ #shotTitle,.stage-footer-right,.render-diagnostics,.preview-quality,.geometry-review-bar .grb-label{display:none}
+ .stage-footer{left:8px;right:8px;bottom:40px}
+ .geometry-review-bar{bottom:40px;left:7px;right:7px;transform:none;justify-content:center}
+ .viewport-tools button{padding:5px 7px;font-size:10px}
+
+ .inspector{grid-column:2;grid-row:1;min-height:0;overflow-y:auto;border-left:1px solid var(--edge)}
+ .inspect-head{padding:8px 10px}
+ .inspect-head h2{font-size:14px;margin:4px 0}.inspect-head p{display:none}
+ .inspect-head .tiny-eyebrow{display:none}
+ .inspector .inspector-jump{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;margin-top:0}
+ .inspector .inspector-jump [role="tab"]{min-height:24px;padding:4px 1px;font-size:9px;min-width:0;overflow:hidden;text-overflow:ellipsis;border-radius:6px}
+ .panel-block{padding:10px}
+
+ .transport{grid-column:1/3;grid-row:2;height:auto;min-height:0;padding:3px 8px;gap:6px;flex-wrap:nowrap;border-top:1px solid var(--edge)}
+ .transport-left{gap:4px}
+ .transport .icon-button{padding:4px}
+ .play-button{width:30px;height:30px;font-size:12px}
+ .timecode{margin-left:6px;font-size:11px}
+ .transport-right{flex-wrap:nowrap;gap:4px;min-width:0;overflow:hidden}
+ .transport-right label[for=speed]{display:none}
+ .transport-right button,.transport-right select{padding:4px 7px;font-size:10px;white-space:nowrap}
+ .transport-right #addCameraBtn,.transport-right #addTextBtn,.transport-right #inspectBtn{display:inline-flex;font-size:0;padding:4px 7px}
+ #addCameraBtn::before{content:"+ Key"}#addTextBtn::before{content:"+ Text"}#inspectBtn::before{content:"Orbit"}
+ #addCameraBtn::before,#addTextBtn::before,#inspectBtn::before{font-size:10px}
+
+ .timeline-section{grid-column:1/3;grid-row:3;height:auto!important;min-height:0;max-height:none;border-top:1px solid var(--edge)}
+ .timeline-header{min-height:26px;height:26px;padding:0 8px;gap:8px;flex-wrap:nowrap}
+ .timeline-header .tiny-eyebrow{display:none}
+ .timeline-toolset{flex-wrap:nowrap;gap:4px}
+ .timeline-toolset button{padding:2px 8px;font-size:10px}
+ #timelineExpand,#timelineDuration,#timelineZoomText{display:none}
+ .timeline-layout{grid-template-columns:56px minmax(0,1fr);flex:none}
+ .ruler,.ruler-label{height:20px}
+ .track-label,.track{height:34px}
+ .track-label{padding-left:6px;font-size:9px}.track-label small{display:none}
+ .scrub-strip{display:none}
+}
+
+/* One layer at a time (landscape). The ▲▼ switch cycles chapters → camera → text. */
+.layer-switch{display:none;align-items:center;gap:4px;margin-right:auto}
+.layer-switch button{width:26px;height:20px;padding:0;font-size:10px;border:1px solid var(--edge);border-radius:6px;background:var(--panel2);color:var(--copy)}
+.layer-switch output{min-width:70px;text-align:center;font:700 10px Inter,system-ui,sans-serif;letter-spacing:.8px;color:var(--cyan);text-transform:uppercase}
+@media (max-height:520px) and (orientation:landscape){
+ .layer-switch{display:flex}
+ #studioTimeline[data-layer="scenes"] .track:not(.shot-track),#studioTimeline[data-layer="scenes"] .track-label:not(:nth-child(2)){display:none}
+ #studioTimeline[data-layer="camera"] .track:not(.camera-track),#studioTimeline[data-layer="camera"] .track-label:not(:nth-child(3)){display:none}
+ #studioTimeline[data-layer="text"] .track:not(.text-track),#studioTimeline[data-layer="text"] .track-label:not(:nth-child(4)){display:none}
+}
