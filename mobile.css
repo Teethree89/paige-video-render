@@ -138,3 +138,19 @@
  #studioTimeline[data-layer="camera"] .track:not(.camera-track),#studioTimeline[data-layer="camera"] .track-label:not(:nth-child(3)){display:none}
  #studioTimeline[data-layer="text"] .track:not(.text-track),#studioTimeline[data-layer="text"] .track-label:not(:nth-child(4)){display:none}
 }
+
+/* Phone flyouts: nothing sits permanently on top of the 3D view. The "3D Preview" pill is redundant here. */
+.fly-bar{display:none}
+@media (max-width:700px) and (orientation:portrait),(max-height:520px) and (orientation:landscape){
+ .stage-top .pill{display:none}
+ .fly-bar{position:absolute;z-index:60;top:8px;left:8px;right:8px;display:flex;gap:6px;pointer-events:none}
+ .fly-bar .fly-btn{pointer-events:auto;height:28px;padding:0 10px;font-size:11px;font-weight:700;border:1px solid var(--edge);border-radius:14px;background:rgba(10,20,34,.78);color:#dbe9f5;backdrop-filter:blur(6px)}
+ .fly-bar .fly-btn[aria-expanded="true"]{background:var(--cyan);color:#06222a;border-color:var(--cyan)}
+ .fly-bar #fly-detail{margin-left:auto}
+ .viewport:not([data-editing]) #fly-edit{display:none}
+ .viewport .scene-edit-tools,.viewport .preview-quality{display:none!important}
+ .viewport[data-fly="edit"] .scene-edit-tools:not([hidden]){display:block!important;left:8px;right:8px;top:44px;width:auto;max-height:calc(100% - 96px);z-index:61}
+ .viewport[data-fly="detail"] .preview-quality{display:flex!important;left:auto;right:8px;top:44px;bottom:auto;transform:none;z-index:61;padding:6px 8px;font-size:11px}
+ .viewport .scene-edit-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:10px}
+ .viewport .scene-edit-actions button{min-width:0;white-space:normal;padding:7px 3px;font-size:10px;line-height:1.2}
+}
