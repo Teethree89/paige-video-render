@@ -64,3 +64,5 @@ button.primary:hover:not(:disabled){box-shadow:0 4px 14px var(--acc-ring)}
 .viewport-tools button[data-tool="point"]:hover:not(:disabled){animation:pop .35s var(--ease)}
 .geometry-review-bar button:hover:not(:disabled){animation:pop .35s var(--ease)}
 @media(max-width:900px){.viewport-tools{top:auto;bottom:9px;left:9px;transform:none}.viewport-tools button{padding:6px 8px}}
+
+.viewport-tools[hidden],.viewport-tools button[hidden]{display:none!important}

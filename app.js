@@ -63,6 +63,19 @@ renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(50,16/9,.35,500);
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enabled=false;controls.enableDamping=true;controls.dampingFactor=.08;controls.maxDistance=Infinity;
+// Mouse wheel flies the camera forward and back along the line of sight, with no stop at the target:
+// camera and target move together, so the orbit pivot stays where we are looking. OrbitControls' own
+// wheel dolly (which slows to a halt at the target) is bypassed; pinch and orbit drags are unchanged.
+renderer.domElement.addEventListener('wheel',e=>{
+  if(!controls.enabled)return;
+  e.preventDefault();e.stopImmediatePropagation();
+  const lines=e.deltaMode===1?33:e.deltaMode===2?400:1;
+  const notches=-(e.deltaY*lines)/100;
+  const forward=new THREE.Vector3().subVectors(controls.target,camera.position);
+  const distance=Math.max(forward.length(),.5);
+  forward.normalize().multiplyScalar(distance*.12*notches);
+  camera.position.add(forward);controls.target.add(forward);controls.update();
+},{capture:true,passive:false});
 // Orbiting zooms out without limit: the clip planes follow the orbit
 // distance, so a far view is never cut off and close-ups keep precision.
 // The cinematic camera keeps its fixed planes (applyCamera).
@@ -409,6 +422,7 @@ async function boot(){
  function syncTools(){
    const editing=!!sceneObjectEditor?.active,tracking=!!trackLock&&!previewLock;
    viewportTools.setAvailable(tracking?['point']:['move','rotate']);
+   viewportTools.setVisible(tracking?['orbit','point']:editing?['orbit','move','rotate']:[]);
    if(tracking)return;
    if(editing)viewportTools.set(sceneObjectEditor.gizmoEnabled?(sceneObjectEditor.operation==='rotate'?'rotate':'move'):'orbit');
    else viewportTools.set('orbit');

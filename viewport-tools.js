@@ -9,6 +9,7 @@ export function setupViewportTools({root,onSelect=()=>{}}){
   const buttons=new Map();
   for(const button of root?.querySelectorAll?.('[data-tool]')||[])buttons.set(button.dataset.tool,button);
   const available=new Set(['orbit']);
+  const visible=new Set();
   let tool='orbit';
   function render(){
     for(const [name,button] of buttons){
@@ -16,7 +17,8 @@ export function setupViewportTools({root,onSelect=()=>{}}){
       button.classList.toggle('active',name===tool);
       button.setAttribute('aria-pressed',String(name===tool));
     }
-    if(root)root.dataset.tool=tool;
+    for(const [name,button] of buttons)button.hidden=!visible.has(name);
+    if(root){root.dataset.tool=tool;root.hidden=visible.size===0;}
     if(typeof document!=='undefined'&&document.body?.dataset)document.body.dataset.viewportTool=tool;
   }
   /** Which tools can be used right now; the active tool falls back to orbit when it becomes unavailable. */
@@ -24,6 +26,12 @@ export function setupViewportTools({root,onSelect=()=>{}}){
     available.clear();available.add('orbit');
     for(const name of names)if(TOOLS.includes(name))available.add(name);
     if(!available.has(tool))tool='orbit';
+    render();
+  }
+  /** Which tools are shown. The strip only appears in Edit mode (Orbit/Move/Rotate) and while tracking (Orbit/Point). */
+  function setVisible(names){
+    visible.clear();
+    for(const name of names)if(TOOLS.includes(name))visible.add(name);
     render();
   }
   /** Reflect the current tool without asking the host to apply it. */
@@ -38,5 +46,5 @@ export function setupViewportTools({root,onSelect=()=>{}}){
   }
   for(const [name,button] of buttons)button.addEventListener('click',()=>choose(name));
   render();
-  return {get tool(){return tool;},isAvailable:name=>available.has(name),setAvailable,set,choose};
+  return {get tool(){return tool;},isAvailable:name=>available.has(name),setAvailable,setVisible,isVisible:name=>visible.has(name),set,choose};
 }
