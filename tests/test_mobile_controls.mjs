@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {FRAME,LAYERS,nextLayer,scrubDelta} from '../mobile-controls.js';
+import {FRAME,LAYERS,nextLayer,scrubDelta,toggleFly} from '../mobile-controls.js';
 
 test('layer switch cycles in both directions and wraps',()=>{
   assert.deepEqual([...LAYERS],['scenes','camera','text']);
@@ -14,4 +14,10 @@ test('fine scrub is slow: a 300 px swipe moves under two seconds and 6 px is one
   assert.ok(Math.abs(scrubDelta(6)-FRAME)<1e-9);
   assert.equal(scrubDelta(0),0);
   assert.ok(scrubDelta(-10)<0);
+});
+
+test('flyout toggle opens one panel and closes it again',()=>{
+  assert.equal(toggleFly('','edit'),'edit');
+  assert.equal(toggleFly('edit','edit'),'');
+  assert.equal(toggleFly('edit','detail'),'detail');
 });

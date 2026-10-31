@@ -88,6 +88,31 @@ function setupLayers(timeline) {
   set('scenes');
 }
 
+// Panels that would cover the 3D view (edit tools, preview detail) become flyouts on phones: one
+// toggle button each, one open at a time, closed again by tapping the viewport.
+export const FLYOUTS = Object.freeze({ edit: 'Edit tools', detail: 'Detail' });
+export const toggleFly = (current, name) => (current === name ? '' : name);
+
+function setupFlyouts(viewport) {
+  const tools = viewport.querySelector('#sceneEditTools');
+  const bar = document.createElement('div');
+  bar.className = 'fly-bar';
+  bar.innerHTML = Object.entries(FLYOUTS).map(([name, label]) => `<button type="button" class="fly-btn" id="fly-${name}" data-fly="${name}" aria-expanded="false">${label}</button>`).join('');
+  viewport.append(bar);
+  const set = (name) => {
+    viewport.dataset.fly = name;
+    for (const b of bar.querySelectorAll('.fly-btn')) b.setAttribute('aria-expanded', String(b.dataset.fly === name));
+  };
+  set('');
+  for (const b of bar.querySelectorAll('.fly-btn')) b.addEventListener('click', () => set(toggleFly(viewport.dataset.fly, b.dataset.fly)));
+  viewport.querySelector('canvas')?.addEventListener('pointerdown', () => { if (viewport.dataset.fly) set(''); });
+  if (tools) {
+    const sync = () => { viewport.toggleAttribute('data-editing', !tools.hidden); if (tools.hidden && viewport.dataset.fly === 'edit') set(''); };
+    new MutationObserver(sync).observe(tools, { attributes: true, attributeFilter: ['hidden'] });
+    sync();
+  }
+}
+
 if (typeof document !== 'undefined') {
   const timeline = document.getElementById('studioTimeline');
   if (timeline) {
@@ -95,4 +120,6 @@ if (typeof document !== 'undefined') {
     setupScrub(timeline);
     setupLayers(timeline);
   }
+  const viewport = document.getElementById('viewport');
+  if (viewport) setupFlyouts(viewport);
 }
