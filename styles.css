@@ -816,7 +816,7 @@ html,body{font-size:14px}
 }
 
 /* While the tracking wizard pins and compares, the viewport gets the whole editor column. */
-.main-col.track-focus>.transport,.main-col.track-focus>.timeline-section,.main-col.track-focus>.timeline-resizer,.main-col.track-focus>.workflow-guide{display:none}
+.main-col.track-focus .transport,.main-col.track-focus>.timeline-section,.main-col.track-focus>.timeline-resizer,.main-col.track-focus .workflow-guide{display:none}
 .main-col.track-focus #returnTimelineCameraBtn,.main-col.track-focus #sceneCreateMenuButton,.main-col.track-focus #renderDiagnostics,.main-col.track-focus .preview-quality{display:none}
 .tw-card{overflow:auto}
 /* Compact wizard layouts (the lists must not stretch; the compare card must not hide the frame). */

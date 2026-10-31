@@ -2,6 +2,7 @@
    Landscape: square preview left, inspector tools right, minimal one-layer timeline along the bottom.
    Desktop and tablets are untouched. Controls here are created by mobile-controls.js. */
 .mobile-only{display:none}
+.mobile-pin{display:contents}
 .scrub-strip{display:none;align-items:stretch;gap:6px;padding:4px 8px 6px;touch-action:none}
 .scrub-strip button{width:42px;font-size:13px;border:1px solid var(--edge);border-radius:var(--radius);background:var(--panel2);color:var(--copy)}
 .scrub-pad{flex:1;display:flex;align-items:center;justify-content:center;gap:10px;height:36px;border:1px dashed var(--edge);border-radius:var(--radius);color:var(--dim);font-size:11px;letter-spacing:.5px;touch-action:none;user-select:none;cursor:ew-resize}
@@ -30,12 +31,12 @@
  .workflow-guide-progress,.workflow-guide-hint{display:none}
  .workflow-guide-action{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
- /* Pinned stack, top to bottom: top bar, step guide, preview, transport row. Offsets come from setupStickyOffsets(). */
- :root{--m-view:max(170px,32dvh);--m-bar:48px;--m-guide:0px;--m-transport:0px}
+ /* Pinned block: top bar, then one sticky div (step guide, preview, transport row) made by setupPinStack(). */
+ :root{--m-view:max(170px,32dvh)}
  .topbar{position:sticky;top:0;z-index:130}
- .workflow-guide{position:sticky;top:var(--m-bar);z-index:125}
- .viewport{position:sticky;top:calc(var(--m-bar) + var(--m-guide));z-index:120;flex:0 0 auto;height:var(--m-view);min-height:0;isolation:isolate}
- .transport{position:sticky;top:calc(var(--m-bar) + var(--m-guide) + var(--m-view));z-index:115;background:var(--panel)}
+ .mobile-pin{display:block;position:sticky;top:48px;z-index:120;background:var(--panel)}
+ .viewport{flex:0 0 auto;height:var(--m-view);min-height:0}
+ .transport{background:var(--panel)}
  .stage-top{left:9px;right:9px;top:9px}
  #shotTitle,.stage-footer-right,.render-diagnostics,.geometry-review-bar .grb-label{display:none}
  .preview-quality{top:9px;bottom:auto;right:9px;left:auto;transform:none;padding:3px 6px;font-size:10px}
