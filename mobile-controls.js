@@ -113,7 +113,22 @@ function setupFlyouts(viewport) {
   }
 }
 
+// Portrait phones pin the top bar, step guide, preview and transport row; each sticky layer needs the heights above it.
+function setupStickyOffsets() {
+  const root = document.documentElement;
+  const parts = [['--m-bar', '.topbar'], ['--m-guide', '#workflowGuide'], ['--m-transport', '.transport']];
+  const sync = () => parts.forEach(([name, sel]) => {
+    const el = document.querySelector(sel);
+    root.style.setProperty(name, `${el && !el.hidden ? Math.round(el.getBoundingClientRect().height) : 0}px`);
+  });
+  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(sync) : null;
+  parts.forEach(([, sel]) => { const el = document.querySelector(sel); if (el && ro) ro.observe(el); });
+  window.addEventListener('resize', sync);
+  sync();
+}
+
 if (typeof document !== 'undefined') {
+  setupStickyOffsets();
   const timeline = document.getElementById('studioTimeline');
   if (timeline) {
     setupMenu(document);
