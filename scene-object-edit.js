@@ -55,7 +55,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onGroup,onUngroup,onCopy,onPaste,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{},onToolChange=()=>{}
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onGroup,onUngroup,onCopy,onPaste,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{},onToolChange=()=>{},isPivotPickAllowed=()=>true
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -539,6 +539,63 @@ export function setupSceneObjectEditing({
       'Drag left-to-right to contain objects, right-to-left to cross-select; Shift adds.':
       'Rectangle selection off. Drag to orbit.');
   });
+  // Orbit tool: a tap on an object sets the orbit pivot to it (no highlight, no gizmo); holding the
+  // left button on it fills a progress ring and then selects it for editing.
+  const HOLD_MS=550,HOLD_SHOW_MS=140,TAP_SLOP=5;
+  let ring=null;
+  function holdRing(){
+    if(ring||typeof document.createElement!=='function'||!canvas.parentElement)return ring;
+    ring=document.createElement('div');
+    ring.className='hold-ring';ring.hidden=true;
+    ring.innerHTML='<svg viewBox="0 0 44 44" aria-hidden="true"><circle class="hold-ring-track" cx="22" cy="22" r="18"/><circle class="hold-ring-fill" cx="22" cy="22" r="18" pathLength="100"/></svg>';
+    canvas.parentElement.appendChild(ring);
+    return ring;
+  }
+  let hold=null,downAt=null;
+  const orbitToolActive=()=>active&&!gizmoOn&&!rectangleMode&&isPivotPickAllowed();
+  function hitAt(event){
+    ndc(event);raycaster.setFromCamera(pointer,camera);
+    return raycaster.intersectObjects(world.getPickableMeshes(currentShot()),false)[0]||null;
+  }
+  function idOfHit(hit){
+    const data=hit?.object?.userData;
+    return data?.primitiveLightTargetId?'light-target::'+data.primitiveLightTargetId:
+      data?.primitiveLightId?'light::'+data.primitiveLightId:data?.primitiveId||null;
+  }
+  function cancelHold(){
+    if(hold?.frame)cancelAnimationFrame(hold.frame);
+    hold=null;if(ring)ring.hidden=true;
+  }
+  function startHold(event,hit){
+    const box=canvas.getBoundingClientRect();
+    hold={x:event.clientX,y:event.clientY,id:idOfHit(hit),multi:event.shiftKey||event.ctrlKey||event.metaKey,t0:performance.now(),done:false,frame:0};
+    const el=holdRing();
+    if(el){el.style.left=(event.clientX-box.left)+'px';el.style.top=(event.clientY-box.top)+'px';}
+    const tick=now=>{
+      if(!hold)return;
+      const elapsed=now-hold.t0;
+      if(el&&elapsed>=HOLD_SHOW_MS){el.hidden=false;el.style.setProperty('--hold',String(Math.min(1,elapsed/HOLD_MS)));}
+      if(elapsed>=HOLD_MS){
+        hold.done=true;if(el)el.hidden=true;
+        if(hold.multi)multiSelect(hold.id);else select(hold.id);
+        hold.frame=0;return;
+      }
+      hold.frame=requestAnimationFrame(tick);
+    };
+    hold.frame=requestAnimationFrame(tick);
+  }
+  /** Ease the orbit pivot to the middle of the object that was tapped. */
+  function focusPivot(object){
+    const box=new THREE.Box3().setFromObject(object);
+    if(box.isEmpty())return;
+    const to=box.getCenter(new THREE.Vector3()),from=orbitControls.target.clone(),t0=performance.now();
+    const step=now=>{
+      const k=Math.min(1,(now-t0)/260),eased=1-(1-k)**3;
+      orbitControls.target.lerpVectors(from,to,eased);orbitControls.update();onVisualChange();
+      if(k<1)requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
   canvas.addEventListener('pointerdown',event=>{
     if(active&&rectangleMode&&event.button===0){
       selectionRect={x:event.clientX,y:event.clientY,additive:event.shiftKey};
@@ -546,22 +603,40 @@ export function setupSceneObjectEditing({
       paintRect(event.clientX,event.clientY);frameStart=null;return;
     }
     frameStart=active&&event.button===0?{x:event.clientX,y:event.clientY}:null;
+    downAt=event.button===0?{x:event.clientX,y:event.clientY}:null;
+    cancelHold();
     if(active&&transform.axis)skipClick=true;
+    if(orbitToolActive()&&event.button===0&&!transform.axis){
+      const hit=hitAt(event);
+      if(hit&&idOfHit(hit))startHold(event,hit);
+    }
   });
   canvas.addEventListener('pointermove',event=>{
     if(selectionRect)paintRect(event.clientX,event.clientY);
+    if(hold&&!hold.done&&Math.hypot(event.clientX-hold.x,event.clientY-hold.y)>TAP_SLOP)cancelHold();
   });
   canvas.addEventListener('pointerup',event=>{
     if(active&&selectionRect&&event.button===0){
       finishRectangle({x:event.clientX,y:event.clientY},event.shiftKey||selectionRect.additive);
       return;
     }
-    if(!active||!frameStart||event.button!==0)return;
+    const press=downAt;downAt=null;
+    const held=hold?.done;
+    cancelHold();
+    if(event.button===0&&held){frameStart=null;skipClick=false;return;}   // the hold already selected; do not also treat it as a tap
+    const tapped=press&&Math.hypot(event.clientX-press.x,event.clientY-press.y)<=TAP_SLOP&&!transform.dragging&&!draggingHandle&&!skipClick;
+    if(!active){
+      // Orbit inspect (View mode): tapping an object moves the orbit pivot to it.
+      if(orbitControls.enabled&&isPivotPickAllowed()&&event.button===0&&tapped){const hit=hitAt(event);if(hit)focusPivot(hit.object);}
+      return;
+    }
+    if(!frameStart||event.button!==0)return;
     const from=frameStart;frameStart=null;
     if(Math.hypot(event.clientX-from.x,event.clientY-from.y)>5||
        draggingHandle||transform.dragging||skipClick){skipClick=false;return;}
     ndc(event);raycaster.setFromCamera(pointer,camera);
     const hits=raycaster.intersectObjects(world.getPickableMeshes(currentShot()),false);
+    if(orbitToolActive()&&hits[0]){focusPivot(hits[0].object);return;}
     const hit=hits[0]?.object?.userData;
     const id=hit?.primitiveLightTargetId?'light-target::'+hit.primitiveLightTargetId:
       hit?.primitiveLightId?'light::'+hit.primitiveLightId:hit?.primitiveId||null;
@@ -569,6 +644,7 @@ export function setupSceneObjectEditing({
     else select(id);
   });
   canvas.addEventListener('pointercancel',()=>{
+    cancelHold();downAt=null;
     frameStart=null;skipClick=false;selectionRect=null;
     if(rectOverlay)rectOverlay.hidden=true;
   });
