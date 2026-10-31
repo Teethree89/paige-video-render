@@ -11,7 +11,7 @@
 @media (max-width:700px) and (orientation:portrait){
  html,body{overflow-x:clip}
  .mobile-only{display:flex}
- .topbar{height:48px;min-height:48px;padding:0 10px;gap:8px;flex-wrap:nowrap;position:relative}
+ .topbar{height:48px;min-height:48px;padding:0 10px;gap:8px;flex-wrap:nowrap}
  .brand-mark{font-size:12px;letter-spacing:1.5px}.brand-mark .symbol{font-size:20px;margin-right:2px}
  .header-actions{gap:6px;flex-wrap:nowrap;margin-left:auto;min-width:0}
  .header-actions>button:not(.theme-toggle):not(.mobile-menu-btn),.header-actions>.reference-builder-open{display:none}
@@ -30,7 +30,12 @@
  .workflow-guide-progress,.workflow-guide-hint{display:none}
  .workflow-guide-action{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
- .viewport{position:sticky;top:0;z-index:30;flex:0 0 auto;height:36dvh;min-height:190px}
+ /* Pinned stack, top to bottom: top bar, step guide, preview, transport row. Offsets come from setupStickyOffsets(). */
+ :root{--m-view:max(170px,32dvh);--m-bar:48px;--m-guide:0px;--m-transport:0px}
+ .topbar{position:sticky;top:0;z-index:50}
+ .workflow-guide{position:sticky;top:var(--m-bar);z-index:45}
+ .viewport{position:sticky;top:calc(var(--m-bar) + var(--m-guide));z-index:40;flex:0 0 auto;height:var(--m-view);min-height:0}
+ .transport{position:sticky;top:calc(var(--m-bar) + var(--m-guide) + var(--m-view));z-index:35;background:var(--panel)}
  .stage-top{left:9px;right:9px;top:9px}
  #shotTitle,.stage-footer-right,.render-diagnostics,.geometry-review-bar .grb-label{display:none}
  .preview-quality{top:9px;bottom:auto;right:9px;left:auto;transform:none;padding:3px 6px;font-size:10px}
@@ -65,7 +70,7 @@
  .track-label,.track{height:36px}
  .scrub-strip{display:flex}
 
- .inspector .inspect-head{top:max(190px,36dvh);z-index:20}
+ .inspector .inspect-head{position:static} /* the pinned stack already takes the top of the screen */
  .inspector{min-height:0;border-left:0;border-top:1px solid var(--edge);padding-bottom:24px}
  .inspector-jump{display:grid;grid-template-columns:repeat(3,1fr)}
 }
