@@ -1176,6 +1176,8 @@ function addText(){if(!ready||!sequence)return;setPlaying(false);const at=+playh
 function deleteSelected(){let data=selectedData();if(!data)return;if(selection.type==='camera'&&sequence.camera.length<=2){alert('The sequence needs at least two camera keys.');return;}let arr=sequence[selection.type];arr.splice(arr.indexOf(data),1);selection=null;refreshAll();saveLocal();seek(playhead,{force:true});}
 const tracks=el('tracks');let dragging=false;
 function pointerSeek(e){if(!ready||!sequence)return;const r=tracks.getBoundingClientRect(),x=clamp((e.clientX-r.left)/r.width,0,1);if(playing)setPlaying(false);seek(x*sequence.duration);}
+// Phone fine-scrub strip (mobile-controls.js): relative playhead nudges.
+document.addEventListener('paiver:seek-by',e=>{if(!ready||!sequence)return;if(playing)setPlaying(false);seek(clamp(playhead+(+e.detail?.delta||0),0,sequence.duration));});
 tracks.addEventListener('pointerdown',e=>{
  if(e.button!==0||!ready||!sequence||e.target.closest('.key-marker,.text-item,.shot-item'))return;
  // Empty timeline space seeks and deselects, without modifying authored data.
