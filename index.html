@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#0a1019" />
   <title>Atoms to AI — Three.js Sequence Studio</title>
+  <script>(function(){var t=null;try{t=localStorage.getItem("paiver-theme")}catch(e){}if(t!=="light"&&t!=="dark")t=window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";document.documentElement.setAttribute("data-theme",t)})()</script>
+  <link rel="stylesheet" href="theme.css" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="ui-polish.css" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a1019'/%3E%3Cpath d='M32 7L38 26L57 32L38 38L32 57L26 38L7 32L26 26Z' fill='%2376f3f5'/%3E%3C/svg%3E" />
   <script type="importmap">
   {
@@ -20,7 +23,7 @@
   <header class="topbar">
     <div class="brand-mark"><span class="symbol">✧</span> ATOMS <span class="muted">/</span> AI</div>
     <div class="top-title"><strong>Sequence Studio</strong><span class="top-divider"></span><span>THREE.JS · CINEMATIC FLYTHROUGH</span></div>
-    <div class="header-actions"><span id="saveStatus" class="autosave">● READY</span><button id="videoImportOpenBtn" class="ghost" type="button" title="Import a reference video and generate draft scenes and camera keys">Video → timeline</button><button id="renderVideoBtn" class="ghost" type="button" title="Export the 3D flythrough as a video">Render video ↗</button><button id="loadBtn" disabled class="ghost">Import JSON</button><div class="timeline-export-picker"><button id="exportBtn" disabled class="primary" type="button" aria-haspopup="true" aria-controls="exportChoices" aria-expanded="false">Export timeline <span>▾</span></button><div id="exportChoices" class="timeline-export-menu" hidden><button id="exportJSONBtn" class="ghost" type="button">Timeline JSON <small>.json · camera, text, primitives</small></button><button id="exportAEBtn" class="ghost" type="button">After Effects package <small>.zip · JSON, JSX, current GLBs</small></button><p id="exportMessage" role="status" aria-live="polite">Select an export format.</p></div></div><input id="loadFile" type="file" accept=".json,application/json" hidden></div>
+    <div class="header-actions"><button id="themeToggle" class="ghost theme-toggle" type="button" aria-label="Switch to light mode" title="Switch between light and dark mode"></button><span id="saveStatus" class="autosave">● READY</span><button id="videoImportOpenBtn" class="ghost" type="button" title="Import a reference video and generate draft scenes and camera keys">Video → timeline</button><button id="renderVideoBtn" class="ghost" type="button" title="Export the 3D flythrough as a video">Render video ↗</button><button id="loadBtn" disabled class="ghost">Import JSON</button><div class="timeline-export-picker"><button id="exportBtn" disabled class="primary" type="button" aria-haspopup="true" aria-controls="exportChoices" aria-expanded="false">Export timeline <span>▾</span></button><div id="exportChoices" class="timeline-export-menu" hidden><button id="exportJSONBtn" class="ghost" type="button">Timeline JSON <small>.json · camera, text, primitives</small></button><button id="exportAEBtn" class="ghost" type="button">After Effects package <small>.zip · JSON, JSX, current GLBs</small></button><p id="exportMessage" role="status" aria-live="polite">Select an export format.</p></div></div><input id="loadFile" type="file" accept=".json,application/json" hidden></div>
   </header>
   <div class="workbench" id="studioWorkbench">
     <main class="main-col">
@@ -796,6 +799,8 @@
       <button type="submit" value="clear" class="danger">Clear workspace</button>
     </form>
   </dialog>
+  <script type="module" src="theme-toggle.js"></script>
+  <script type="module" src="ui-tips.js"></script>
   <script type="module" src="workspace-controls.js"></script>
   <script type="module" src="app.js"></script>
 </body>
