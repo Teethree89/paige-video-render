@@ -55,7 +55,7 @@ export function createSelectionOutline(object){
 // scene JSON and the existing local-save/export path.
 export function setupSceneObjectEditing({
   scene,camera,canvas,orbitControls,world,getActiveShot,getDocument,
-  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onGroup,onUngroup,onCopy,onPaste,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{},onToolChange=()=>{}
+  onEnter,onExit,onTransform,onDelete,onLightTransform,onLightTargetTransform,onDeleteLight,onDuplicate,onMakeArray,onGroup,onUngroup,onCopy,onPaste,onSelect,onStatus,onArrayEdit,getInitialObjectId,onVisualChange=()=>{},onToolChange=()=>{},isPivotPickAllowed=()=>true
 }){
   const el=id=>document.getElementById(id);
   const view=el('sceneModeView'),edit=el('sceneModeEdit'),tools=el('sceneEditTools');
@@ -552,7 +552,7 @@ export function setupSceneObjectEditing({
     return ring;
   }
   let hold=null,downAt=null;
-  const orbitToolActive=()=>active&&!gizmoOn&&!rectangleMode;
+  const orbitToolActive=()=>active&&!gizmoOn&&!rectangleMode&&isPivotPickAllowed();
   function hitAt(event){
     ndc(event);raycaster.setFromCamera(pointer,camera);
     return raycaster.intersectObjects(world.getPickableMeshes(currentShot()),false)[0]||null;

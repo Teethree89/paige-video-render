@@ -441,7 +441,7 @@ async function boot(){
  let sceneClipboard=null;
  sceneObjectEditor=setupSceneObjectEditing({
    scene,camera,canvas,orbitControls:controls,world:primitiveWorld,
-   onVisualChange:requestViewportRender,onToolChange:syncTools,
+   onVisualChange:requestViewportRender,onToolChange:syncTools,isPivotPickAllowed:()=>viewportTools?.tool!=='point',
    getActiveShot:()=>shotAt(playhead),
    getDocument:()=>sequence.primitiveScenes,
    getInitialObjectId:()=>primitiveEditor?.getSelectedId?.()||(primitiveEditor?.getSelectedLightId?.()?'light::'+primitiveEditor.getSelectedLightId():null),
