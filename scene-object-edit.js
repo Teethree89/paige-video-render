@@ -542,10 +542,15 @@ export function setupSceneObjectEditing({
   // Orbit tool: a tap on an object sets the orbit pivot to it (no highlight, no gizmo); holding the
   // left button on it fills a progress ring and then selects it for editing.
   const HOLD_MS=550,HOLD_SHOW_MS=140,TAP_SLOP=5;
-  const ring=document.createElement('div');
-  ring.className='hold-ring';ring.hidden=true;
-  ring.innerHTML='<svg viewBox="0 0 44 44" aria-hidden="true"><circle class="hold-ring-track" cx="22" cy="22" r="18"/><circle class="hold-ring-fill" cx="22" cy="22" r="18" pathLength="100"/></svg>';
-  canvas.parentElement?.appendChild(ring);
+  let ring=null;
+  function holdRing(){
+    if(ring||typeof document.createElement!=='function'||!canvas.parentElement)return ring;
+    ring=document.createElement('div');
+    ring.className='hold-ring';ring.hidden=true;
+    ring.innerHTML='<svg viewBox="0 0 44 44" aria-hidden="true"><circle class="hold-ring-track" cx="22" cy="22" r="18"/><circle class="hold-ring-fill" cx="22" cy="22" r="18" pathLength="100"/></svg>';
+    canvas.parentElement.appendChild(ring);
+    return ring;
+  }
   let hold=null,downAt=null;
   const orbitToolActive=()=>active&&!gizmoOn&&!rectangleMode;
   function hitAt(event){
@@ -559,18 +564,19 @@ export function setupSceneObjectEditing({
   }
   function cancelHold(){
     if(hold?.frame)cancelAnimationFrame(hold.frame);
-    hold=null;ring.hidden=true;
+    hold=null;if(ring)ring.hidden=true;
   }
   function startHold(event,hit){
     const box=canvas.getBoundingClientRect();
     hold={x:event.clientX,y:event.clientY,id:idOfHit(hit),multi:event.shiftKey||event.ctrlKey||event.metaKey,t0:performance.now(),done:false,frame:0};
-    ring.style.left=(event.clientX-box.left)+'px';ring.style.top=(event.clientY-box.top)+'px';
+    const el=holdRing();
+    if(el){el.style.left=(event.clientX-box.left)+'px';el.style.top=(event.clientY-box.top)+'px';}
     const tick=now=>{
       if(!hold)return;
       const elapsed=now-hold.t0;
-      if(elapsed>=HOLD_SHOW_MS){ring.hidden=false;ring.style.setProperty('--hold',String(Math.min(1,elapsed/HOLD_MS)));}
+      if(el&&elapsed>=HOLD_SHOW_MS){el.hidden=false;el.style.setProperty('--hold',String(Math.min(1,elapsed/HOLD_MS)));}
       if(elapsed>=HOLD_MS){
-        hold.done=true;ring.hidden=true;
+        hold.done=true;if(el)el.hidden=true;
         if(hold.multi)multiSelect(hold.id);else select(hold.id);
         hold.frame=0;return;
       }
