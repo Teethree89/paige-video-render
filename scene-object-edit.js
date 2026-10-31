@@ -627,7 +627,7 @@ export function setupSceneObjectEditing({
     const tapped=press&&Math.hypot(event.clientX-press.x,event.clientY-press.y)<=TAP_SLOP&&!transform.dragging&&!draggingHandle&&!skipClick;
     if(!active){
       // Orbit inspect (View mode): tapping an object moves the orbit pivot to it.
-      if(orbitControls.enabled&&event.button===0&&tapped){const hit=hitAt(event);if(hit)focusPivot(hit.object);}
+      if(orbitControls.enabled&&isPivotPickAllowed()&&event.button===0&&tapped){const hit=hitAt(event);if(hit)focusPivot(hit.object);}
       return;
     }
     if(!frameStart||event.button!==0)return;
