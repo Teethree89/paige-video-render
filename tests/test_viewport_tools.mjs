@@ -49,3 +49,15 @@ test('shortcut keys map to the four tools',()=>{
   assert.equal(TOOL_KEYS.KeyE,'rotate');
   assert.equal(TOOL_KEYS.KeyP,'point');
 });
+
+test('the strip is hidden until tools are made visible: Orbit/Move/Rotate in Edit mode, Orbit/Point while tracking',()=>{
+  const {root,buttons}=fakeStrip(),tools=setupViewportTools({root});
+  assert.equal(root.hidden,true);
+  tools.setVisible(['orbit','move','rotate']);
+  assert.equal(root.hidden,false);
+  assert.deepEqual(buttons.map(b=>b.hidden),[false,false,false,true]);
+  tools.setVisible(['orbit','point']);
+  assert.deepEqual(buttons.map(b=>b.hidden),[false,true,true,false]);
+  tools.setVisible([]);
+  assert.equal(root.hidden,true);
+});
