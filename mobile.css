@@ -9,7 +9,7 @@
 .mobile-menu[hidden]{display:none!important}
 
 @media (max-width:700px) and (orientation:portrait){
- html,body{overflow-x:hidden}
+ html,body{overflow-x:clip}
  .mobile-only{display:flex}
  .topbar{height:48px;min-height:48px;padding:0 10px;gap:8px;flex-wrap:nowrap;position:relative}
  .brand-mark{font-size:12px;letter-spacing:1.5px}.brand-mark .symbol{font-size:20px;margin-right:2px}
@@ -22,14 +22,15 @@
  .mobile-menu{position:fixed;z-index:200;left:8px;right:8px;top:54px;display:grid;gap:6px;padding:10px;border:1px solid var(--edge);border-radius:12px;background:var(--panel);box-shadow:0 16px 40px rgba(8,16,28,.3)}
  .mobile-menu button{height:40px;justify-content:flex-start;padding:0 14px}
 
- .workbench{display:block;height:auto;min-height:0}
- .main-col{height:calc(100dvh - 48px);min-height:0}
+ .workbench{display:block;height:auto;min-height:0;overflow:visible}
+ /* main-col dissolves so the viewport can stick to the top of the page while transport, timeline and inspector scroll under it */
+ .main-col{display:contents}
  .workflow-guide{padding:6px 8px}
  .workflow-steps{gap:6px}.workflow-guide-detail{flex-wrap:nowrap;gap:6px}
  .workflow-guide-progress,.workflow-guide-hint{display:none}
  .workflow-guide-action{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
- .viewport{flex:0 0 auto;height:36dvh;min-height:190px}
+ .viewport{position:sticky;top:0;z-index:30;flex:0 0 auto;height:36dvh;min-height:190px}
  .stage-top{left:9px;right:9px;top:9px}
  #shotTitle,.stage-footer-right,.render-diagnostics,.geometry-review-bar .grb-label{display:none}
  .preview-quality{top:9px;bottom:auto;right:9px;left:auto;transform:none;padding:3px 6px;font-size:10px}
@@ -64,6 +65,7 @@
  .track-label,.track{height:36px}
  .scrub-strip{display:flex}
 
+ .inspector .inspect-head{top:max(190px,36dvh);z-index:20}
  .inspector{min-height:0;border-left:0;border-top:1px solid var(--edge);padding-bottom:24px}
  .inspector-jump{display:grid;grid-template-columns:repeat(3,1fr)}
 }
