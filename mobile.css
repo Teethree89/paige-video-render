@@ -32,10 +32,10 @@
 
  /* Pinned stack, top to bottom: top bar, step guide, preview, transport row. Offsets come from setupStickyOffsets(). */
  :root{--m-view:max(170px,32dvh);--m-bar:48px;--m-guide:0px;--m-transport:0px}
- .topbar{position:sticky;top:0;z-index:50}
- .workflow-guide{position:sticky;top:var(--m-bar);z-index:45}
- .viewport{position:sticky;top:calc(var(--m-bar) + var(--m-guide));z-index:40;flex:0 0 auto;height:var(--m-view);min-height:0}
- .transport{position:sticky;top:calc(var(--m-bar) + var(--m-guide) + var(--m-view));z-index:35;background:var(--panel)}
+ .topbar{position:sticky;top:0;z-index:130}
+ .workflow-guide{position:sticky;top:var(--m-bar);z-index:125}
+ .viewport{position:sticky;top:calc(var(--m-bar) + var(--m-guide));z-index:120;flex:0 0 auto;height:var(--m-view);min-height:0;isolation:isolate}
+ .transport{position:sticky;top:calc(var(--m-bar) + var(--m-guide) + var(--m-view));z-index:115;background:var(--panel)}
  .stage-top{left:9px;right:9px;top:9px}
  #shotTitle,.stage-footer-right,.render-diagnostics,.geometry-review-bar .grb-label{display:none}
  .preview-quality{top:9px;bottom:auto;right:9px;left:auto;transform:none;padding:3px 6px;font-size:10px}
@@ -70,7 +70,7 @@
  .track-label,.track{height:36px}
  .scrub-strip{display:flex}
 
- .inspector .inspect-head{position:static} /* the pinned stack already takes the top of the screen */
+ .inspector .inspect-head{position:static;z-index:auto;backdrop-filter:none;-webkit-backdrop-filter:none;transform:none;filter:none} /* the pinned stack already takes the top of the screen */
  .inspector{min-height:0;border-left:0;border-top:1px solid var(--edge);padding-bottom:24px}
  .inspector-jump{display:grid;grid-template-columns:repeat(3,1fr)}
 }
