@@ -63,4 +63,4 @@ button.primary:hover:not(:disabled){box-shadow:0 4px 14px var(--acc-ring)}
 .viewport-tools button[data-tool="rotate"]:hover:not(:disabled){animation:turn .6s var(--ease)}
 .viewport-tools button[data-tool="point"]:hover:not(:disabled){animation:pop .35s var(--ease)}
 .geometry-review-bar button:hover:not(:disabled){animation:pop .35s var(--ease)}
-@media(max-width:680px){.viewport-tools{top:46px;left:50%;bottom:auto}.viewport-tools button{padding:6px 8px}}
+@media(max-width:900px){.viewport-tools{top:auto;bottom:9px;left:9px;transform:none}.viewport-tools button{padding:6px 8px}}
